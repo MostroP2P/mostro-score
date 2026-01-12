@@ -1,6 +1,6 @@
 # Mostro Stats
 
-A CLI tool to analyze and calculate reputation statistics for Mostro P2P Lightning nodes by analyzing public Nostr events.
+A CLI tool to analyze and calculate reputation statistics for Mostro P2P nodes by analyzing public Nostr events.
 
 ## Overview
 
@@ -43,7 +43,7 @@ This scoring mechanism incentivizes long-term honest operation over short-term s
 ### Build from Source
 
 ```bash
-git clone https://github.com/yourusername/mostro-score.git
+git clone https://github.com/MostroP2P/mostro-score.git
 cd mostro-score
 cargo build --release
 ```
@@ -71,7 +71,7 @@ mostro-score --pubkey <MOSTRO_PUBKEY>
 Connect to specific relays (comma-separated):
 
 ```bash
-mostro-score --pubkey <MOSTRO_PUBKEY> --relays wss://relay.mostro.network,wss://nostr.bilthon.dev
+mostro-score --pubkey <MOSTRO_PUBKEY> --relays wss://relay.mostro.network,wss://relay.damus.io
 ```
 
 ### Command Line Options
@@ -95,7 +95,7 @@ mostro-score --pubkey npub1abc...xyz
 mostro-score --pubkey a1b2c3d4e5f6...
 
 # With multiple relays
-mostro-score -p npub1abc...xyz -r wss://relay.mostro.network,wss://nostr.bilthon.dev
+mostro-score -p npub1abc...xyz -r wss://relay.mostro.network,wss://relay.damus.io
 ```
 
 ## Example Output
@@ -146,7 +146,7 @@ DEFAULT_RELAY=wss://relay.mostro.network
 ## Documentation
 
 - [Reputation System Specification](specs/reputation_system_v1.md) - Detailed explanation of the reputation system design and formulas
-- [Protocol Documentation](docs/protocol/other_events.md) - Mostro event structures and protocol details
+- [Protocol Documentation](https://mostro.network/protocol/other_events.html#mostro-instance-status) - Mostro event structures and protocol details
 
 ## Roadmap
 
@@ -185,7 +185,7 @@ Contributions are welcome! Please:
 
 ## License
 
-[Add your license here]
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ## Related Projects
 
