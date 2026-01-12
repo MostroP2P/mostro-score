@@ -1,4 +1,4 @@
-# Mostro Stats
+# Mostro Score
 
 A CLI tool to analyze and calculate reputation statistics for Mostro P2P nodes by analyzing public Nostr events.
 
