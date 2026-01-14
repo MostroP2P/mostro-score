@@ -380,7 +380,7 @@ fn compute_trade_stats(amounts: &[u64]) -> (u64, u64, f64, u64) {
 
     // Median calculation
     let median = if sorted.len() % 2 == 0 {
-        (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2
+        ((sorted[sorted.len() / 2 - 1] as u128 + sorted[sorted.len() / 2] as u128) / 2) as u64
     } else {
         sorted[sorted.len() / 2]
     };
