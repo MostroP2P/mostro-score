@@ -12,7 +12,7 @@ This document outlines a mechanism to quantify the reliability of Mostro P2P Lig
 
 ## 3. Data Sources (Nostr Events)
 
-The system relies primarily on `kind: 38383` (Mostro Protocol) events.
+The system relies primarily on `kind: 38383` (Mostro Protocol orders) and `kind: 8383` (Development Fee) events.
 
 ### 3.1 Objective Metrics (Node Performance)
 
@@ -20,28 +20,35 @@ We analyze events published **by the Mostro Node Pubkey**.
 
 | Event Type | Tag Filter | Metric Derived |
 | :--- | :--- | :--- |
-| **Mostro Instance Status** | `k:38383`, `z=info` | **Days Active:** Calculate from `created_at` timestamp to current date. This event serves as the reference point for when the mostrod started operating. |
+| **Development Fee Payment** | `k:8383`, `z=dev-fee-payment`, `y=mostro` | **Days Active:** Calculate from the oldest dev fee payment's `created_at` timestamp to current date. This event marks when the mostrod started processing actual trades. |
 | **Completed Order** | `k:38383`, `z=order`, `s=success` | **Volume:** Sum of `amt` (sats). <br> **Count:** Total successful trades. |
 
 > **Note:** Only "success" orders are counted for reputation. "Pending" or "Canceled" orders are ignored to prevent manipulation.
 
-> **Longevity Calculation:** The number of days a mostrod has been active is determined using the "Mostro Instance Status" event (kind 38383, z=info). This event's `created_at` timestamp serves as the reference point for when the instance started. Since this event does not expire, it provides a reliable and permanent indicator of instance age.
+> **Longevity Calculation:** The number of days a mostrod has been active is determined using the "Development Fee Payment" event (kind 8383, z=dev-fee-payment, y=mostro). The oldest dev fee payment event's `created_at` timestamp serves as the reference point for when the instance started processing actual trades. Development fee events are published automatically on every successful order completion, providing a reliable and verifiable indicator of trading activity.
 
 > **Implementation Note (v1):** The current CLI tool focuses exclusively on order events and does not track disputes. Dispute tracking may be added in a future version.
 
-#### 3.1.1 Mostro Instance Status Event Structure
+#### 3.1.1 Development Fee Payment Event Structure
 
-The Mostro Instance Status event is used to determine how long a mostrod has been active:
+The Development Fee Payment event is used to determine when a mostrod started processing actual trades:
 
-- **Kind:** 38383
-- **Tag z:** "info"
+- **Kind:** 8383
+- **Tags:**
+  - `z`: "dev-fee-payment" (required - event type identifier)
+  - `y`: "mostro" (required - platform identifier)
+  - `order-id`: References the associated order
+  - `amount`: Satoshis sent as development fee
+  - `hash`: Payment hash
+  - `destination`: Lightning address receiving the fee (e.g., "dev@mostro.network")
+  - `network`: "mainnet" or "testnet"
 - **Key Fields:**
-  - `created_at`: Unix timestamp indicating when the mostrod instance started
-  - `d`: The Mostro's pubkey (used as identifier)
-  - `mostro_version`: Version of the daemon
-  - Additional operational parameters (fees, limits, etc.)
+  - `created_at`: Unix timestamp of when the dev fee was paid
+  - `pubkey`: Mostro instance's public key
+  - `content`: Empty string
+  - `id`: Unique event identifier
 
-This event does not expire and serves as a permanent reference for the instance's start date. For complete event structure documentation, see `docs/protocol/other_events.md`.
+The oldest dev fee payment event determines instance age by marking when actual trading operations began. These events are published automatically on every successful order completion, providing a reliable and verifiable indicator of trading activity. For complete event structure documentation, see https://mostro.network/protocol/other_events.html#development-fee
 
 ### 3.2 Subjective Metrics (User Ratings)
 
@@ -74,10 +81,10 @@ The first stage of implementation is a Rust CLI tool.
 1.  **Connection:** Connect to a list of defined Nostr relays.
 2.  **Target:** Accept a Mostro Pubkey to analyze (or "scan all" to find known Mostros).
 3.  **Ingestion:**
-    *   Fetch `kind: 38383` events signed by the target Pubkey:
-        *   `z=info` tag for instance status and longevity calculation
-        *   `z=order` tag for order events (query-level filtering)
-    *   Filter duplicates (using `d` tag as unique Order ID).
+    *   Fetch events signed by the target Pubkey:
+        *   `kind: 8383` events with `z=dev-fee-payment` and `y=mostro` tags for longevity calculation
+        *   `kind: 38383` events with `z=order` tag for order events (query-level filtering)
+    *   Filter duplicates (using `d` tag as unique Order ID for orders).
 4.  **Analysis:**
     *   Compute `Total Volume (sats)`.
     *   Compute `Total Successful Orders`.
@@ -92,7 +99,7 @@ The first stage of implementation is a Rust CLI tool.
 
 ```rust
 // Simplified Trust Score
-// days_active is calculated from Mostro Instance Status event (z=info)
+// days_active is calculated from oldest Development Fee Payment event (kind 8383, z=dev-fee-payment, y=mostro)
 let volume_weight = 0.4;
 let age_weight = 0.3;
 let success_count_weight = 0.3;

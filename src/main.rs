@@ -20,9 +20,9 @@ struct Args {
 struct MostroStats {
     successful_orders: usize,
     total_volume_sats: u64,
-    instance_start_ts: Option<i64>,  // NEW: From z=info event
-    first_order_ts: i64,              // RENAMED: First order timestamp
-    last_order_ts: i64,               // RENAMED: Last order timestamp
+    first_dev_fee_ts: Option<i64>,   // From oldest kind 8383 z=dev-fee-payment event
+    first_order_ts: i64,              // First order timestamp
+    last_order_ts: i64,               // Last order timestamp
 }
 
 #[tokio::main]
@@ -54,11 +54,12 @@ async fn main() -> Result<() > {
     println!("Connected to relays. Fetching history... (this might take a moment)");
 
     // 3. Create Filters
-    // Filter 1: Instance Status (z=info)
-    let info_filter = Filter::new()
-        .kind(Kind::Custom(38383))
+    // Filter 1: Development Fee Events (z=dev-fee-payment, y=mostro)
+    let dev_fee_filter = Filter::new()
+        .kind(Kind::Custom(8383))
         .author(public_key)
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["info"]);
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["dev-fee-payment"])
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::Y), vec!["mostro"]);
 
     // Filter 2: Order Events (z=order)
     let order_filter = Filter::new()
@@ -67,7 +68,7 @@ async fn main() -> Result<() > {
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["order"]);
 
     // 4. Fetch Both Event Types
-    let events = client.fetch_events(vec![info_filter, order_filter], Duration::from_secs(10)).await?;
+    let events = client.fetch_events(vec![dev_fee_filter, order_filter], Duration::from_secs(10)).await?;
     
     println!("Fetched {} events. Analyzing...", events.len());
 
@@ -84,42 +85,47 @@ async fn main() -> Result<() > {
     }
     println!("==============================\n");
 
-    // Separate z=info and z=order events
-    let mut info_events: Vec<Event> = Vec::new();
+    // Separate dev fee events and order events
+    let mut dev_fee_events: Vec<Event> = Vec::new();
     let mut order_events: Vec<Event> = Vec::new();
 
     for event in events {
         let z_tag = event.tags.iter()
-            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("z"));
+            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("z"))
+            .and_then(|t| t.as_slice().get(1))
+            .map(|s| s.as_str());
 
-        if let Some(tag) = z_tag {
-            if let Some(z_value) = tag.as_slice().get(1) {
-                match z_value.as_str() {
-                    "info" => info_events.push(event),
-                    "order" => order_events.push(event),
-                    _ => {}
-                }
-            }
+        let y_tag = event.tags.iter()
+            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("y"))
+            .and_then(|t| t.as_slice().get(1))
+            .map(|s| s.as_str());
+
+        match (z_tag, y_tag) {
+            (Some("dev-fee-payment"), Some("mostro")) => dev_fee_events.push(event),
+            (Some("order"), _) => order_events.push(event),
+            _ => {}
         }
     }
 
-    println!("Found {} info events and {} order events", info_events.len(), order_events.len());
+    println!("Found {} dev fee events and {} order events", dev_fee_events.len(), order_events.len());
 
-    // Process z=info event to get instance start timestamp
+    // Process dev fee events to get instance start timestamp
     let mut stats = MostroStats::default();
 
-    if !info_events.is_empty() {
+    if !dev_fee_events.is_empty() {
         // Sort by created_at to get the earliest one
-        info_events.sort_by_key(|e| e.created_at);
-        let oldest_info = &info_events[0];
+        dev_fee_events.sort_by_key(|e| e.created_at);
+        let oldest_dev_fee = &dev_fee_events[0];
 
-        stats.instance_start_ts = Some(oldest_info.created_at.as_u64() as i64);
+        stats.first_dev_fee_ts = Some(oldest_dev_fee.created_at.as_u64() as i64);
 
-        println!("\n=== MOSTRO INSTANCE INFO ===");
-        println!("Instance started: {}", chrono::DateTime::from_timestamp(oldest_info.created_at.as_u64() as i64, 0).unwrap_or_default());
-        println!("============================\n");
+        println!("\n=== MOSTRO TRADING ACTIVITY ===");
+        println!("First dev fee payment: {}", chrono::DateTime::from_timestamp(oldest_dev_fee.created_at.as_u64() as i64, 0).unwrap_or_default());
+        println!("Total dev fee events: {}", dev_fee_events.len());
+        println!("================================\n");
     } else {
-        println!("\n⚠ Warning: No z=info event found. Falling back to order timestamps.");
+        println!("\n⚠ Warning: No dev fee events found (z=dev-fee-payment, y=mostro).");
+        println!("Falling back to order timestamps for days_active calculation.\n");
     }
 
     // 5. Analyze orders
@@ -214,8 +220,8 @@ async fn main() -> Result<() > {
     println!("Node: {}", public_key.to_bech32()?);
     println!("----------------------------------------");
 
-    // Calculate days_active from instance start or fallback to orders
-    let (days_active, instance_started) = match stats.instance_start_ts {
+    // Calculate days_active from dev fee events or fallback to orders
+    let (days_active, instance_started) = match stats.first_dev_fee_ts {
         Some(start_ts) => {
             let now = chrono::Utc::now().timestamp();
             let days = (now - start_ts) as f64 / 86400.0;
@@ -234,10 +240,10 @@ async fn main() -> Result<() > {
 
     // Print instance information
     if let Some(start_ts) = instance_started {
-        println!("Instance Started: {}", chrono::DateTime::from_timestamp(start_ts, 0).unwrap_or_default());
-        println!("Days Active:      {:.1} days (from instance start)", days_active);
+        println!("First Trading Activity: {}", chrono::DateTime::from_timestamp(start_ts, 0).unwrap_or_default());
+        println!("Days Active:            {:.1} days (from first dev fee payment)", days_active);
     } else {
-        println!("⚠ Days Active:    {:.1} days (estimated from orders)", days_active);
+        println!("⚠ Days Active:          {:.1} days (estimated from orders)", days_active);
     }
 
     // Print order activity timeframe

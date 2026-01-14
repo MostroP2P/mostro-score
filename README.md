@@ -18,10 +18,14 @@ Mostro Stats provides transparency and trust metrics for Mostro nodes operating 
 
 ## How It Works
 
-The tool fetches Nostr events (kind 38383) published by Mostro nodes and analyzes:
+The tool analyzes two types of Nostr events:
 
-1. **Mostro Instance Status Events** (z=info): Used to determine when the node started operating
-2. **Order Events** (z=order): Tracks successful trades, volumes, and timestamps
+1. **Development Fee Payment Events** (kind 8383, z=dev-fee-payment, y=mostro):
+   - Used to determine when the node started active trading
+   - The oldest dev fee event marks the instance's first trading activity
+2. **Order Events** (kind 38383, z=order):
+   - Tracks successful trades, volumes, and timestamps
+   - Only events with s=success status contribute to reputation metrics
 
 ### Trust Score Components
 
@@ -146,7 +150,8 @@ DEFAULT_RELAY=wss://relay.mostro.network
 ## Documentation
 
 - [Reputation System Specification](specs/reputation_system_v1.md) - Detailed explanation of the reputation system design and formulas
-- [Protocol Documentation](https://mostro.network/protocol/other_events.html#mostro-instance-status) - Mostro event structures and protocol details
+- [Protocol Documentation](https://mostro.network/protocol/other_events.html) - Mostro event structures and protocol details
+  - [Development Fee Events](https://mostro.network/protocol/other_events.html#development-fee) - Kind 8383 event structure used for calculating instance age
 
 ## Roadmap
 

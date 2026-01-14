@@ -7,8 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: Active days calculation now uses kind 8383 development fee payment events instead of kind 38383 z=info events
+  - Searches for events with `z=dev-fee-payment` and `y=mostro` tags
+  - Uses the oldest dev fee event's `created_at` timestamp as the instance start date
+  - More reliable indicator of actual trading activity vs. manually published info events
+  - Falls back to order timestamp range if no dev fee events are found
+  - **Impact**: May result in different `days_active` values for existing instances
+
 ### Added
+- Validation for both z and y tags when processing dev fee events
+- More detailed debug output showing dev fee event counts
+- Warning messages when falling back to order timestamps
 - Query-level event filtering using `.custom_tag()` to only fetch events with `z=order` tag
+
+### Fixed
+- Active days calculation now based on verifiable trading activity rather than potentially stale info events
+- Improved reliability by using automatically-generated events instead of manually-published status events
 - Required imports: `Alphabet` and `SingleLetterTag` from nostr-sdk
 - Debug logging to display status distribution for order events
 - Sample event output showing first 3 events with full tag structure
