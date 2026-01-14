@@ -249,7 +249,7 @@ async fn main() -> Result<() > {
     let (active_days_30d, max_inactive_gap) =
         compute_activity_consistency(&stats.successful_trade_timestamps, now);
     let days_since_last = if stats.last_order_ts > 0 {
-        ((now - stats.last_order_ts) as f64 / 86400.0).ceil() as u64
+        ((now - stats.last_order_ts) as f64 / 86400.0).floor() as u64
     } else {
         0
     };
