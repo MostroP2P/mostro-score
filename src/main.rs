@@ -303,6 +303,8 @@ async fn main() -> Result<() > {
             println!("{}", last_trade_display.green());
             println!("  Days Since Last: {} {}", days_since_last, "ACTIVE".green());
         }
+    } else {
+        println!("  {} No successful trades recorded", "⚠".yellow());
     }
 
     // Section: Rolling Windows (4.2.2)
