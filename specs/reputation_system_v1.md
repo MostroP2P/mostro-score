@@ -1,131 +1,225 @@
-# Mostro Reputation & Statistics System Specification (v1)
+# Mostro Reputation & Statistics System Specification (v1.1)
 
 ## 1. Abstract
 
-This document outlines a mechanism to quantify the reliability of Mostro P2P Lightning nodes. By analyzing public Nostr events, we can derive objective metrics (volume, longevity, dispute rates) and subjective metrics (user ratings) to create a "Trust Score". This incentivizes node operators to maintain honest long-term operations rather than executing short-term scams.
+This document specifies a mechanism to quantify the reliability and operational health of Mostro P2P Lightning nodes ("mostrod").
+
+By analyzing public Nostr events, the system derives **objective historical metrics** and **objective activity (liveness) metrics**, enabling users to make informed decisions before trading.
+
+The specification is designed to support:
+- Rust CLI tools
+- Terminal UIs (TUI)
+- Web dashboards
+
+The protocol defines **what data must be computed**, not how it must be rendered.
+
+---
 
 ## 2. Goals
 
-1.  **Transparency:** Provide users with verifiable data about a Mostro node's history.
-2.  **Scam Deterrence:** Increase the economic cost of scamming by making reputation a valuable asset that takes time and volume to build.
-3.  **Decentralized Analysis:** Allow any user to run a CLI tool to verify these stats independently.
+1. **Transparency:** Provide verifiable insight into a Mostro node’s past and present behavior.
+2. **User Safety:** Clearly expose inactivity, degradation, or irregular activity patterns.
+3. **Scam Deterrence:** Make exit scams economically irrational by surfacing continuity signals.
+4. **Presentation-Agnostic:** Allow multiple frontends (CLI, TUI, Web) to consume the same data model.
+
+---
 
 ## 3. Data Sources (Nostr Events)
 
-The system relies primarily on `kind: 38383` (Mostro Protocol orders) and `kind: 8383` (Development Fee) events.
+All metrics are derived exclusively from public Nostr events.
 
-### 3.1 Objective Metrics (Node Performance)
+### 3.1 Mostro Order Events
 
-We analyze events published **by the Mostro Node Pubkey**.
+- **Kind:** `38383`
+- **Required Tags:**
+  - `z=order`
+  - `y=mostro`
+  - `s=success`
+- **Publisher:** Mostro node pubkey
 
-| Event Type | Tag Filter | Metric Derived |
-| :--- | :--- | :--- |
-| **Development Fee Payment** | `k:8383`, `z=dev-fee-payment`, `y=mostro` | **Days Active:** Calculate from the oldest dev fee payment's `created_at` timestamp to current date. This event marks when the mostrod started processing actual trades. |
-| **Completed Order** | `k:38383`, `z=order`, `s=success` | **Volume:** Sum of `amt` (sats). <br> **Count:** Total successful trades. |
+Only successful orders are considered for reputation and activity metrics.
 
-> **Note:** Only "success" orders are counted for reputation. "Pending" or "Canceled" orders are ignored to prevent manipulation.
+---
 
-> **Longevity Calculation:** The number of days a mostrod has been active is determined using the "Development Fee Payment" event (kind 8383, z=dev-fee-payment, y=mostro). The oldest dev fee payment event's `created_at` timestamp serves as the reference point for when the instance started processing actual trades. Development fee events are published automatically on every successful order completion, providing a reliable and verifiable indicator of trading activity.
+### 3.2 Development Fee Payment Events (Longevity Anchor)
 
-> **Implementation Note (v1):** The current CLI tool focuses exclusively on order events and does not track disputes. Dispute tracking may be added in a future version.
+Development fee payment events are used to anchor real trading activity.
 
-#### 3.1.1 Development Fee Payment Event Structure
+- **Kind:** `8383`
+- **Required Tags:**
+  - `z=dev-fee-payment`
+  - `y=mostro`
+- **Publisher:** Mostro node pubkey
 
-The Development Fee Payment event is used to determine when a mostrod started processing actual trades:
+> **Longevity Rule:**  
+> The oldest development fee payment event marks the start of actual trading activity.
 
-- **Kind:** 8383
-- **Tags:**
-  - `z`: "dev-fee-payment" (required - event type identifier)
-  - `y`: "mostro" (required - platform identifier)
-  - `order-id`: References the associated order
-  - `amount`: Satoshis sent as development fee
-  - `hash`: Payment hash
-  - `destination`: Lightning address receiving the fee (e.g., "dev@mostro.network")
-  - `network`: "mainnet" or "testnet"
-- **Key Fields:**
-  - `created_at`: Unix timestamp of when the dev fee was paid
-  - `pubkey`: Mostro instance's public key
-  - `content`: Empty string
-  - `id`: Unique event identifier
+---
 
-The oldest dev fee payment event determines instance age by marking when actual trading operations began. These events are published automatically on every successful order completion, providing a reliable and verifiable indicator of trading activity. For complete event structure documentation, see https://mostro.network/protocol/other_events.html#development-fee
+## 4. Canonical Data Model (Internal Representation)
 
-### 3.2 Subjective Metrics (User Ratings)
+Implementations MUST compute and expose the following logical data groups.  
+How they are rendered (tables, panels, charts) is frontend-specific.
 
-Since a malicious Mostro could censor ratings if they were hosted inside its own protocol events, Users must publish ratings as independent events.
+---
 
-**Proposed Event Structure for Node Reviews:**
+## 4.1 Historical Reputation Metrics
 
-*   **Kind:** `1985` (Label) or `1` (Text Note) with specific tags.
-*   **Format:**
-    ```json
-    {
-      "kind": 1, 
-      "tags": [
-        ["p", "<mostro_pubkey>"],     // The node being rated
-        ["l", "mostro-review"],       // Label/Namespace
-        ["rating", "5"],              // 1-5 Scale
-        ["difficulty", "4"],          // Optional: How hard was it?
-        ["t", "scam-alert"]           // Optional: If reporting fraud
-      ],
-      "content": "Fast settlement, good liquidity."
-    }
-    ```
+These metrics describe the accumulated track record of a Mostro node.
 
-## 4. The CLI Tool (`mostro-score`)
+### 4.1.1 Longevity
 
-The first stage of implementation is a Rust CLI tool.
+- **first_seen_at**  
+  Timestamp of the earliest dev-fee-payment event.
+- **days_active**  
+  Number of days since first_seen_at.
 
-### 4.1 Functional Requirements
+---
 
-1.  **Connection:** Connect to a list of defined Nostr relays.
-2.  **Target:** Accept a Mostro Pubkey to analyze (or "scan all" to find known Mostros).
-3.  **Ingestion:**
-    *   Fetch events signed by the target Pubkey:
-        *   `kind: 8383` events with `z=dev-fee-payment` and `y=mostro` tags for longevity calculation
-        *   `kind: 38383` events with `z=order` tag for order events (query-level filtering)
-    *   Filter duplicates (using `d` tag as unique Order ID for orders).
-4.  **Analysis:**
-    *   Compute `Total Volume (sats)`.
-    *   Compute `Total Successful Orders`.
-    *   Compute `First Seen` (Date) and `Last Seen` (Date).
-5.  **Heuristics (Scam Detection):**
-    *   *Warning:* If `Average Volume` spikes abnormally in a short time (potential exit scam preparation).
-6.  **Output:**
-    *   JSON output for integration with other tools/UIs.
-    *   Human-readable table for terminal users.
+### 4.1.2 Cumulative Trade Performance
 
-### 4.2 Calculation Logic (Formula Draft)
+Derived from successful order events.
 
-```rust
-// Simplified Trust Score
-// days_active is calculated from oldest Development Fee Payment event (kind 8383, z=dev-fee-payment, y=mostro)
-let volume_weight = 0.4;
-let age_weight = 0.3;
-let success_count_weight = 0.3;
+- **total_successful_trades**
+- **total_volume_sats**
 
-// Penalties
-let dispute_penalty = dispute_count * 5000; // Heavily penalize disputes
+---
 
-let base_score = (total_sats_volume * volume_weight) 
-               + (days_active * age_weight)
-               + (success_count * success_count_weight);
+### 4.1.3 Trade Amount Statistics (Lifetime)
 
-let final_score = base_score - dispute_penalty;
-```
+Computed only from successful trades.
 
-## 5. Incentive Theory
+- **min_trade_sats**
+- **max_trade_sats**
+- **mean_trade_sats**
+- **median_trade_sats**
 
-### The "Cost of Scamming"
-For a scammer to be "trusted" enough to steal a large amount (e.g., 1 BTC), they must first build a reputation that attracts that liquidity.
-*   If they start with 0 reputation, users will only trade small amounts (e.g., 50k sats).
-*   To steal 1 BTC, they need users to open 1 BTC orders.
-*   To get users to open 1 BTC orders, the node needs a high "Trust Score".
-*   Building that score requires thousands of legitimate trades and months of operation.
-*   **Result:** The profit from legitimate operation (fees) over that time becomes greater than the one-time profit of the exit scam.
+> **Design Requirement:**  
+> Median MUST be computed and exposed, as it is robust against manipulation.
 
-## 6. Implementation Stages
+---
 
-1.  **Stage 1 (Current):** CLI Tool to aggregate existing `38383` events and display raw stats (Volume, Success Count, Disputes).
-2.  **Stage 2:** Implement "User Review" event publishing in Mostro Clients.
-3.  **Stage 3:** Integrate `mostro-score` logic into Mostro Clients to show a "Trust Shield" or "Warning" icon next to Mostro nodes in the UI.
+## 4.2 Activity & Liveness Metrics (Critical)
+
+These metrics represent **current operational health** and MUST be treated as first-class signals.
+
+---
+
+### 4.2.1 Last Successful Trade
+
+- **last_successful_trade_at**
+- **days_since_last_trade**
+
+> This metric MUST be easy to surface prominently in any UI.
+
+---
+
+### 4.2.2 Recent Activity Windows
+
+Successful trades MUST be counted in rolling windows:
+
+- **successful_trades_last_7d**
+- **successful_trades_last_30d**
+- **successful_trades_last_90d**
+
+> **Design Principle:**  
+> Rolling windows are preferred over averages to preserve temporal meaning.
+
+---
+
+### 4.2.3 Activity Consistency (Optional but Recommended)
+
+Used to detect bursty or irregular behavior.
+
+- **active_days_last_30d**  
+  Distinct days with ≥1 successful trade.
+- **max_consecutive_inactive_days_last_30d**
+
+These values allow frontends to express continuity visually.
+
+---
+
+## 5. Derived Indicators (Presentation-Level, Non-Normative)
+
+Implementations MAY derive higher-level indicators from the canonical data model, such as:
+
+- Activity status labels (e.g., Active / Low Activity / Inactive)
+- Suggested safe trade size
+- Visual warnings or highlights
+
+> **Important:**  
+> Derived indicators MUST NOT replace raw metrics and MUST remain interpretable.
+
+---
+
+## 6. CLI / TUI Tooling Guidelines
+
+### 6.1 CLI Output Expectations
+
+The CLI tool SHOULD present data in a human-readable, structured format, such as:
+
+- Sectioned summaries
+- Tables
+- Highlighted warnings
+- Relative time expressions (e.g., "last trade: 2 days ago")
+
+The CLI MUST NOT rely on raw JSON output as its primary interface.
+
+---
+
+### 6.2 TUI / Dashboard Compatibility
+
+The internal data model SHOULD:
+
+- Be cleanly separable from rendering logic
+- Allow multiple visual representations:
+  - Tables
+  - Time-based charts
+  - Status badges
+- Support incremental updates (future live dashboards)
+
+---
+
+## 7. Data Integrity Rules
+
+- Orders MUST be deduplicated by order ID (`d` tag)
+- Only final successful order states count
+- Events MUST be ordered by `created_at`
+- Malformed or incomplete events MUST be ignored safely
+
+---
+
+## 8. Design Principles
+
+- Permissionless
+- Trustless
+- Presentation-agnostic
+- Temporal signals are first-class
+- No single opaque score required
+
+---
+
+## 9. Non-Goals
+
+This specification explicitly excludes:
+
+- JSON as a mandatory output format
+- Subjective ratings
+- Scam reports
+- Dispute resolution logic
+- UI or layout definitions
+
+These are addressed in later stages.
+
+---
+
+## 10. Incentive Alignment
+
+A Mostro operator maximizes long-term profit by:
+
+- Maintaining continuous activity
+- Preserving visible operational health
+- Avoiding inactivity gaps that raise user risk perception
+
+Nodes that go inactive or behave irregularly become visibly riskier before large trades occur.
+

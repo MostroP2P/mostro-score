@@ -1,7 +1,8 @@
 use clap::Parser;
+use colored::Colorize;
 use nostr_sdk::prelude::*;
 use nostr_sdk::{Alphabet, SingleLetterTag};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 #[derive(Parser, Debug)]
@@ -23,6 +24,10 @@ struct MostroStats {
     first_dev_fee_ts: Option<i64>,   // From oldest kind 8383 z=dev-fee-payment event
     first_order_ts: i64,              // First order timestamp
     last_order_ts: i64,               // Last order timestamp
+    // Trade amount statistics (Section 4.1.3)
+    trade_amounts: Vec<u64>,
+    // Rolling window data (Section 4.2.2)
+    successful_trade_timestamps: Vec<i64>,
 }
 
 #[tokio::main]
@@ -201,12 +206,15 @@ async fn main() -> Result<() > {
 
         if status == "success" {
             stats.successful_orders += 1;
+            let event_ts = event.created_at.as_u64() as i64;
+            stats.successful_trade_timestamps.push(event_ts);
 
             // Get Amount 'amt' (sats)
             if let Some(amt_tag) = event.tags.iter().find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("amt")) {
                 if let Some(amt_str) = amt_tag.as_slice().get(1) {
                     if let Ok(amount) = amt_str.parse::<u64>() {
                         stats.total_volume_sats += amount;
+                        stats.trade_amounts.push(amount);
                     }
                 }
             }
@@ -214,19 +222,14 @@ async fn main() -> Result<() > {
     }
 
     // 6. Output Report
-    println!("\n========================================");
-    println!("       MOSTRO NODE REPUTATION REPORT      ");
-    println!("========================================");
-    println!("Node: {}", public_key.to_bech32()?);
-    println!("----------------------------------------");
+    let now = chrono::Utc::now().timestamp();
 
     // Calculate days_active from dev fee events or fallback to orders
     let (days_active, instance_started) = match stats.first_dev_fee_ts {
         Some(start_ts) => {
-            let now = chrono::Utc::now().timestamp();
             let days = (now - start_ts) as f64 / 86400.0;
             (days, Some(start_ts))
-        },
+        }
         None => {
             // Fallback: use order timestamps
             if stats.last_order_ts == 0 {
@@ -238,34 +241,235 @@ async fn main() -> Result<() > {
         }
     };
 
-    // Print instance information
-    if let Some(start_ts) = instance_started {
-        println!("First Trading Activity: {}", chrono::DateTime::from_timestamp(start_ts, 0).unwrap_or_default());
-        println!("Days Active:            {:.1} days (from first dev fee payment)", days_active);
+    // Compute all derived metrics
+    let (min_trade, max_trade, mean_trade, median_trade) =
+        compute_trade_stats(&stats.trade_amounts);
+    let (trades_7d, trades_30d, trades_90d) =
+        compute_rolling_windows(&stats.successful_trade_timestamps, now);
+    let (active_days_30d, max_inactive_gap) =
+        compute_activity_consistency(&stats.successful_trade_timestamps, now);
+    let days_since_last = if stats.last_order_ts > 0 {
+        ((now - stats.last_order_ts) as f64 / 86400.0).floor() as u64
     } else {
-        println!("⚠ Days Active:          {:.1} days (estimated from orders)", days_active);
+        0
+    };
+
+    // Header
+    println!("\n{}", "========================================".cyan());
+    println!("{}", "     MOSTRO NODE REPUTATION REPORT     ".cyan().bold());
+    println!("{}", "========================================".cyan());
+    println!("Node: {}", public_key.to_bech32()?);
+
+    // Section: Longevity (4.1.1)
+    println!("{}", "----------------------------------------".dimmed());
+    println!("{}", "LONGEVITY".bold());
+    if let Some(start_ts) = instance_started {
+        println!(
+            "  First Activity:  {}",
+            chrono::DateTime::from_timestamp(start_ts, 0).unwrap_or_default()
+        );
+        println!("  Days Active:     {:.1} days", days_active);
+    } else {
+        println!(
+            "  {} Days Active:     {:.1} days (estimated from orders)",
+            "⚠".yellow(),
+            days_active
+        );
     }
 
-    // Print order activity timeframe
+    // Section: Liveness (4.2.1) - PROMINENT per spec
+    println!("{}", "----------------------------------------".dimmed());
+    println!("{}", "LIVENESS".bold());
     if stats.last_order_ts > 0 {
-        println!("First Order:      {}", chrono::DateTime::from_timestamp(stats.first_order_ts, 0).unwrap_or_default());
-        println!("Last Order:       {}", chrono::DateTime::from_timestamp(stats.last_order_ts, 0).unwrap_or_default());
-    }
-    println!("----------------------------------------");
-    println!("Successful Orders: {}", stats.successful_orders);
-    println!("Total Volume:      {} sats ({:.4} BTC)", stats.total_volume_sats, stats.total_volume_sats as f64 / 100_000_000.0);
-    if stats.successful_orders > 0 {
-        println!("Avg Order Size:    {} sats", stats.total_volume_sats / stats.successful_orders as u64);
-    }
-    println!("----------------------------------------");
+        let relative_time = format_relative_time(stats.last_order_ts, now);
+        let last_trade_display = format!(
+            "  Last Trade:      {} ({})",
+            chrono::DateTime::from_timestamp(stats.last_order_ts, 0).unwrap_or_default(),
+            relative_time
+        );
 
-    // Simple Score Calculation
+        // Color based on activity status
+        if days_since_last > 30 {
+            println!("{}", last_trade_display.red());
+            println!("  Days Since Last: {} {}", days_since_last, "INACTIVE".red().bold());
+        } else if days_since_last > 7 {
+            println!("{}", last_trade_display.yellow());
+            println!(
+                "  Days Since Last: {} {}",
+                days_since_last,
+                "LOW ACTIVITY".yellow()
+            );
+        } else {
+            println!("{}", last_trade_display.green());
+            println!("  Days Since Last: {} {}", days_since_last, "ACTIVE".green());
+        }
+    } else {
+        println!("  {} No successful trades recorded", "⚠".yellow());
+    }
+
+    // Section: Rolling Windows (4.2.2)
+    println!("{}", "----------------------------------------".dimmed());
+    println!("{}", "RECENT ACTIVITY".bold());
+    println!("  Last 7 days:     {} trades", trades_7d);
+    println!("  Last 30 days:    {} trades", trades_30d);
+    println!("  Last 90 days:    {} trades", trades_90d);
+
+    // Section: Activity Consistency (4.2.3)
+    println!("{}", "----------------------------------------".dimmed());
+    println!("{}", "ACTIVITY CONSISTENCY (30 days)".bold());
+    println!("  Active Days:     {}/30", active_days_30d);
+    if max_inactive_gap > 7 {
+        println!(
+            "  Max Inactive Gap: {} days {}",
+            max_inactive_gap,
+            "⚠".yellow()
+        );
+    } else {
+        println!("  Max Inactive Gap: {} days", max_inactive_gap);
+    }
+
+    // Section: Cumulative Performance (4.1.2)
+    println!("{}", "----------------------------------------".dimmed());
+    println!("{}", "CUMULATIVE PERFORMANCE".bold());
+    println!("  Successful Trades: {}", stats.successful_orders);
+    println!(
+        "  Total Volume:      {} sats ({:.4} BTC)",
+        stats.total_volume_sats,
+        stats.total_volume_sats as f64 / 100_000_000.0
+    );
+
+    // Section: Trade Statistics (4.1.3)
+    if !stats.trade_amounts.is_empty() {
+        println!("{}", "----------------------------------------".dimmed());
+        println!("{}", "TRADE STATISTICS".bold());
+        println!("  Min Trade:       {} sats", min_trade);
+        println!("  Max Trade:       {} sats", max_trade);
+        println!("  Mean Trade:      {:.0} sats", mean_trade);
+        println!("  Median Trade:    {} sats", median_trade);
+    }
+
+    // Trust Score
+    println!("{}", "----------------------------------------".dimmed());
     let score = calculate_score(&stats, days_active);
-    println!("----------------------------------------");
-    println!("TRUST SCORE:       {}/100", score);
-    println!("========================================");
+    let score_display = format!("TRUST SCORE:       {}/100", score);
+    if score >= 70 {
+        println!("{}", score_display.green().bold());
+    } else if score >= 40 {
+        println!("{}", score_display.yellow().bold());
+    } else {
+        println!("{}", score_display.red().bold());
+    }
+    println!("{}", "========================================".cyan());
 
     Ok(())
+}
+
+/// Compute trade amount statistics (Section 4.1.3)
+fn compute_trade_stats(amounts: &[u64]) -> (u64, u64, f64, u64) {
+    if amounts.is_empty() {
+        return (0, 0, 0.0, 0);
+    }
+
+    let mut sorted = amounts.to_vec();
+    sorted.sort_unstable();
+
+    let min = sorted[0];
+    let max = sorted[sorted.len() - 1];
+    let sum: u128 = amounts.iter().map(|&v| v as u128).sum();
+    let mean = sum as f64 / amounts.len() as f64;
+
+    // Median calculation
+    let median = if sorted.len() % 2 == 0 {
+        ((sorted[sorted.len() / 2 - 1] as u128 + sorted[sorted.len() / 2] as u128) / 2) as u64
+    } else {
+        sorted[sorted.len() / 2]
+    };
+
+    (min, max, mean, median)
+}
+
+/// Compute rolling window metrics (Section 4.2.2)
+fn compute_rolling_windows(timestamps: &[i64], now: i64) -> (usize, usize, usize) {
+    let day_7 = now - (7 * 86400);
+    let day_30 = now - (30 * 86400);
+    let day_90 = now - (90 * 86400);
+
+    let last_7d = timestamps.iter().filter(|&&ts| ts >= day_7).count();
+    let last_30d = timestamps.iter().filter(|&&ts| ts >= day_30).count();
+    let last_90d = timestamps.iter().filter(|&&ts| ts >= day_90).count();
+
+    (last_7d, last_30d, last_90d)
+}
+
+/// Compute activity consistency (Section 4.2.3)
+fn compute_activity_consistency(timestamps: &[i64], now: i64) -> (usize, usize) {
+    let day_30_ago = now - (30 * 86400);
+
+    // Get unique days with trades in last 30 days
+    let active_days: HashSet<i64> = timestamps
+        .iter()
+        .filter(|&&ts| ts >= day_30_ago)
+        .map(|&ts| ts / 86400) // Convert to day number
+        .collect();
+
+    let active_days_count = active_days.len();
+
+    // Calculate max consecutive inactive days
+    if active_days.is_empty() {
+        return (0, 30);
+    }
+
+    let mut days: Vec<i64> = active_days.into_iter().collect();
+    days.sort_unstable();
+
+    let today = now / 86400;
+    let day_30_start = day_30_ago / 86400;
+
+    let mut max_gap = 0usize;
+    let mut prev_day = day_30_start;
+
+    for &day in &days {
+        let gap = (day - prev_day - 1).max(0) as usize;
+        max_gap = max_gap.max(gap);
+        prev_day = day;
+    }
+
+    // Check gap from last active day to today
+    let final_gap = (today - prev_day).max(0) as usize;
+    max_gap = max_gap.max(final_gap);
+
+    (active_days_count, max_gap)
+}
+
+/// Format relative time for human readability (Section 6.1)
+fn format_relative_time(timestamp: i64, now: i64) -> String {
+    let diff_secs = now - timestamp;
+
+    if diff_secs < 0 {
+        return "in the future".to_string();
+    }
+
+    let days = diff_secs / 86400;
+    let hours = (diff_secs % 86400) / 3600;
+
+    match days {
+        0 => {
+            if hours == 0 {
+                "less than an hour ago".to_string()
+            } else if hours == 1 {
+                "1 hour ago".to_string()
+            } else {
+                format!("{} hours ago", hours)
+            }
+        }
+        1 => "1 day ago".to_string(),
+        2..=6 => format!("{} days ago", days),
+        7..=13 => "1 week ago".to_string(),
+        14..=29 => format!("{} weeks ago", days / 7),
+        30..=59 => "1 month ago".to_string(),
+        60..=364 => format!("{} months ago", days / 30),
+        _ => format!("{} years ago", days / 365),
+    }
 }
 
 fn calculate_score(stats: &MostroStats, days_active: f64) -> u64 {
