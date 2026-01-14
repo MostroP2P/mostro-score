@@ -344,7 +344,7 @@ async fn main() -> Result<() > {
         println!("{}", "TRADE STATISTICS".bold());
         println!("  Min Trade:       {} sats", min_trade);
         println!("  Max Trade:       {} sats", max_trade);
-        println!("  Mean Trade:      {} sats", mean_trade);
+        println!("  Mean Trade:      {:.0} sats", mean_trade);
         println!("  Median Trade:    {} sats", median_trade);
     }
 
@@ -365,9 +365,9 @@ async fn main() -> Result<() > {
 }
 
 /// Compute trade amount statistics (Section 4.1.3)
-fn compute_trade_stats(amounts: &[u64]) -> (u64, u64, u64, u64) {
+fn compute_trade_stats(amounts: &[u64]) -> (u64, u64, f64, u64) {
     if amounts.is_empty() {
-        return (0, 0, 0, 0);
+        return (0, 0, 0.0, 0);
     }
 
     let mut sorted = amounts.to_vec();
@@ -375,7 +375,8 @@ fn compute_trade_stats(amounts: &[u64]) -> (u64, u64, u64, u64) {
 
     let min = sorted[0];
     let max = sorted[sorted.len() - 1];
-    let mean = amounts.iter().sum::<u64>() / amounts.len() as u64;
+    let sum: u128 = amounts.iter().map(|&v| v as u128).sum();
+    let mean = sum as f64 / amounts.len() as f64;
 
     // Median calculation
     let median = if sorted.len() % 2 == 0 {
