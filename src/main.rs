@@ -1,9 +1,14 @@
 use clap::Parser;
 use colored::Colorize;
+use mostro_core::prelude::Status as OrderStatus;
 use nostr_sdk::prelude::*;
 use nostr_sdk::{Alphabet, SingleLetterTag};
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::time::Duration;
+
+/// Dev-fee payment event kind (not in mostro-core)
+const DEV_FEE_EVENT_KIND: u16 = 8383;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -61,19 +66,21 @@ async fn main() -> Result<() > {
     // 3. Create Filters
     // Filter 1: Development Fee Events (z=dev-fee-payment, y=mostro)
     let dev_fee_filter = Filter::new()
-        .kind(Kind::Custom(8383))
+        .kind(Kind::Custom(DEV_FEE_EVENT_KIND))
         .author(public_key)
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["dev-fee-payment"])
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::Y), vec!["mostro"]);
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "dev-fee-payment")
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::Y), "mostro");
 
     // Filter 2: Order Events (z=order)
     let order_filter = Filter::new()
-        .kind(Kind::Custom(38383))
+        .kind(Kind::PeerToPeerOrder)
         .author(public_key)
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), vec!["order"]);
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "order");
 
     // 4. Fetch Both Event Types
-    let events = client.fetch_events(vec![dev_fee_filter, order_filter], Duration::from_secs(10)).await?;
+    let dev_fee_events_result = client.fetch_events(dev_fee_filter, Duration::from_secs(10)).await?;
+    let order_events_result = client.fetch_events(order_filter, Duration::from_secs(10)).await?;
+    let events: Vec<Event> = dev_fee_events_result.into_iter().chain(order_events_result.into_iter()).collect();
     
     println!("Fetched {} events. Analyzing...", events.len());
 
@@ -202,9 +209,9 @@ async fn main() -> Result<() > {
     for (_order_id, event) in orders_map {
         // Check Status 's'
         let s_tag = event.tags.iter().find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("s"));
-        let status = s_tag.and_then(|t| t.as_slice().get(1)).map(|s| s.as_str()).unwrap_or("unknown");
+        let status_str = s_tag.and_then(|t| t.as_slice().get(1)).map(|s| s.as_str()).unwrap_or("unknown");
 
-        if status == "success" {
+        if OrderStatus::from_str(status_str) == Ok(OrderStatus::Success) {
             stats.successful_orders += 1;
             let event_ts = event.created_at.as_u64() as i64;
             stats.successful_trade_timestamps.push(event_ts);
