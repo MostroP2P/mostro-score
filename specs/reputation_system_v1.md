@@ -94,8 +94,30 @@ Computed only from successful trades.
 - **mean_trade_sats**
 - **median_trade_sats**
 
+#### Definitions and Interpretation
+
+- **mean_trade_sats**  
+  The arithmetic average of all successful trade amounts, calculated as the total traded volume divided by the number of successful trades.
+
+  This value represents the *average volume per trade* over the node’s lifetime.  
+  It **MAY be influenced by large outliers** (e.g., a few very large trades).
+
+- **median_trade_sats**  
+  The middle value of all successful trade amounts when ordered from smallest to largest.
+
+  This value represents the *typical trade size* and is **robust against outliers**.
+
+#### Important Distinction
+
+- The **mean** answers:  
+  *“On average, how much volume does each trade represent?”*
+- The **median** answers:  
+  *“What trade size is most typical for this node?”*
+
+Because exit scams and reputation manipulation often rely on a small number of large trades, **median_trade_sats MUST be treated as the primary reference for typical trade size**, while mean_trade_sats SHOULD be considered a secondary, contextual metric.
+
 > **Design Requirement:**  
-> Median MUST be computed and exposed, as it is robust against manipulation.
+> Median MUST be computed and exposed, and MUST NOT be replaced by the mean in user-facing risk assessments.
 
 ---
 
@@ -222,4 +244,3 @@ A Mostro operator maximizes long-term profit by:
 - Avoiding inactivity gaps that raise user risk perception
 
 Nodes that go inactive or behave irregularly become visibly riskier before large trades occur.
-
