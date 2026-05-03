@@ -1,67 +1,69 @@
+mod error;
+mod models;
+mod stats;
+
 use clap::Parser;
 use colored::Colorize;
 use mostro_core::prelude::Status as OrderStatus;
 use nostr_sdk::prelude::*;
 use nostr_sdk::{Alphabet, SingleLetterTag};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 
-/// Dev-fee payment event kind (not in mostro-core)
+use crate::error::{AppError, Result};
+use crate::models::MostroStats;
+use crate::stats::{
+    calculate_score, compute_activity_consistency, compute_rolling_windows, compute_trade_stats,
+    format_relative_time,
+};
+
 const DEV_FEE_EVENT_KIND: u16 = 8383;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Mostro Pubkey (npub or hex) to analyze
     #[arg(short, long)]
     pubkey: String,
 
-    /// Relays to connect to (comma separated)
     #[arg(short, long, default_value = "wss://relay.mostro.network")]
     relays: String,
 }
 
-#[derive(Debug, Default)]
-struct MostroStats {
-    successful_orders: usize,
-    total_volume_sats: u64,
-    first_dev_fee_ts: Option<i64>,   // From oldest kind 8383 z=dev-fee-payment event
-    first_order_ts: i64,              // First order timestamp
-    last_order_ts: i64,               // Last order timestamp
-    // Trade amount statistics (Section 4.1.3)
-    trade_amounts: Vec<u64>,
-    // Rolling window data (Section 4.2.2)
-    successful_trade_timestamps: Vec<i64>,
-}
-
 #[tokio::main]
-async fn main() -> Result<() > {
+async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    // 1. Parse Pubkey
-    let public_key = match PublicKey::parse(&args.pubkey) {
-        Ok(pk) => pk,
-        Err(_) => {
-            eprintln!("Error: Invalid public key format.");
-            return Ok(());
-        }
-    };
+    let public_key =
+        PublicKey::parse(&args.pubkey).map_err(|e| AppError::InvalidPubkey(e.to_string()))?;
 
-    println!("Analyzing Mostro Node: {}", public_key.to_bech32()?);
+    let bech32 = public_key.to_bech32().expect("PublicKey::to_bech32 is infallible");
+    println!("Analyzing Mostro Node: {}", bech32);
     println!("Hex: {}", public_key.to_hex());
 
     // 2. Setup Client
     let client = Client::new(Keys::generate());
     let relays: Vec<&str> = args.relays.split(',').collect();
-    
-    for relay in relays {
-        client.add_relay(relay).await?;
+
+    let mut connected = 0;
+    for relay in &relays {
+        match client.add_relay(*relay).await {
+            Ok(_) => connected += 1,
+            Err(e) => eprintln!("Warning: could not add relay {} ({})", relay, e),
+        }
     }
-    
+
+    if connected == 0 {
+        return Err(AppError::NoRelaysAvailable);
+    }
+
     client.connect().await;
-    println!("Connected to relays. Fetching history... (this might take a moment)");
+    println!(
+        "Connected to {}/{} relays. Fetching history...",
+        connected,
+        relays.len()
+    );
 
     // 3. Create Filters
     // Filter 1: Development Fee Events (z=dev-fee-payment, y=mostro)
@@ -240,8 +242,7 @@ async fn main() -> Result<() > {
         None => {
             // Fallback: use order timestamps
             if stats.last_order_ts == 0 {
-                println!("No events found.");
-                return Ok(());
+                return Err(AppError::NoEvents);
             }
             let days = (stats.last_order_ts - stats.first_order_ts) as f64 / 86400.0;
             (days, None)
@@ -265,7 +266,10 @@ async fn main() -> Result<() > {
     println!("\n{}", "========================================".cyan());
     println!("{}", "     MOSTRO NODE REPUTATION REPORT     ".cyan().bold());
     println!("{}", "========================================".cyan());
-    println!("Node: {}", public_key.to_bech32()?);
+    println!(
+        "Node: {}",
+        public_key.to_bech32().expect("PublicKey::to_bech32 is infallible")
+    );
 
     // Section: Longevity (4.1.1)
     println!("{}", "----------------------------------------".dimmed());
@@ -369,128 +373,4 @@ async fn main() -> Result<() > {
     println!("{}", "========================================".cyan());
 
     Ok(())
-}
-
-/// Compute trade amount statistics (Section 4.1.3)
-fn compute_trade_stats(amounts: &[u64]) -> (u64, u64, f64, u64) {
-    if amounts.is_empty() {
-        return (0, 0, 0.0, 0);
-    }
-
-    let mut sorted = amounts.to_vec();
-    sorted.sort_unstable();
-
-    let min = sorted[0];
-    let max = sorted[sorted.len() - 1];
-    let sum: u128 = amounts.iter().map(|&v| v as u128).sum();
-    let mean = sum as f64 / amounts.len() as f64;
-
-    // Median calculation
-    let median = if sorted.len() % 2 == 0 {
-        ((sorted[sorted.len() / 2 - 1] as u128 + sorted[sorted.len() / 2] as u128) / 2) as u64
-    } else {
-        sorted[sorted.len() / 2]
-    };
-
-    (min, max, mean, median)
-}
-
-/// Compute rolling window metrics (Section 4.2.2)
-fn compute_rolling_windows(timestamps: &[i64], now: i64) -> (usize, usize, usize) {
-    let day_7 = now - (7 * 86400);
-    let day_30 = now - (30 * 86400);
-    let day_90 = now - (90 * 86400);
-
-    let last_7d = timestamps.iter().filter(|&&ts| ts >= day_7).count();
-    let last_30d = timestamps.iter().filter(|&&ts| ts >= day_30).count();
-    let last_90d = timestamps.iter().filter(|&&ts| ts >= day_90).count();
-
-    (last_7d, last_30d, last_90d)
-}
-
-/// Compute activity consistency (Section 4.2.3)
-fn compute_activity_consistency(timestamps: &[i64], now: i64) -> (usize, usize) {
-    let day_30_ago = now - (30 * 86400);
-
-    // Get unique days with trades in last 30 days
-    let active_days: HashSet<i64> = timestamps
-        .iter()
-        .filter(|&&ts| ts >= day_30_ago)
-        .map(|&ts| ts / 86400) // Convert to day number
-        .collect();
-
-    let active_days_count = active_days.len();
-
-    // Calculate max consecutive inactive days
-    if active_days.is_empty() {
-        return (0, 30);
-    }
-
-    let mut days: Vec<i64> = active_days.into_iter().collect();
-    days.sort_unstable();
-
-    let today = now / 86400;
-    let day_30_start = day_30_ago / 86400;
-
-    let mut max_gap = 0usize;
-    let mut prev_day = day_30_start;
-
-    for &day in &days {
-        let gap = (day - prev_day - 1).max(0) as usize;
-        max_gap = max_gap.max(gap);
-        prev_day = day;
-    }
-
-    // Check gap from last active day to today
-    let final_gap = (today - prev_day).max(0) as usize;
-    max_gap = max_gap.max(final_gap);
-
-    (active_days_count, max_gap)
-}
-
-/// Format relative time for human readability (Section 6.1)
-fn format_relative_time(timestamp: i64, now: i64) -> String {
-    let diff_secs = now - timestamp;
-
-    if diff_secs < 0 {
-        return "in the future".to_string();
-    }
-
-    let days = diff_secs / 86400;
-    let hours = (diff_secs % 86400) / 3600;
-
-    match days {
-        0 => {
-            if hours == 0 {
-                "less than an hour ago".to_string()
-            } else if hours == 1 {
-                "1 hour ago".to_string()
-            } else {
-                format!("{} hours ago", hours)
-            }
-        }
-        1 => "1 day ago".to_string(),
-        2..=6 => format!("{} days ago", days),
-        7..=13 => "1 week ago".to_string(),
-        14..=29 => format!("{} weeks ago", days / 7),
-        30..=59 => "1 month ago".to_string(),
-        60..=364 => format!("{} months ago", days / 30),
-        _ => format!("{} years ago", days / 365),
-    }
-}
-
-fn calculate_score(stats: &MostroStats, days_active: f64) -> u64 {
-    let mut score = 0.0;
-
-    // 1. Age (Max 30 pts for > 1 year)
-    score += (days_active / 365.0).min(1.0) * 30.0;
-
-    // 2. Volume (Max 40 pts for > 1 BTC volume)
-    let btc_vol = stats.total_volume_sats as f64 / 100_000_000.0;
-    score += (btc_vol / 1.0).min(1.0) * 40.0;
-
-    // 3. Success Count (Max 30 pts for > 100 orders)
-    score += (stats.successful_orders as f64 / 100.0).min(1.0) * 30.0;
-    
-    score as u64
 }
