@@ -8,10 +8,11 @@ use mostro_core::prelude::Status as OrderStatus;
 use nostr_sdk::prelude::*;
 use nostr_sdk::{Alphabet, SingleLetterTag};
 use std::collections::HashMap;
+use std::process::exit;
 use std::str::FromStr;
 use std::time::Duration;
 
-use crate::error::{AppError, Result};
+use crate::error::AppError;
 use crate::models::MostroStats;
 use crate::stats::{
     calculate_score, compute_activity_consistency, compute_rolling_windows, compute_trade_stats,
@@ -35,8 +36,13 @@ async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    let public_key =
-        PublicKey::parse(&args.pubkey).map_err(|e| AppError::InvalidPubkey(e.to_string()))?;
+    let public_key = match PublicKey::parse(&args.pubkey) {
+        Ok(pk) => pk,
+        Err(e) => {
+            log::error!("{}", AppError::InvalidPubkey(e.to_string()));
+            exit(1);
+        }
+    };
 
     let bech32 = public_key.to_bech32().expect("PublicKey::to_bech32 is infallible");
     println!("Analyzing Mostro Node: {}", bech32);
@@ -55,7 +61,8 @@ async fn main() -> Result<()> {
     }
 
     if connected == 0 {
-        return Err(AppError::NoRelaysAvailable);
+        log::error!("{}", AppError::NoRelaysAvailable);
+        exit(1);
     }
 
     client.connect().await;
@@ -242,7 +249,8 @@ async fn main() -> Result<()> {
         None => {
             // Fallback: use order timestamps
             if stats.last_order_ts == 0 {
-                return Err(AppError::NoEvents);
+                log::error!("{}", AppError::NoEvents);
+                exit(1);
             }
             let days = (stats.last_order_ts - stats.first_order_ts) as f64 / 86400.0;
             (days, None)

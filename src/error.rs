@@ -35,4 +35,3 @@ impl From<nostr_sdk::key::Error> for AppError {
     }
 }
 
-pub type Result<T> = std::result::Result<T, AppError>;
