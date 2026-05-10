@@ -29,9 +29,9 @@ pub fn compute_rolling_windows(timestamps: &[i64], now: i64) -> (usize, usize, u
     let day_30 = now - (30 * 86400);
     let day_90 = now - (90 * 86400);
 
-    let last_7d = timestamps.iter().filter(|&&ts| ts >= day_7).count();
-    let last_30d = timestamps.iter().filter(|&&ts| ts >= day_30).count();
-    let last_90d = timestamps.iter().filter(|&&ts| ts >= day_90).count();
+    let last_7d = timestamps.iter().filter(|&&ts| ts >= day_7 && ts <= now).count();
+    let last_30d = timestamps.iter().filter(|&&ts| ts >= day_30 && ts <= now).count();
+    let last_90d = timestamps.iter().filter(|&&ts| ts >= day_90 && ts <= now).count();
 
     (last_7d, last_30d, last_90d)
 }
@@ -41,7 +41,7 @@ pub fn compute_activity_consistency(timestamps: &[i64], now: i64) -> (usize, usi
 
     let active_days: HashSet<i64> = timestamps
         .iter()
-        .filter(|&&ts| ts >= day_30_ago)
+        .filter(|&&ts| ts >= day_30_ago && ts <= now)
         .map(|&ts| ts / 86400)
         .collect();
 
@@ -105,7 +105,7 @@ pub fn format_relative_time(timestamp: i64, now: i64) -> String {
 pub fn calculate_score(stats: &MostroStats, days_active: f64) -> u64 {
     let mut score = 0.0;
 
-    score += (days_active / 365.0).min(1.0) * 30.0;
+    score += (days_active / 365.0).clamp(0.0, 1.0) * 30.0;
 
     let btc_vol = stats.total_volume_sats as f64 / 100_000_000.0;
     score += (btc_vol / 1.0).min(1.0) * 40.0;

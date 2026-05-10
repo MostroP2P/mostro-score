@@ -50,7 +50,12 @@ async fn main() -> Result<()> {
 
     // 2. Setup Client
     let client = Client::new(Keys::generate());
-    let relays: Vec<&str> = args.relays.split(',').collect();
+    let relays: Vec<&str> = args
+        .relays
+        .split(',')
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .collect();
 
     let mut connected = 0;
     for relay in &relays {
