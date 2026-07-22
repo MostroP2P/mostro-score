@@ -1,8 +1,10 @@
 <!--
 Sync Impact Report
-Version change: template → 1.0.0 (initial ratification)
-Modified principles: n/a (first fill of template)
-Added sections: all Core Principles (I-VII), Technology Constraints, Development Workflow, Governance
+Version change: 1.1.0 → 1.2.0
+Modified principles: I. Evidence-Based Metrics (added kind 38385 instance status event, the
+  Bond Policy data source confirmed while writing specs/001-node-reputation-metrics/spec.md,
+  in addition to the 8383, 38383, 38384, 38386 kinds already listed in v1.1.0)
+Added sections: none
 Removed sections: none
 Templates requiring updates:
   - .specify/templates/plan-template.md ⚠ pending (verify Constitution Check section references these principles)
@@ -17,11 +19,13 @@ Follow-up TODOs: none, all placeholders resolved from user-supplied input
 ## Core Principles
 
 ### I. Evidence-Based Metrics
-Every reputation metric MUST be traceable to a specific Nostr event kind and tag (currently
-kind 8383 dev-fee-payment and kind 38383 order events), and MUST have a documented,
+Every reputation metric MUST be traceable to a specific Nostr event kind and tag currently
+kind `8383` dev-fee-payment, kind `38383` order events, kind `38384` rating events, kind
+`38385` instance status events, and kind `38386` dispute events, and MUST have a documented,
 deterministic computation method recorded in `specs/`. Heuristic or subjective scoring without
-a written formula is prohibited. Rationale: the tool's entire value proposition is transparency;
-an unauditable metric undermines user trust in the reputation it produces.
+a written formula is prohibited.
+Rationale: the tool's entire value proposition is transparency; an unauditable metric undermines
+user trust in the reputation it produces.
 
 ### II. Statistical Robustness (Median Over Mean)
 Metrics describing typical trade size or typical value MUST use the median, not the mean, as
@@ -86,4 +90,4 @@ Every pull request MUST be checked against these principles before merge; any de
 justified in the PR description and, where it recurs, MUST trigger an amendment to this document
 rather than a silent exception.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-22 | **Last Amended**: 2026-07-22
+**Version**: 1.2.0 | **Ratified**: 2026-07-22 | **Last Amended**: 2026-07-22
