@@ -1,16 +1,36 @@
 <!--
 Sync Impact Report
-Version change: template → 1.0.0 (initial ratification)
-Modified principles: n/a (first fill of template)
-Added sections: all Core Principles (I-VII), Technology Constraints, Development Workflow, Governance
+Version change: 1.0.0 → 1.0.2
+Modified principles:
+  - V. Spec-Driven Development (fixed an internal inconsistency found by a Codex audit: this
+    principle previously said "spec → plan → tasks → implement → verify", a sequence that does
+    not match the Development Workflow section's actual ratified sequence and references a
+    "verify" step with no corresponding spec-kit command or workflow.yml step. Reworded to point
+    at the real sequence and ground "verified" in CI + human PR review, the two gates that
+    actually exist.)
+  - III. Modular Architecture (added a transition note acknowledging that src/main.rs is still
+    monolithic as of ratification, deferring compliance to Phase 4 rather than silently ratifying
+    a principle the repo already violates with no stated exception, per a follow-up review
+    finding.)
+Added sections: none
 Removed sections: none
 Templates requiring updates:
-  - .specify/templates/plan-template.md ⚠ pending (verify Constitution Check section references these principles)
-  - .specify/templates/spec-template.md ⚠ pending (verify mandatory sections align with Principle I and V)
-  - .specify/templates/tasks-template.md ⚠ pending (verify task categories include test-first and modular-architecture task types)
-  - .claude/skills/speckit-*/SKILL.md ✅ reviewed, no outdated agent-specific references found
-  - README.md ⚠ pending (does not yet mention spec-kit workflow or constitution)
-Follow-up TODOs: none, all placeholders resolved from user-supplied input
+  - .specify/templates/plan-template.md ✅ verified, Constitution Check section reads the
+    constitution file dynamically at plan time rather than hardcoding principle names, no edit
+    needed
+  - .specify/templates/spec-template.md ✅ verified, generic mandatory sections do not conflict
+    with Principle I or V; domain-specific evidence requirements are satisfied per-spec content,
+    not by the shared template
+  - .specify/templates/tasks-template.md ✅ updated, test sections changed from "OPTIONAL - only
+    if tests requested" to mandatory, aligning with Principle IV (Test-First Development,
+    NON-NEGOTIABLE)
+  - .claude/skills/speckit-*/SKILL.md ✅ updated after a CodeRabbit review on PR #3: tests now
+    mandatory in speckit-tasks/speckit-implement per Principle IV, hook auto-execution now
+    requires an explicit trust gate, task-ID regex and remote-URL handling fixed in
+    speckit-taskstoissues, prerequisite gates strengthened in speckit-analyze/speckit-converge
+  - README.md ✅ updated, Contributing section now references the constitution and the spec-kit
+    workflow
+Follow-up TODOs: none, all previously pending items resolved
 -->
 # mostro-score Constitution
 
@@ -35,6 +55,12 @@ The codebase MUST be organized into single-purpose modules (`cli`, `fetch`, `mod
 coupling and high cohesion, with a clear separation between data fetching, domain models,
 statistical computation, and reporting/presentation.
 
+**Transition note**: `src/main.rs` predates this constitution and is still monolithic as of
+ratification. This principle does not retroactively fail the repository; the modular refactor is
+explicitly scheduled as Phase 4 of the project's Summer of Bitcoin proposal. New code added after
+ratification MUST follow this principle; the existing monolith MUST be brought into compliance no
+later than Phase 4, not left indefinitely as a silent exception.
+
 ### IV. Test-First Development (NON-NEGOTIABLE)
 No implementation task is complete without accompanying unit tests written before or alongside
 the code under test, covering at minimum event parsing, order deduplication, and statistical
@@ -42,10 +68,14 @@ calculations. The project MUST maintain at least 50% code coverage, per the Summ
 proposal commitment. Red-Green-Refactor is the expected cycle; tests are not optional polish.
 
 ### V. Spec-Driven Development
-Every feature or metric change MUST go through spec → plan → tasks → implement → verify before
-merging to `main`, using this repository's spec-kit artifacts (`specs/NNN-feature/`) as the
-single externally-visible source of truth. Any internal reasoning or memory layer used to
-support this process is a separate concern and is not part of this constitution.
+Every feature or metric change MUST go through the full ratified sequence defined in
+Development Workflow (`constitution → specify → clarify → plan → checklist → tasks → analyze →
+implement → converge`) before merging to `main`, using this repository's spec-kit artifacts
+(`specs/NNN-feature/`) as the single externally-visible source of truth. A change is only
+considered verified once CI passes (formatting, linting, tests) and it has been reviewed by a
+human via pull request; there is no separate automated "verify" step distinct from these two
+gates, and this principle MUST NOT reference one. Any internal reasoning or memory layer used
+to support this process is a separate concern and is not part of this constitution.
 
 ### VI. Graceful Degradation & User-Facing Errors
 Error messages MUST be clear and actionable for end users, never raw stack traces or unhandled
@@ -86,4 +116,4 @@ Every pull request MUST be checked against these principles before merge; any de
 justified in the PR description and, where it recurs, MUST trigger an amendment to this document
 rather than a silent exception.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-22 | **Last Amended**: 2026-07-22
+**Version**: 1.0.2 | **Ratified**: 2026-07-22 | **Last Amended**: 2026-07-22
