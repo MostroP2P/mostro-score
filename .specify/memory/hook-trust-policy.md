@@ -17,3 +17,9 @@ re-duplicate its text into individual `SKILL.md` files.
    continuing. Run it the same way you would run the command yourself in this agent/session (the
    invocation may differ from the literal `{command}` id shown, e.g. a skills-mode agent runs it as
    `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+4. If the hook fails (non-zero exit, error output, or any other failure signal), do NOT report
+   completion or success to the user. Stop and surface the failure instead: a mandatory hook
+   failing silently while the calling skill reports success would defeat the entire point of it
+   being mandatory. This applies to mandatory hooks in both pre-execution and mandatory
+   post-execution positions — a post-hook must finish (and succeed) before the calling skill's
+   completion report is produced, not run in the background while completion is already reported.

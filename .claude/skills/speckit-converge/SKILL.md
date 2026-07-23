@@ -106,11 +106,15 @@ prerequisite command to run (`/speckit-specify` for a missing spec, `/speckit-pl
 `/speckit-tasks` for missing tasks). Do not produce partial output.
 
 File existence is not proof `/speckit-implement` actually ran against the *current* `tasks.md`.
-Before proceeding, confirm `tasks.md` shows evidence of a completed implementation pass: at least
-one task checked (`- [x]`/`- [X]`) and no signal that the file was regenerated after those checks
-were set (e.g., a mix of checked tasks alongside unchecked tasks referencing files that do not yet
-exist in the repo). If every task in `tasks.md` is still unchecked, STOP and instruct the user to
-run `/speckit-implement` first; do not treat an all-unchecked `tasks.md` as convergence input.
+`/speckit-implement` records this as a freshness marker: `<FEATURE_DIR>/.implement-marker`,
+containing the SHA-256 of `tasks.md` as it stood when that implementation pass finished. Compute
+the current SHA-256 of `tasks.md` and compare it against the marker's contents:
+- If `.implement-marker` is missing, STOP and instruct the user to run `/speckit-implement` first;
+  there is no evidence any implementation pass ran against this feature at all.
+- If the hashes do not match, `tasks.md` was edited (e.g., a new Convergence phase was appended, or
+  `/speckit-tasks` was re-run) after the last recorded implementation pass. STOP and instruct the
+  user to run `/speckit-implement` again before convergence can assess current, matching state.
+- Only proceed when the hashes match.
 For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
 
 ### 2. Load Artifacts (Progressive Disclosure)

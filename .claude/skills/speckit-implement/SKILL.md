@@ -217,6 +217,14 @@ Check if `.specify/extensions.yml` exists in the project root.
     To execute: `/{command}`
     ```
 
+## Record Implementation Evidence
+
+Before reporting completion, compute the SHA-256 of the current `tasks.md` content and write it,
+alone on one line, to `<FEATURE_DIR>/.implement-marker` (create the file if missing, overwrite if
+present). This is the freshness record `/speckit-converge` checks to confirm it is assessing the
+same `tasks.md` this implementation pass actually ran against, rather than a stale or since-edited
+one.
+
 ## Completion Report
 
 Report final status with summary of completed work.
@@ -225,5 +233,6 @@ Report final status with summary of completed work.
 
 - [ ] All tasks in tasks.md completed and marked `[X]`
 - [ ] Implementation validated against specification, plan, and test coverage
+- [ ] `<FEATURE_DIR>/.implement-marker` written with the current tasks.md's SHA-256
 - [ ] Extension hooks dispatched or skipped according to the rules in Mandatory Post-Execution Hooks above
 - [ ] Completion reported to user with summary of completed work

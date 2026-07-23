@@ -2,7 +2,7 @@ schema_version: "1.0"
 workflow:
   id: "speckit"
   name: "Full SDD Cycle"
-  version: "2.0.0"
+  version: "2.1.0"
   author: "GitHub"
   description: "Runs constitution -> specify -> clarify -> plan -> checklist -> tasks -> analyze -> implement -> converge with a review gate before every step, matching this repository's ratified constitution (Development Workflow section)."
 
@@ -132,13 +132,19 @@ steps:
     on_reject: abort
 
   # NOTE: speckit.converge can append new tasks to tasks.md when it finds unfinished work
-  # (outcome: tasks_appended) and recommends running /speckit-implement again. This schema
-  # does not support a conditional loop back to the `implement` step above, so that re-run is
-  # a manual follow-up: check converge's output, and if it appended tasks, manually repeat
-  # implement -> review-implement -> converge until converge reports a clean result with no
-  # new tasks appended before treating this feature as done.
+  # (outcome: tasks_appended). This schema does not support a conditional loop back to the
+  # `implement` step above, so the review-converge gate below is the enforcement point: it
+  # requires an explicit human confirmation that convergence was clean before the workflow is
+  # considered complete. Rejecting means tasks were appended; manually repeat
+  # implement -> review-implement -> converge until convergence reports a clean result.
   - id: converge
     command: speckit.converge
     integration: "{{ inputs.integration }}"
     input:
       args: "{{ inputs.spec }}"
+
+  - id: review-converge
+    type: gate
+    message: "Confirm /speckit-converge reported a clean result with NO tasks appended. If it appended any tasks, reject this gate and manually re-run implement -> review-implement -> converge before completing this feature."
+    options: [approve, reject]
+    on_reject: abort
