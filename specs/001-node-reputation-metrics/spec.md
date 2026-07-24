@@ -130,6 +130,13 @@ fiat/payment method breakdown, trade-size consistency, premium signal, and bond 
   `pm` produces zero values after the comma split, is excluded from that specific breakdown,
   consistent with FR-013's general handling of unusable data.
 
+### Session 2026-07-24
+
+- Q: FR-011 originally also defined `premium_deviation`, a per-order leave-one-out figure. Keep
+  it? → A: No, dropped. It required a per-order audit (one value per order) rather than a
+  node-level summary, inconsistent with every other metric in this spec; `premium_baseline` and
+  `premium_dispersion` already give a node-level view of premium consistency.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Assess a node's track record and current health (Priority: P1)
@@ -189,26 +196,24 @@ Phase 1 (P1) metrics.
 
 A trader doing deeper due diligence before a large trade wants descriptive context: which fiat
 currencies and payment methods a node's counterparties actually use, how consistent the node's
-trade sizes are, whether any individual order looks like an outlier in price relative to that
-node's own history, and whether the node enforces anti-abuse bonds.
+trade sizes are, how consistent its pricing is relative to its own history, and whether the node
+enforces anti-abuse bonds.
 
 **Why this priority**: This is supporting, descriptive context rather than a core trust signal; it
 is valuable for power users but not required for a baseline trust assessment.
 
-**Independent Test**: Run the CLI against a node with varied fiat currencies, payment methods, and
-at least one price outlier order; verify the breakdowns and premium signal are reported
-independently of the P1/P2 metrics, and do not block the report if any single piece of this context
-is unavailable.
+**Independent Test**: Run the CLI against a node with varied fiat currencies and payment methods;
+verify the breakdowns and premium signal are reported independently of the P1/P2 metrics, and do
+not block the report if any single piece of this context is unavailable.
 
 **Acceptance Scenarios**:
 
 1. **Given** a node with orders in 3 different fiat currencies, **When** the trader runs the CLI,
    **Then** the report shows the relative distribution of currencies and payment methods used.
-2. **Given** a node whose historical median `premium` is X% and one order published with a
-   `premium` far above X%, **When** the trader runs the CLI, **Then** the report shows that
-   order's `premium_deviation` as a large value relative to that node's own order flow, not against
-   a global benchmark — reported as a raw signal, not a pass/fail flag (see Assumptions on
-   presentation-level "abnormal" thresholds).
+2. **Given** a node whose historical premiums show high dispersion, **When** the trader runs the
+   CLI, **Then** the report shows `premium_dispersion` as a large value relative to
+   `premium_baseline`, reported as a raw signal against that node's own order flow, not a global
+   benchmark or a pass/fail flag (see Assumptions on presentation-level "abnormal" thresholds).
 
 ---
 
@@ -373,16 +378,12 @@ is unavailable.
   `mostro/src/nip33.rs`. There is no percent sign, no decimal point, and no duplicate values to
   handle, since the tag always carries exactly one plain integer string. A tag that is empty, that
   fails to parse as an integer, or that is missing entirely, is treated as not carrying a valid
-  premium, and that order is excluded from `premium_baseline`, `premium_dispersion`, and its own
-  `premium_deviation`, consistent with FR-013's general handling of unusable data. When
-  at least 2 such orders exist, System MUST also report, for each order in that set,
-  `premium_deviation` as that order's `premium` minus `premium_baseline` computed over the
-  remaining orders, excluding the order itself from its own baseline; with fewer than 2 orders,
-  `premium_deviation` is likewise not applicable, since a leave-one-out baseline needs at least one
-  other order to exist. This measures the price consistency of the order flow published through
-  the node, not an individual maker's behavior, since an order's `creator_pubkey` is a one-time
-  trade key that cannot be tracked across orders (see Clarifications). This MUST NOT be computed
-  from trade size in sats, which is a distinct metric already covered by FR-003 and FR-010.
+  premium, and that order is excluded from `premium_baseline` and `premium_dispersion`,
+  consistent with FR-013's general handling of unusable data. This measures the price
+  consistency of the order flow published through the node, not an individual maker's behavior,
+  since an order's `creator_pubkey` is a one-time trade key that cannot be tracked across orders
+  (see Clarifications). This MUST NOT be computed from trade size in sats, which is a distinct
+  metric already covered by FR-003 and FR-010.
 - **FR-012**: System MUST report whether a node enforces anti-abuse bonds, read from the
   `bond_enabled` tag on the node's kind `38385` instance status event, restricting the candidate
   set to events whose `d` tag equals the node's own pubkey (the canonical NIP-33 replaceable-event

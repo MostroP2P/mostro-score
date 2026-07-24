@@ -35,6 +35,16 @@ selection, not to CLI flag names or argument parsing, which is Phase 3's concern
   → A: Yes. Every reference to "Rating Signals" as a metric this report displays is removed; the
   general statistics section (FR-006) now lists only the 11 metrics Phase 1 actually kept.
 
+### Session 2026-07-24
+
+- Q: Phase 3's CLI-parameters spec found that FR-019's exit code `2` (invalid public key)
+  collides with the mandated argument-parsing library's own hardcoded default exit code `2` for
+  CLI usage errors (missing or malformed flags) — verified against the library's source, not
+  assumed. Since Phase 2 is already merged, is a surgical amendment here justified rather than
+  working around it entirely in Phase 3? → A: Yes. `2` now means CLI usage error, matching the
+  library's own convention so Phase 4 can use its plain, idiomatic entry point without a manual
+  workaround; invalid public key moves to `5`. See FR-019 and specs/003-cli-parameters FR-013a.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Read a node's report in the console (Priority: P1)
@@ -205,14 +215,11 @@ report contains the same 5 sections and content as the console mode, with no ANS
   Breakdown, Payment Method Breakdown, and Premium Signal's node-level baseline and dispersion
   figures, all as defined in the Phase 1 metric spec. Rating Signals is not part of this
   list: Phase 1 discarded it entirely, since kind `38384` cannot support a node-level metric.
-- **FR-006a**: Phase 1's per-order `premium_deviation` (FR-011) is not part of the general
-  statistics section's node-level figures; it is per-order data, one value per qualifying order,
-  not a single aggregate. JSON output MUST still include it, one value per order, alongside the
-  node-level Premium Signal figures, to satisfy SC-002's promise that JSON exposes every Phase 1
-  metric. In the console and plain-text formats, individual orders are not listed one by one; the
-  recommendations block (FR-008) is instead the place any single order whose `premium_deviation` is
-  large enough to be notable gets surfaced, consistent with FR-016's reference to "a large Premium
-  Signal deviation" as a warning signal a trader can see without reading raw JSON.
+- **FR-006a — Removed, not part of this spec**: Previously covered Phase 1's per-order
+  `premium_deviation`. Phase 1 dropped that metric entirely (2026-07-24): it required a
+  per-order audit rather than a node-level summary, unlike everything else this report shows.
+  This requirement number is intentionally left unused rather than reassigned, matching Phase
+  1's own FR-007 convention.
 - **FR-007**: Bond Policy MUST be shown as its own distinctly labeled block within the general
   statistics section (not a 6th top-level section; FR-001 fixes the report at 5), visually
   separated from the trade-history metrics list, since it describes a node policy setting rather
@@ -293,11 +300,11 @@ report contains the same 5 sections and content as the console mode, with no ANS
   override take precedence over the automatic context-based default, except for this one
   capability-based exception.
 - **FR-016**: Color MUST be used with intent and MUST NOT be the only way a risk or warning signal
-  (e.g., a nonzero disputes-per-100-trades ratio, a large Premium Signal deviation) is conveyed, so
-  the signal remains legible in plain-text mode and to users who cannot perceive color. Neither
-  example describes the value as "elevated," "low," or "normal": Dispute Signals has no cross-node
-  baseline to be elevated against (per FR-008a), so any color or textual emphasis here MUST draw
-  attention to the raw value itself, not imply a comparison this spec does not define.
+  (e.g., a nonzero disputes-per-100-trades ratio) is conveyed, so the signal remains legible in
+  plain-text mode and to users who cannot perceive color. This example does not describe the
+  value as "elevated," "low," or "normal": Dispute Signals has no cross-node baseline to be
+  elevated against (per FR-008a), so any color or textual emphasis here MUST draw attention to
+  the raw value itself, not imply a comparison this spec does not define.
 - **FR-017**: Error and warning messages MUST be written to standard error, while report content
   MUST be written to standard output, so redirecting the report does not also capture diagnostic
   noise.
@@ -306,14 +313,17 @@ report contains the same 5 sections and content as the console mode, with no ANS
   JSON numbers with no separators or other human formatting, so a consumer can parse them directly
   without stripping punctuation first, consistent with SC-002.
 - **FR-019**: The tool MUST return exit code `0` on success, and a distinct, documented exit code
-  for each main failure case, so calling scripts can react to each case individually: `1` for a
-  general error, `2` for an invalid public key, `3` for an unreachable relay (all configured relays
-  failed; per the constitution's graceful-degradation principle, a single failed relay among
-  several that succeeded is not this case), and `4` when zero events of any kind that this report
-  can actually use (dev-fee, order, dispute, or info) were found for the pubkey across all
-  successfully queried relays. Rating events (kind `38384`) do NOT count toward avoiding exit code
-  `4`: Phase 1 discarded Rating Signals entirely as unusable for a node-level metric, so a pubkey
-  for which the only fetched data is rating noise has nothing this report can render and MUST exit
+  for each main failure case, so calling scripts can react to each case individually: `2` for a
+  CLI usage error (malformed or missing arguments; `2` matches the mandated argument-parsing
+  library's own default convention for this case, per specs/003-cli-parameters FR-013a), `1` for
+  any other general error, `3` for an unreachable relay (all configured relays failed; per the
+  constitution's graceful-degradation principle, a single failed relay among several that
+  succeeded is not this case), `4` when zero events of any kind that this report can actually use
+  (dev-fee, order, dispute, or info) were found for the pubkey across all successfully queried
+  relays, and `5` for an invalid public key value that was syntactically supplied but fails
+  format validation. Rating events (kind `38384`) do NOT count toward avoiding exit code `4`:
+  Phase 1 discarded Rating Signals entirely as unusable for a node-level metric, so a pubkey for
+  which the only fetched data is rating noise has nothing this report can render and MUST exit
   `4`, the same as a pubkey with no events at all. This is a narrower case than SC-004's "zero
   trade history": a node with at least one usable event, even if it has zero successful orders,
   MUST still exit `0` and render a report with the affected metrics marked not-applicable, never
@@ -382,13 +392,15 @@ report contains the same 5 sections and content as the console mode, with no ANS
 - JSON output is structured to mirror the same 5-section report structure (nested by section)
   rather than as one flat list of metrics, so a consumer can navigate it the same way a human reads
   the console report. This spec fixes that structure (5 sections, Bond Policy as a sub-object
-  within general statistics per FR-007, per-order Premium Signal deviations alongside the node-level
-  figures per FR-006a) and the completeness contract (FR-012, FR-012a: every Phase 1 metric present,
-  not-applicable represented explicitly, a schema-version field). It deliberately does not fix the
-  exact field names, types, or key casing for that structure: unlike the structure itself, field
-  naming is an implementation convention with no single correct answer independent of the language
-  and serialization library chosen in Phase 4's planning step, and picking it now would not change
-  what this spec's User Stories or Success Criteria require a consumer to be able to do.
+  within general statistics per FR-007) and the completeness contract (FR-012, FR-012a: every
+  Phase 1 metric present, not-applicable represented explicitly, a schema-version field, numeric
+  metrics as JSON numbers with `null` for unavailable values). It deliberately does not fix the
+  exact field names or key casing, nor the value type of any field not already constrained by
+  FR-012 (for example, non-numeric fields such as Bond Policy's unknown state): unlike the
+  structure and the numeric-type contract, field naming is an implementation convention with no
+  single correct answer independent of the language and serialization library chosen in Phase
+  4's planning step, and picking it now would not change what this spec's User Stories or
+  Success Criteria require a consumer to be able to do.
 - This spec deliberately does not name specific rendering libraries (table layout, progress
   indication) for FR-013/FR-014, consistent with the constitution's separation between spec (what)
   and plan (how); library choices for these capabilities belong to the Phase 4 planning step.

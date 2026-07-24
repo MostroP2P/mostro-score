@@ -43,3 +43,6 @@
 - All 16 items pass. See `git log -- specs/002-cli-report-design/` for the review history that
   produced this state; this file tracks current requirement quality, not a session-by-session
   changelog.
+- FR-019's exit codes were renumbered 2026-07-24 (surgical amendment from Phase 3; see spec.md
+  Clarifications). FR-006a (per-order Premium Signal deviation) was removed the same day,
+  following Phase 1's own removal of that metric. Still 16/16.
