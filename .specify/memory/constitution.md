@@ -1,18 +1,25 @@
 <!--
 Sync Impact Report
 Version change: 1.1.0 → 1.2.0
-Modified principles: I. Evidence-Based Metrics (added kind 38385 instance status event, the
-  Bond Policy data source confirmed while writing specs/001-node-reputation-metrics/spec.md,
-  in addition to the 8383, 38383, 38384, 38386 kinds already listed in v1.1.0)
+Modified principles:
+  - I. Evidence-Based Metrics (added kind 38385 instance status event as a traceable data source,
+    the Bond Policy metric's source confirmed while writing
+    specs/001-node-reputation-metrics/spec.md; removed kind 38384 rating events, since that spec's
+    Rating Signals metric was discarded after verification showed kind 38384 events are keyed by
+    the rater's own one-time trade pubkey, not the node's, so no active metric in this repo traces
+    to it. Kept the 8383, 38383, 38386 kinds already listed)
 Added sections: none
 Removed sections: none
-Templates requiring updates:
-  - .specify/templates/plan-template.md ⚠ pending (verify Constitution Check section references these principles)
-  - .specify/templates/spec-template.md ⚠ pending (verify mandatory sections align with Principle I and V)
-  - .specify/templates/tasks-template.md ⚠ pending (verify task categories include test-first and modular-architecture task types)
-  - .claude/skills/speckit-*/SKILL.md ✅ reviewed, no outdated agent-specific references found
-  - README.md ⚠ pending (does not yet mention spec-kit workflow or constitution)
-Follow-up TODOs: none, all placeholders resolved from user-supplied input
+Modified sections:
+  - Development Workflow: added a bullet formally permitting a phased, multi-PR feature's
+    spec-quality checklist to run before that phase's `plan` step, when documented in the
+    checklist file itself, in response to a CodeRabbit review on this PR flagging that
+    specs/001-node-reputation-metrics/checklists/requirements.md ran its checklist before a
+    plan.md existed, with only a per-file note and no constitutional backing for that reordering.
+Templates requiring updates: none — this is a workflow-flexibility clarification for phased
+  features, not a change to the templates or skills themselves. (The prior 1.0.0 → 1.0.2
+  amendment's template/skill sync is recorded in that commit's history, not repeated here.)
+Follow-up TODOs: none
 -->
 # mostro-score Constitution
 
@@ -20,10 +27,9 @@ Follow-up TODOs: none, all placeholders resolved from user-supplied input
 
 ### I. Evidence-Based Metrics
 Every reputation metric MUST be traceable to a specific Nostr event kind and tag currently
-kind `8383` dev-fee-payment, kind `38383` order events, kind `38384` rating events, kind
-`38385` instance status events, and kind `38386` dispute events, and MUST have a documented,
-deterministic computation method recorded in `specs/`. Heuristic or subjective scoring without
-a written formula is prohibited.
+kind `8383` dev-fee-payment, kind `38383` order events, kind `38385` instance status events,
+and kind `38386` dispute events, and MUST have a documented, deterministic computation method
+recorded in `specs/`. Heuristic or subjective scoring without a written formula is prohibited.
 Rationale: the tool's entire value proposition is transparency; an unauditable metric undermines
 user trust in the reputation it produces.
 
@@ -39,6 +45,12 @@ The codebase MUST be organized into single-purpose modules (`cli`, `fetch`, `mod
 coupling and high cohesion, with a clear separation between data fetching, domain models,
 statistical computation, and reporting/presentation.
 
+**Transition note**: `src/main.rs` predates this constitution and is still monolithic as of
+ratification. This principle does not retroactively fail the repository; the modular refactor is
+explicitly scheduled as Phase 4 of the project's Summer of Bitcoin proposal. New code added after
+ratification MUST follow this principle; the existing monolith MUST be brought into compliance no
+later than Phase 4, not left indefinitely as a silent exception.
+
 ### IV. Test-First Development (NON-NEGOTIABLE)
 No implementation task is complete without accompanying unit tests written before or alongside
 the code under test, covering at minimum event parsing, order deduplication, and statistical
@@ -46,10 +58,14 @@ calculations. The project MUST maintain at least 50% code coverage, per the Summ
 proposal commitment. Red-Green-Refactor is the expected cycle; tests are not optional polish.
 
 ### V. Spec-Driven Development
-Every feature or metric change MUST go through spec → plan → tasks → implement → verify before
-merging to `main`, using this repository's spec-kit artifacts (`specs/NNN-feature/`) as the
-single externally-visible source of truth. Any internal reasoning or memory layer used to
-support this process is a separate concern and is not part of this constitution.
+Every feature or metric change MUST go through the full ratified sequence defined in
+Development Workflow (`constitution → specify → clarify → plan → checklist → tasks → analyze →
+implement → converge`) before merging to `main`, using this repository's spec-kit artifacts
+(`specs/NNN-feature/`) as the single externally-visible source of truth. A change is only
+considered verified once CI passes (formatting, linting, tests) and it has been reviewed by a
+human via pull request; there is no separate automated "verify" step distinct from these two
+gates, and this principle MUST NOT reference one. Any internal reasoning or memory layer used
+to support this process is a separate concern and is not part of this constitution.
 
 ### VI. Graceful Degradation & User-Facing Errors
 Error messages MUST be clear and actionable for end users, never raw stack traces or unhandled
@@ -77,6 +93,12 @@ it explains a non-obvious constraint or rationale that the code itself cannot co
 - Every step in that sequence requires an explicit review gate (approve/reject) before moving to
   the next step; skipping a step requires a documented justification in the feature's spec
   directory.
+- For a feature whose own project plan splits delivery across multiple phases and pull requests
+  (as this project's Summer of Bitcoin proposal does), a phase's spec-quality checklist MAY be
+  generated and reviewed before that phase's `plan` step, provided the checklist file itself
+  states which phase it belongs to, that `plan` is deferred to a later phase and PR, and why. This
+  is the documented justification the bullet above requires for that specific reordering; it is
+  not a blanket exception to the ratified sequence for single-PR features.
 - CI (formatting, linting, tests) MUST pass before any implementation task is considered merged,
   per the project's Phase 5 commitment in the Summer of Bitcoin proposal.
 
@@ -90,4 +112,4 @@ Every pull request MUST be checked against these principles before merge; any de
 justified in the PR description and, where it recurs, MUST trigger an amendment to this document
 rather than a silent exception.
 
-**Version**: 1.2.0 | **Ratified**: 2026-07-22 | **Last Amended**: 2026-07-22
+**Version**: 1.2.0 | **Ratified**: 2026-07-22 | **Last Amended**: 2026-07-23

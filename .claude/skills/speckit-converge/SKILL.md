@@ -24,7 +24,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 - Check if `.specify/extensions.yml` exists in the project root.
 - If it exists, read it and look for entries under the `hooks.before_converge` key
-- If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+- If the YAML cannot be parsed or is invalid, do NOT silently skip hook checking: stop and tell the user `.specify/extensions.yml` failed to parse, since a mandatory hook may be defined in it that would otherwise go unenforced, and ask them to confirm proceeding without hook checking before continuing
 - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 - For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
   - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -44,7 +44,7 @@ You **MUST** consider the user input before proceeding (if not empty).
     To execute: `/{command}`
     ```
 
-  - **Mandatory hook** (`optional: false`):
+  - **Mandatory hook** (`optional: false`): Follow `.specify/memory/hook-trust-policy.md` (trust gate, then invocation rules) before emitting or running this. Emit:
 
     ```text
     ## Extension Hooks
@@ -55,7 +55,6 @@ You **MUST** consider the user input before proceeding (if not empty).
 
     Wait for the result of the hook command before proceeding to the Goal.
     ```
-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
 
 - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
 
@@ -105,6 +104,17 @@ Run `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --inclu
 If `spec.md`, `plan.md`, or `tasks.md` is missing, STOP with a clear, actionable message naming the
 prerequisite command to run (`/speckit-specify` for a missing spec, `/speckit-plan` for a missing plan,
 `/speckit-tasks` for missing tasks). Do not produce partial output.
+
+File existence is not proof `/speckit-implement` actually ran against the *current* `tasks.md`.
+`/speckit-implement` records this as a freshness marker: `<FEATURE_DIR>/.implement-marker`,
+containing the SHA-256 of `tasks.md` as it stood when that implementation pass finished. Compute
+the current SHA-256 of `tasks.md` and compare it against the marker's contents:
+- If `.implement-marker` is missing, STOP and instruct the user to run `/speckit-implement` first;
+  there is no evidence any implementation pass ran against this feature at all.
+- If the hashes do not match, `tasks.md` was edited (e.g., a new Convergence phase was appended, or
+  `/speckit-tasks` was re-run) after the last recorded implementation pass. STOP and instruct the
+  user to run `/speckit-implement` again before convergence can assess current, matching state.
+- Only proceed when the hashes match.
 For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
 
 ### 2. Load Artifacts (Progressive Disclosure)
@@ -243,7 +253,7 @@ Append to the **end** of `tasks.md`, per the append contract:
 After producing the result, check if `.specify/extensions.yml` exists in the project root.
 
 - If it exists, read it and look for entries under the `hooks.after_converge` key
-- If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+- If the YAML cannot be parsed or is invalid, do NOT silently skip hook checking: stop and tell the user `.specify/extensions.yml` failed to parse, since a mandatory hook may be defined in it that would otherwise go unenforced, and ask them to confirm proceeding without hook checking before continuing
 - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 - For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
   - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -265,7 +275,7 @@ After producing the result, check if `.specify/extensions.yml` exists in the pro
     To execute: `/{command}`
     ```
 
-  - **Mandatory hook** (`optional: false`):
+  - **Mandatory hook** (`optional: false`): Follow `.specify/memory/hook-trust-policy.md` (trust gate, then invocation rules) before emitting or running this. Emit:
 
     ```text
     ## Extension Hooks
@@ -274,6 +284,5 @@ After producing the result, check if `.specify/extensions.yml` exists in the pro
     Executing: `/{command}`
     EXECUTE_COMMAND: {command}
     ```
-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
 
 - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently

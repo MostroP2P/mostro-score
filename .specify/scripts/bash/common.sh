@@ -160,6 +160,47 @@ _persist_feature_json() {
     fi
 }
 
+# Reject a feature directory that resolves outside repo_root/specs, whether via an absolute
+# path, a relative path with `..` segments, or a symlink. Per the constitution, `specs/NNN-feature/`
+# is the single source of truth for feature artifacts; nothing should read or write outside it.
+# Canonicalize a path without requiring it to exist. `realpath -m` is GNU coreutils-specific
+# and can be missing or behave differently on macOS/BSD, so fall back to Python's
+# os.path.realpath (also does not require the path to exist), matching the jq -> python3
+# fallback convention already used elsewhere in this file.
+_canonicalize_path() {
+    local path="$1"
+    local resolved
+    if resolved=$(realpath -m "$path" 2>/dev/null); then
+        printf '%s' "$resolved"
+        return 0
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        if resolved=$(python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$path" 2>/dev/null); then
+            printf '%s' "$resolved"
+            return 0
+        fi
+    fi
+    echo "ERROR: could not canonicalize path '$path' (requires GNU realpath -m or python3)" >&2
+    return 1
+}
+
+_validate_feature_dir_under_specs() {
+    local feature_dir="$1"
+    local repo_root="$2"
+    local specs_root resolved
+    specs_root=$(_canonicalize_path "$repo_root/specs") || return 1
+    resolved=$(_canonicalize_path "$feature_dir") || return 1
+    case "$resolved" in
+        "$specs_root"|"$specs_root"/*)
+            return 0
+            ;;
+        *)
+            echo "ERROR: feature directory '$feature_dir' resolves to '$resolved', which is outside '$specs_root'. Refusing to create or modify files outside the repository's specs/ directory." >&2
+            return 1
+            ;;
+    esac
+}
+
 get_feature_paths() {
     # Read-only callers (e.g. check-prerequisites.sh --paths-only) pass
     # --no-persist so pure path resolution never writes .specify/feature.json,
@@ -186,6 +227,7 @@ get_feature_paths() {
         feature_dir="$SPECIFY_FEATURE_DIRECTORY"
         # Normalize relative paths to absolute under repo root
         [[ "$feature_dir" != /* ]] && feature_dir="$repo_root/$feature_dir"
+        _validate_feature_dir_under_specs "$feature_dir" "$repo_root" || return 1
         # Persist to feature.json so future sessions without the env var still
         # work — unless the caller opted out for read-only resolution (#3025).
         if [[ "$no_persist" != true ]]; then
@@ -198,6 +240,7 @@ get_feature_paths() {
             feature_dir="$_fd"
             # Normalize relative paths to absolute under repo root
             [[ "$feature_dir" != /* ]] && feature_dir="$repo_root/$feature_dir"
+            _validate_feature_dir_under_specs "$feature_dir" "$repo_root" || return 1
         else
             echo "ERROR: Feature directory not found. Set SPECIFY_FEATURE_DIRECTORY or ensure .specify/feature.json contains feature_directory." >&2
             return 1

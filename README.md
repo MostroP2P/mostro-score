@@ -181,12 +181,16 @@ For detailed economic analysis, see [specs/reputation_system_v1.md](specs/reputa
 
 ## Contributing
 
+This project follows a spec-driven development workflow using [spec-kit](https://github.com/github/spec-kit). Project principles and constraints are ratified in [`.specify/memory/constitution.md`](.specify/memory/constitution.md), which requires every feature to go through this gated sequence, with a review gate before moving to the next step:
+
+`constitution → specify → clarify → plan → checklist → tasks → analyze → implement → converge`
+
 Contributions are welcome! Please:
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+2. Read the project constitution before proposing a change
+3. Create a feature branch and run the sequence above via spec-kit's `/speckit-*` commands, in order, rather than editing code directly
+4. Submit a pull request once `/speckit-converge` reports a clean result with no new tasks appended (if it appended tasks, repeat `/speckit-implement` -> review -> `/speckit-converge` until it does); skipping a step requires a documented justification in the feature's spec directory, per the constitution
 
 ## License
 

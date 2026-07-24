@@ -219,6 +219,13 @@ else
     BRANCH_SUFFIX=$(generate_branch_name "$FEATURE_DESCRIPTION")
 fi
 
+# Reject a suffix that sanitized down to nothing (or to something unusable), rather than
+# silently producing garbage paths like "001-" / "specs/001-/spec.md".
+if ! [[ "$BRANCH_SUFFIX" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+    echo "Error: could not derive a valid feature name from the input (got '$BRANCH_SUFFIX' after sanitization). Pass --short-name with an alphanumeric value instead." >&2
+    exit 1
+fi
+
 # Warn if --number and --timestamp are both specified
 if [ "$USE_TIMESTAMP" = true ] && [ -n "$BRANCH_NUMBER" ]; then
     >&2 echo "[specify] Warning: --number is ignored when --timestamp is used"
