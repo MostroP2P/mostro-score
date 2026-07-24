@@ -26,9 +26,9 @@ struct Args {
 struct MostroStats {
     successful_orders: usize,
     total_volume_sats: u64,
-    first_dev_fee_ts: Option<i64>,   // From oldest kind 8383 z=dev-fee-payment event
-    first_order_ts: i64,              // First order timestamp
-    last_order_ts: i64,               // Last order timestamp
+    first_dev_fee_ts: Option<i64>, // From oldest kind 8383 z=dev-fee-payment event
+    first_order_ts: i64,           // First order timestamp
+    last_order_ts: i64,            // Last order timestamp
     // Trade amount statistics (Section 4.1.3)
     trade_amounts: Vec<u64>,
     // Rolling window data (Section 4.2.2)
@@ -36,7 +36,7 @@ struct MostroStats {
 }
 
 #[tokio::main]
-async fn main() -> Result<() > {
+async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
@@ -55,11 +55,11 @@ async fn main() -> Result<() > {
     // 2. Setup Client
     let client = Client::new(Keys::generate());
     let relays: Vec<&str> = args.relays.split(',').collect();
-    
+
     for relay in relays {
         client.add_relay(relay).await?;
     }
-    
+
     client.connect().await;
     println!("Connected to relays. Fetching history... (this might take a moment)");
 
@@ -78,10 +78,17 @@ async fn main() -> Result<() > {
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "order");
 
     // 4. Fetch Both Event Types
-    let dev_fee_events_result = client.fetch_events(dev_fee_filter, Duration::from_secs(10)).await?;
-    let order_events_result = client.fetch_events(order_filter, Duration::from_secs(10)).await?;
-    let events: Vec<Event> = dev_fee_events_result.into_iter().chain(order_events_result.into_iter()).collect();
-    
+    let dev_fee_events_result = client
+        .fetch_events(dev_fee_filter, Duration::from_secs(10))
+        .await?;
+    let order_events_result = client
+        .fetch_events(order_filter, Duration::from_secs(10))
+        .await?;
+    let events: Vec<Event> = dev_fee_events_result
+        .into_iter()
+        .chain(order_events_result.into_iter())
+        .collect();
+
     println!("Fetched {} events. Analyzing...", events.len());
 
     // Print sample events to understand structure
@@ -102,12 +109,16 @@ async fn main() -> Result<() > {
     let mut order_events: Vec<Event> = Vec::new();
 
     for event in events {
-        let z_tag = event.tags.iter()
+        let z_tag = event
+            .tags
+            .iter()
             .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("z"))
             .and_then(|t| t.as_slice().get(1))
             .map(|s| s.as_str());
 
-        let y_tag = event.tags.iter()
+        let y_tag = event
+            .tags
+            .iter()
             .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("y"))
             .and_then(|t| t.as_slice().get(1))
             .map(|s| s.as_str());
@@ -119,7 +130,11 @@ async fn main() -> Result<() > {
         }
     }
 
-    println!("Found {} dev fee events and {} order events", dev_fee_events.len(), order_events.len());
+    println!(
+        "Found {} dev fee events and {} order events",
+        dev_fee_events.len(),
+        order_events.len()
+    );
 
     // Process dev fee events to get instance start timestamp
     let mut stats = MostroStats::default();
@@ -132,7 +147,11 @@ async fn main() -> Result<() > {
         stats.first_dev_fee_ts = Some(oldest_dev_fee.created_at.as_u64() as i64);
 
         println!("\n=== MOSTRO TRADING ACTIVITY ===");
-        println!("First dev fee payment: {}", chrono::DateTime::from_timestamp(oldest_dev_fee.created_at.as_u64() as i64, 0).unwrap_or_default());
+        println!(
+            "First dev fee payment: {}",
+            chrono::DateTime::from_timestamp(oldest_dev_fee.created_at.as_u64() as i64, 0)
+                .unwrap_or_default()
+        );
         println!("Total dev fee events: {}", dev_fee_events.len());
         println!("================================\n");
     } else {
@@ -161,19 +180,30 @@ async fn main() -> Result<() > {
         }
 
         // Track status distribution for all fetched events (all are orders now)
-        let s_tag = event.tags.iter().find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("s"));
-        let s_value = s_tag.and_then(|t| t.as_slice().get(1)).map(|s| s.to_string());
+        let s_tag = event
+            .tags
+            .iter()
+            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("s"));
+        let s_value = s_tag
+            .and_then(|t| t.as_slice().get(1))
+            .map(|s| s.to_string());
         match &s_value {
             Some(val) => {
                 *s_tag_distribution.entry(val.clone()).or_insert(0) += 1;
             }
             None => {
-                *s_tag_distribution.entry("(missing)".to_string()).or_insert(0) += 1;
+                *s_tag_distribution
+                    .entry("(missing)".to_string())
+                    .or_insert(0) += 1;
             }
         }
 
         // If it's an order, map it by 'd' tag (Order ID) to get the final state
-        if let Some(d_tag) = event.tags.iter().find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("d")) {
+        if let Some(d_tag) = event
+            .tags
+            .iter()
+            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("d"))
+        {
             if let Some(order_id) = d_tag.as_slice().get(1) {
                 // Logic: Keep the event with the latest created_at for this Order ID
                 match orders_map.get(order_id.as_str()) {
@@ -208,8 +238,14 @@ async fn main() -> Result<() > {
     // Process the final state of unique orders
     for (_order_id, event) in orders_map {
         // Check Status 's'
-        let s_tag = event.tags.iter().find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("s"));
-        let status_str = s_tag.and_then(|t| t.as_slice().get(1)).map(|s| s.as_str()).unwrap_or("unknown");
+        let s_tag = event
+            .tags
+            .iter()
+            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("s"));
+        let status_str = s_tag
+            .and_then(|t| t.as_slice().get(1))
+            .map(|s| s.as_str())
+            .unwrap_or("unknown");
 
         if OrderStatus::from_str(status_str) == Ok(OrderStatus::Success) {
             stats.successful_orders += 1;
@@ -217,7 +253,11 @@ async fn main() -> Result<() > {
             stats.successful_trade_timestamps.push(event_ts);
 
             // Get Amount 'amt' (sats)
-            if let Some(amt_tag) = event.tags.iter().find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("amt")) {
+            if let Some(amt_tag) = event
+                .tags
+                .iter()
+                .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("amt"))
+            {
                 if let Some(amt_str) = amt_tag.as_slice().get(1) {
                     if let Ok(amount) = amt_str.parse::<u64>() {
                         stats.total_volume_sats += amount;
@@ -263,7 +303,10 @@ async fn main() -> Result<() > {
 
     // Header
     println!("\n{}", "========================================".cyan());
-    println!("{}", "     MOSTRO NODE REPUTATION REPORT     ".cyan().bold());
+    println!(
+        "{}",
+        "     MOSTRO NODE REPUTATION REPORT     ".cyan().bold()
+    );
     println!("{}", "========================================".cyan());
     println!("Node: {}", public_key.to_bech32()?);
 
@@ -298,7 +341,11 @@ async fn main() -> Result<() > {
         // Color based on activity status
         if days_since_last > 30 {
             println!("{}", last_trade_display.red());
-            println!("  Days Since Last: {} {}", days_since_last, "INACTIVE".red().bold());
+            println!(
+                "  Days Since Last: {} {}",
+                days_since_last,
+                "INACTIVE".red().bold()
+            );
         } else if days_since_last > 7 {
             println!("{}", last_trade_display.yellow());
             println!(
@@ -308,7 +355,11 @@ async fn main() -> Result<() > {
             );
         } else {
             println!("{}", last_trade_display.green());
-            println!("  Days Since Last: {} {}", days_since_last, "ACTIVE".green());
+            println!(
+                "  Days Since Last: {} {}",
+                days_since_last,
+                "ACTIVE".green()
+            );
         }
     } else {
         println!("  {} No successful trades recorded", "⚠".yellow());
@@ -386,7 +437,7 @@ fn compute_trade_stats(amounts: &[u64]) -> (u64, u64, f64, u64) {
     let mean = sum as f64 / amounts.len() as f64;
 
     // Median calculation
-    let median = if sorted.len() % 2 == 0 {
+    let median = if sorted.len().is_multiple_of(2) {
         ((sorted[sorted.len() / 2 - 1] as u128 + sorted[sorted.len() / 2] as u128) / 2) as u64
     } else {
         sorted[sorted.len() / 2]
@@ -491,6 +542,6 @@ fn calculate_score(stats: &MostroStats, days_active: f64) -> u64 {
 
     // 3. Success Count (Max 30 pts for > 100 orders)
     score += (stats.successful_orders as f64 / 100.0).min(1.0) * 30.0;
-    
+
     score as u64
 }
