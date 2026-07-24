@@ -47,3 +47,7 @@ reordering for phased, multi-PR features when documented here.
   `--since`/`--until` scoping (activity grid only, not lifetime metrics), the
   `--sections`/five-section-contract conflict, and an exit-code collision with specs/002 —
   none were checklist regressions.
+- On "No implementation details": the configuration file's TOML format (FR-016a) and its
+  Rust/Cargo ecosystem framing are normative technology constraints from the project
+  constitution, not a leak of implementation design into requirements phrasing — the same
+  distinction specs/001's checklist already draws for its own code-path citations.

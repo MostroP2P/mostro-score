@@ -393,12 +393,14 @@ report contains the same 5 sections and content as the console mode, with no ANS
   rather than as one flat list of metrics, so a consumer can navigate it the same way a human reads
   the console report. This spec fixes that structure (5 sections, Bond Policy as a sub-object
   within general statistics per FR-007) and the completeness contract (FR-012, FR-012a: every
-  Phase 1 metric present, not-applicable represented explicitly, a schema-version field). It
-  deliberately does not fix the
-  exact field names, types, or key casing for that structure: unlike the structure itself, field
-  naming is an implementation convention with no single correct answer independent of the language
-  and serialization library chosen in Phase 4's planning step, and picking it now would not change
-  what this spec's User Stories or Success Criteria require a consumer to be able to do.
+  Phase 1 metric present, not-applicable represented explicitly, a schema-version field, numeric
+  metrics as JSON numbers with `null` for unavailable values). It deliberately does not fix the
+  exact field names or key casing, nor the value type of any field not already constrained by
+  FR-012 (for example, non-numeric fields such as Bond Policy's unknown state): unlike the
+  structure and the numeric-type contract, field naming is an implementation convention with no
+  single correct answer independent of the language and serialization library chosen in Phase
+  4's planning step, and picking it now would not change what this spec's User Stories or
+  Success Criteria require a consumer to be able to do.
 - This spec deliberately does not name specific rendering libraries (table layout, progress
   indication) for FR-013/FR-014, consistent with the constitution's separation between spec (what)
   and plan (how); library choices for these capabilities belong to the Phase 4 planning step.

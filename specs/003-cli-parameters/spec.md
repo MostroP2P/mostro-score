@@ -234,10 +234,12 @@ active values), and that the command exits `0` without attempting to fetch any r
   durations; when the resulting month has no day matching the original day-of-month (e.g.,
   subtracting `1mo` from March 31, or `1y` from February 29 in a leap year), the result MUST
   clamp to the last valid day of that resulting month (February 28 or 29, as applicable), never
-  overflow into the next month or error. When only `--since` is given, `--until` defaults to
-  now; when only `--until` is given, `--since` defaults to the node's earliest available
-  history. When omitted, the activity grid MUST cover the node's full available history,
-  matching current tool behavior.
+  overflow into the next month or error. When only `--since` is given, `--until` defaults to the
+  exact report-generation instant, not the end-of-day boundary that an explicit or shorthand
+  `--until` would resolve to, so the grid never reaches into activity that hasn't happened yet;
+  when only `--until` is given, `--since` defaults to the node's earliest available history.
+  When omitted, the activity grid MUST cover the node's full available history, matching current
+  tool behavior.
 - **FR-005**: When `--since` is explicitly given (flag or shorthand, not defaulted) and resolves
   to a point later than `--until`, the tool MUST reject the combination with an actionable
   validation error before querying any relay. This check does not apply when `--since` is

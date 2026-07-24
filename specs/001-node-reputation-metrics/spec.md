@@ -196,16 +196,15 @@ Phase 1 (P1) metrics.
 
 A trader doing deeper due diligence before a large trade wants descriptive context: which fiat
 currencies and payment methods a node's counterparties actually use, how consistent the node's
-trade sizes are, whether any individual order looks like an outlier in price relative to that
-node's own history, and whether the node enforces anti-abuse bonds.
+trade sizes are, how consistent its pricing is relative to its own history, and whether the node
+enforces anti-abuse bonds.
 
 **Why this priority**: This is supporting, descriptive context rather than a core trust signal; it
 is valuable for power users but not required for a baseline trust assessment.
 
-**Independent Test**: Run the CLI against a node with varied fiat currencies, payment methods, and
-at least one price outlier order; verify the breakdowns and premium signal are reported
-independently of the P1/P2 metrics, and do not block the report if any single piece of this context
-is unavailable.
+**Independent Test**: Run the CLI against a node with varied fiat currencies and payment methods;
+verify the breakdowns and premium signal are reported independently of the P1/P2 metrics, and do
+not block the report if any single piece of this context is unavailable.
 
 **Acceptance Scenarios**:
 
