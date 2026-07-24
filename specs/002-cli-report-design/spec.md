@@ -35,6 +35,16 @@ selection, not to CLI flag names or argument parsing, which is Phase 3's concern
   → A: Yes. Every reference to "Rating Signals" as a metric this report displays is removed; the
   general statistics section (FR-006) now lists only the 11 metrics Phase 1 actually kept.
 
+### Session 2026-07-24
+
+- Q: Phase 3's CLI-parameters spec found that FR-019's exit code `2` (invalid public key)
+  collides with the mandated argument-parsing library's own hardcoded default exit code `2` for
+  CLI usage errors (missing or malformed flags) — verified against the library's source, not
+  assumed. Since Phase 2 is already merged, is a surgical amendment here justified rather than
+  working around it entirely in Phase 3? → A: Yes. `2` now means CLI usage error, matching the
+  library's own convention so Phase 4 can use its plain, idiomatic entry point without a manual
+  workaround; invalid public key moves to `5`. See FR-019 and specs/003-cli-parameters FR-013a.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Read a node's report in the console (Priority: P1)
@@ -306,14 +316,17 @@ report contains the same 5 sections and content as the console mode, with no ANS
   JSON numbers with no separators or other human formatting, so a consumer can parse them directly
   without stripping punctuation first, consistent with SC-002.
 - **FR-019**: The tool MUST return exit code `0` on success, and a distinct, documented exit code
-  for each main failure case, so calling scripts can react to each case individually: `1` for a
-  general error, `2` for an invalid public key, `3` for an unreachable relay (all configured relays
-  failed; per the constitution's graceful-degradation principle, a single failed relay among
-  several that succeeded is not this case), and `4` when zero events of any kind that this report
-  can actually use (dev-fee, order, dispute, or info) were found for the pubkey across all
-  successfully queried relays. Rating events (kind `38384`) do NOT count toward avoiding exit code
-  `4`: Phase 1 discarded Rating Signals entirely as unusable for a node-level metric, so a pubkey
-  for which the only fetched data is rating noise has nothing this report can render and MUST exit
+  for each main failure case, so calling scripts can react to each case individually: `2` for a
+  CLI usage error (malformed or missing arguments; `2` matches the mandated argument-parsing
+  library's own default convention for this case, per specs/003-cli-parameters FR-013a), `1` for
+  any other general error, `3` for an unreachable relay (all configured relays failed; per the
+  constitution's graceful-degradation principle, a single failed relay among several that
+  succeeded is not this case), `4` when zero events of any kind that this report can actually use
+  (dev-fee, order, dispute, or info) were found for the pubkey across all successfully queried
+  relays, and `5` for an invalid public key value that was syntactically supplied but fails
+  format validation. Rating events (kind `38384`) do NOT count toward avoiding exit code `4`:
+  Phase 1 discarded Rating Signals entirely as unusable for a node-level metric, so a pubkey for
+  which the only fetched data is rating noise has nothing this report can render and MUST exit
   `4`, the same as a pubkey with no events at all. This is a narrower case than SC-004's "zero
   trade history": a node with at least one usable event, even if it has zero successful orders,
   MUST still exit `0` and render a report with the affected metrics marked not-applicable, never
