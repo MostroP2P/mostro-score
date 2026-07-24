@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-22
 
-**Status**: Draft
+**Status**: Ready for Planning
 
 **Input**: User description: "CLI interface design and report structure specification, Phase 2 of
 the Summer of Bitcoin proposal. Defines the report's fixed sections, the activity grid, and the
@@ -119,21 +119,32 @@ report contains the same 5 sections and content as the console mode, with no ANS
   constitution's graceful-degradation principle; the report MUST still render using the relays
   that did succeed.
 - What happens when a time bucket in the activity grid has zero activity? That bucket MUST still
-  appear as a row with zero values, not be skipped, since a visible gap is itself meaningful
-  activity-consistency information.
+  appear as a row, not be skipped, since a visible gap is itself meaningful information. Its order
+  count and volume columns show `0` (a real, meaningful value for an empty bucket per Cumulative
+  Performance), but its median trade size column MUST show not-applicable, not `0`, per Phase 1's
+  FR-003: a median over zero orders is undefined, not zero.
 - What happens when the node has too little history to populate a metric (e.g., zero trades, no
   dev-fee events, zero disputes with zero trades)? The affected fields MUST be shown as explicitly
-  not-applicable in every output format, never as a crash, a blank omission, or a misleading zero.
+  not-applicable in every output format, never as a crash, a blank omission, or a misleading zero
+  — except for metrics Phase 1 defines a real computed value for even with zero activity, such as
+  Activity Consistency, where a node with zero successful orders in the 30-day window MUST show
+  the actual computed `active_days_last_30d = 0` and `max_consecutive_inactive_days_last_30d = 30`
+  per Phase 1's FR-005, not an overriding not-applicable marker: those are meaningful values, not
+  missing data.
 - What happens when output is redirected but the user wants the colored console format anyway
-  (e.g., piping into a pager that supports color)? An explicit override MUST always be available
-  regardless of what the automatic context-based default would choose.
+  (e.g., piping into a pager that supports color)? An explicit override MUST be available to force
+  color on in this case and when `NO_COLOR` is set, per FR-015. The one exception is `TERM=dumb`,
+  which reflects a technical incapability, not a preference, so it MUST NOT be overridable.
 - What happens when the terminal does not support color at all? The console format MUST still
   render its section structure and tables without color rather than emitting broken escape codes.
 - What happens when the `NO_COLOR` environment variable is set, or `TERM` is `dumb`? Color output
   MUST be disabled in both cases, regardless of what the automatic terminal-detection default
   would otherwise choose.
-- What happens when a relay is unreachable, the pubkey is invalid, or zero events are found? Each
-  MUST map to its own distinct, documented exit code so calling scripts can distinguish them.
+- What happens when a relay is unreachable, the pubkey is invalid, or zero usable events are found
+  for the pubkey (not merely zero successful trades, and not counting rating events, which Phase 1
+  discarded as unusable for any node-level metric)? Each MUST map to its own distinct, documented
+  exit code so calling scripts can distinguish them; a node with at least one usable event but zero
+  successful trades is a normal, successful report (see FR-019), not this case.
 
 ## Requirements *(mandatory)*
 
@@ -146,28 +157,68 @@ report contains the same 5 sections and content as the console mode, with no ANS
 - **FR-002**: The node identity header MUST identify which node the report describes clearly
   enough that the trader can confirm they queried the intended pubkey.
 - **FR-003**: The relay fetch summary MUST show which relays were queried and whether each
-  succeeded or failed, plus totals for the events fetched across all relays: dev-fee-payment event
-  count, order event count, and the deduplicated unique-order count after applying Phase 1's
-  qualifying-order procedure, so a trader can sanity-check how much raw data backs the report.
+  succeeded or failed, plus totals for the events backing every section of the report: unique
+  dev-fee-payment event count (backs Longevity), unique order event count and the deduplicated
+  unique-order count after applying Phase 1's qualifying-order procedure (this is the pool
+  Cumulative Performance, Trade Statistics, the activity grid, and the descriptive-context metrics
+  all draw from, not a guarantee each of them uses every one of those orders: `total_volume_sats`,
+  Trade Statistics, and the activity grid's amount-derived columns further restrict to orders with
+  a present, parseable `amt` per Phase 1's FR-002/FR-003, and Fiat Breakdown, Payment Method
+  Breakdown, and Premium Signal each further restrict to the subset with a valid `f`, `pm`, or
+  `premium` tag respectively per Phase 1's own FR-008/FR-009/FR-011, so a section can legitimately
+  show fewer backing orders, or not-applicable, even when this total is large), unique
+  dispute event count after deduplicating by `d` tag (backs Dispute Signals), and whether a valid
+  instance-status event was found (backs Bond Policy), so a trader can sanity-check whether every
+  section of the report is actually backed by fetched data, not just the trade-history ones. All
+  event counts MUST be deduplicated by event id (or, for order and dispute events, by the `d` tag)
+  before totaling, not summed per relay: the same event commonly reaches multiple configured
+  relays, and a naive per-relay sum would inflate the total by the number of relay replicas rather
+  than reflecting unique backing data.
 - **FR-004**: The activity grid MUST show one row per time bucket, with successful order count and
-  volume (from Cumulative Performance), median trade size (from Trade Statistics), and active days
-  plus max inactive gap (from Activity Consistency) as columns.
+  volume (from Cumulative Performance) and median trade size (from Trade Statistics) as columns.
+  Activity Consistency's `active_days_last_30d` and `max_consecutive_inactive_days_last_30d` are
+  NOT grid columns: Phase 1 defines both only as a single, fixed 30-day report-level figure, not as
+  a value computable for an arbitrary bucket of any granularity (daily, monthly, yearly); showing
+  Activity Consistency per bucket would require inventing a computation Phase 1 never defined. See
+  FR-006 for where Activity Consistency is shown instead.
 - **FR-005**: The activity grid's time bucket granularity MUST be selectable (e.g., daily, monthly,
   yearly) rather than fixed to hardcoded day windows; the exact selection mechanism is out of scope
-  for this spec.
+  for this spec. Every bucket, at any granularity, MUST use the same UTC calendar-day convention
+  Phase 1 already establishes for its own date handling (FR-005 there: midnight-to-midnight UTC,
+  derived from each order's `created_at`), so a daily bucket is one UTC calendar day, a monthly
+  bucket is a whole UTC calendar month, and so on; buckets MUST be ordered chronologically and MUST
+  NOT overlap or leave gaps within the requested range, so the same underlying events always
+  produce the same grid regardless of implementation or the querying system's local timezone.
 - **FR-005a**: When a fine granularity (e.g., daily) is combined with a very wide time range, the
   system MUST warn the user that this can produce a large number of rows, rather than silently
   rendering an unbounded grid.
 - **FR-006**: The general statistics section MUST show Longevity, Cumulative Performance (the
   node's lifetime `total_successful_trades` and `total_volume_sats`, shown as a standalone figure
-  and not just left implicit in the activity grid's per-bucket rows), the Liveness rolling windows,
-  full Trade Statistics, Trade-Size Consistency, Dispute Signals (including its resolved-versus-
-  active breakdown), Fiat Breakdown, Payment Method Breakdown, and Premium Signal (including its
-  dispersion figure), all as defined in the Phase 1 metric spec. Rating Signals is not part of this
+  and not just left implicit in the activity grid's per-bucket rows), Liveness in full — both
+  `last_successful_trade_at` and `days_since_last_trade` (the most direct signal of whether a node
+  is currently active, per `specs/reputation_system_v1.md`'s own emphasis that this MUST surface
+  prominently) and the 7/30/90-day rolling windows, not the rolling windows alone — Activity
+  Consistency (`active_days_last_30d` and `max_consecutive_inactive_days_last_30d`, shown
+  as its own fixed 30-day figure, not as a grid column, per FR-004), full Trade Statistics,
+  Trade-Size Consistency, Dispute Signals (including its resolved/active/unknown-status breakdown
+  in full, all three buckets from Phase 1's FR-006, not just resolved-versus-active), Fiat
+  Breakdown, Payment Method Breakdown, and Premium Signal's node-level baseline and dispersion
+  figures, all as defined in the Phase 1 metric spec. Rating Signals is not part of this
   list: Phase 1 discarded it entirely, since kind `38384` cannot support a node-level metric.
-- **FR-007**: Bond Policy MUST be shown as its own distinctly labeled block, separate from
-  trade-history statistics, since it describes a node policy setting rather than a historical
-  metric.
+- **FR-006a**: Phase 1's per-order `premium_deviation` (FR-011) is not part of the general
+  statistics section's node-level figures; it is per-order data, one value per qualifying order,
+  not a single aggregate. JSON output MUST still include it, one value per order, alongside the
+  node-level Premium Signal figures, to satisfy SC-002's promise that JSON exposes every Phase 1
+  metric. In the console and plain-text formats, individual orders are not listed one by one; the
+  recommendations block (FR-008) is instead the place any single order whose `premium_deviation` is
+  large enough to be notable gets surfaced, consistent with FR-016's reference to "a large Premium
+  Signal deviation" as a warning signal a trader can see without reading raw JSON.
+- **FR-007**: Bond Policy MUST be shown as its own distinctly labeled block within the general
+  statistics section (not a 6th top-level section; FR-001 fixes the report at 5), visually
+  separated from the trade-history metrics list, since it describes a node policy setting rather
+  than a historical metric. In JSON output, this MUST correspond to its own distinctly named field
+  or sub-object within the general-statistics structure, not merged into the trade-history metrics
+  object.
 - **FR-008**: The recommendations block MUST synthesize the metrics above into plain-language
   guidance, and MUST explicitly state that there is nothing notable to flag when no signal warrants
   one, rather than omitting the block or fabricating a recommendation.
@@ -198,9 +249,12 @@ report contains the same 5 sections and content as the console mode, with no ANS
 - **FR-010**: System MUST select a sensible default output format based on execution context
   (e.g., whether output is going to an interactive terminal versus being redirected or piped),
   while always allowing an explicit override of that default.
-- **FR-011**: Error conditions (unreachable relay, no data found, malformed events) MUST be
-  presented as clear, actionable messages in every output format, never as raw stack traces, per
-  the project constitution's graceful-degradation principle.
+- **FR-011**: Error conditions (unreachable relay, no data found) MUST be presented as clear,
+  actionable messages in every output format, never as raw stack traces, per the project
+  constitution's graceful-degradation principle. Malformed or incomplete individual events are not
+  an error condition under this requirement: per Phase 1's FR-013, they MUST be silently excluded
+  from computation without surfacing a message, as long as enough valid data remains to produce a
+  report.
 - **FR-012**: JSON output MUST include a stable, complete set of fields regardless of whether the
   underlying node has enough data to compute every metric, representing missing or not-applicable
   metrics explicitly rather than omitting keys.
@@ -215,22 +269,43 @@ report contains the same 5 sections and content as the console mode, with no ANS
 - **FR-014**: Any relay fetch expected to take more than a couple of seconds MUST show a visible
   progress indicator, skipped entirely when output is not going to a terminal.
 - **FR-015**: The console format MUST disable color automatically when standard output is not a
-  terminal, when the `NO_COLOR` environment variable is set, or when `TERM` is `dumb`; an explicit
-  override to force color off MUST also be available regardless of these automatic checks.
+  terminal, when the `NO_COLOR` environment variable is set, or when `TERM` is `dumb`. An explicit
+  override to force color off MUST always be available, regardless of these automatic checks. An
+  explicit override to force color on MUST also be available when output is redirected or when
+  `NO_COLOR` is set (e.g., piping into a color-aware pager such as `less -R`, per the Edge Cases
+  scenario) -- `NO_COLOR` represents an ambient default the user can still explicitly override for
+  one run, per the `NO_COLOR` convention itself. The one exception is `TERM=dumb`: that signals the
+  terminal is technically incapable of interpreting ANSI codes, not a preference, so forcing color
+  on in that case MUST NOT be honored, since it would emit unreadable escape sequences rather than
+  color. This is consistent with User Story 3's requirement that an explicit console-format
+  override take precedence over the automatic context-based default, except for this one
+  capability-based exception.
 - **FR-016**: Color MUST be used with intent and MUST NOT be the only way a risk or warning signal
-  (e.g., an elevated dispute ratio, a rating divergence) is conveyed, so the signal remains legible
-  in plain-text mode and to users who cannot perceive color.
+  (e.g., a nonzero disputes-per-100-trades ratio, a large Premium Signal deviation) is conveyed, so
+  the signal remains legible in plain-text mode and to users who cannot perceive color. Neither
+  example describes the value as "elevated," "low," or "normal": Dispute Signals has no cross-node
+  baseline to be elevated against (per FR-008a), so any color or textual emphasis here MUST draw
+  attention to the raw value itself, not imply a comparison this spec does not define.
 - **FR-017**: Error and warning messages MUST be written to standard error, while report content
   MUST be written to standard output, so redirecting the report does not also capture diagnostic
   noise.
 - **FR-018**: Numeric values (sats, fiat amounts) MUST be formatted with thousands separators for
-  readability.
+  readability in the console and plain-text formats only. JSON numeric fields MUST remain valid
+  JSON numbers with no separators or other human formatting, so a consumer can parse them directly
+  without stripping punctuation first, consistent with SC-002.
 - **FR-019**: The tool MUST return exit code `0` on success, and a distinct, documented exit code
   for each main failure case, so calling scripts can react to each case individually: `1` for a
   general error, `2` for an invalid public key, `3` for an unreachable relay (all configured relays
   failed; per the constitution's graceful-degradation principle, a single failed relay among
-  several that succeeded is not this case), and `4` for zero events found across all successfully
-  queried relays.
+  several that succeeded is not this case), and `4` when zero events of any kind that this report
+  can actually use (dev-fee, order, dispute, or info) were found for the pubkey across all
+  successfully queried relays. Rating events (kind `38384`) do NOT count toward avoiding exit code
+  `4`: Phase 1 discarded Rating Signals entirely as unusable for a node-level metric, so a pubkey
+  for which the only fetched data is rating noise has nothing this report can render and MUST exit
+  `4`, the same as a pubkey with no events at all. This is a narrower case than SC-004's "zero
+  trade history": a node with at least one usable event, even if it has zero successful orders,
+  MUST still exit `0` and render a report with the affected metrics marked not-applicable, never
+  exit `4`.
 
 ### Key Entities
 
@@ -243,6 +318,8 @@ report contains the same 5 sections and content as the console mode, with no ANS
   relevant Phase 1 metrics.
 - **General Statistics Section**: The section aggregating the lifetime and descriptive metrics
   from the Phase 1 spec.
+- **Bond Policy Block**: A distinctly labeled sub-block within the general statistics section
+  (not its own top-level section), per FR-007.
 - **Recommendations Block**: The section synthesizing the metrics into plain-language guidance.
 - **Output Format**: One of console, plain-text, or JSON; determines how the same underlying report
   content is rendered.
@@ -259,9 +336,15 @@ report contains the same 5 sections and content as the console mode, with no ANS
 - **SC-003**: When output is redirected to a file or another program without an explicit format
   override, the resulting content contains no ANSI color codes or decoration that would interfere
   with automated parsing.
-- **SC-004**: A report generated for a node with zero trade history renders successfully in all 3
-  output formats, with the affected metrics explicitly marked as not-applicable rather than the
-  tool erroring or silently omitting sections.
+- **SC-004**: A report generated for a node with zero *successful trades* but at least one usable
+  event of another kind (order, dev-fee, dispute, or info) renders successfully in all 3 output
+  formats, with the affected metrics explicitly marked as not-applicable rather than the tool
+  erroring or silently omitting sections. A node whose only events are non-`success` orders (e.g.,
+  all cancelled or expired) falls under this case, not FR-019's exit-code-`4` case: it still
+  reports real, meaningful values (a successful-trade count and volume of `0`, and Activity
+  Consistency's defined all-zero case), just not the metrics that specifically require a
+  successful order to compute. This is distinct from a pubkey with zero usable events of
+  any kind, which is FR-019's exit-code-`4` case, not this one.
 - **SC-005**: A user who cannot perceive color, or who reads the plain-text format, can still
   identify every risk or warning signal from textual markers alone, without relying on color.
 - **SC-006**: A trader with no prior knowledge of Mostro's reputation metrics can read any section
@@ -286,7 +369,14 @@ report contains the same 5 sections and content as the console mode, with no ANS
   labels), not a hardcoded rule defined by this spec.
 - JSON output is structured to mirror the same 5-section report structure (nested by section)
   rather than as one flat list of metrics, so a consumer can navigate it the same way a human reads
-  the console report.
+  the console report. This spec fixes that structure (5 sections, Bond Policy as a sub-object
+  within general statistics per FR-007, per-order Premium Signal deviations alongside the node-level
+  figures per FR-006a) and the completeness contract (FR-012, FR-012a: every Phase 1 metric present,
+  not-applicable represented explicitly, a schema-version field). It deliberately does not fix the
+  exact field names, types, or key casing for that structure: unlike the structure itself, field
+  naming is an implementation convention with no single correct answer independent of the language
+  and serialization library chosen in Phase 4's planning step, and picking it now would not change
+  what this spec's User Stories or Success Criteria require a consumer to be able to do.
 - This spec deliberately does not name specific rendering libraries (table layout, progress
   indication) for FR-013/FR-014, consistent with the constitution's separation between spec (what)
   and plan (how); library choices for these capabilities belong to the Phase 4 planning step.
