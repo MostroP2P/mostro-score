@@ -23,12 +23,17 @@ selection, not to CLI flag names or argument parsing, which is Phase 3's concern
   as an open gap in `specs/reputation_system_v1.md` and the metrics spec)? → A: Only metrics with a
   genuine self-referential baseline (Premium Signal and Trade-Size Consistency, both defined
   against that same node's own history) may be described as higher/lower than normal. Metrics
-  without a cross-node baseline (Dispute Signals, Rating Signals, Longevity, Cumulative
-  Performance) MUST be presented with informative context (e.g., sample size) but MUST NOT be
-  labeled elevated/low/normal against an undefined baseline. Metrics that are self-explanatory in
-  raw form MAY be shown as-is; metrics that need interpretation to be meaningful to a
-  non-technical trader MUST get a plain-language translation that does not alter or overstate what
-  the underlying data actually supports.
+  without a cross-node baseline (Dispute Signals, Longevity, Cumulative Performance) MUST be
+  presented with informative context (e.g., sample size) but MUST NOT be labeled elevated/low/normal
+  against an undefined baseline. Metrics that are self-explanatory in raw form MAY be shown as-is;
+  metrics that need interpretation to be meaningful to a non-technical trader MUST get a
+  plain-language translation that does not alter or overstate what the underlying data actually
+  supports.
+- Q: This spec was drafted before Phase 1's spec.md was finalized, which then discarded Rating
+  Signals (FR-007 there) entirely, since kind `38384` events are keyed by a trader's pubkey, not
+  the node's, and cannot support a node-level metric. Does this report-design spec need updating?
+  → A: Yes. Every reference to "Rating Signals" as a metric this report displays is removed; the
+  general statistics section (FR-006) now lists only the 11 metrics Phase 1 actually kept.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -54,6 +59,10 @@ buckets and the recommendations block giving a plain-language summary.
 2. **Given** a node with no notable risk signals, **When** the trader reads the recommendations
    block, **Then** it explicitly states there is nothing notable to flag, rather than omitting the
    block or inventing a recommendation.
+3. **Given** a trader unfamiliar with Mostro's reputation metrics, **When** they read any section
+   of the report, **Then** each metric shown is labeled with enough context (what it measures,
+   and, where relevant, which direction is favorable) that they understand it without leaving the
+   tool, per FR-008b.
 
 ---
 
@@ -113,8 +122,8 @@ report contains the same 5 sections and content as the console mode, with no ANS
   appear as a row with zero values, not be skipped, since a visible gap is itself meaningful
   activity-consistency information.
 - What happens when the node has too little history to populate a metric (e.g., zero trades, no
-  ratings)? The affected fields MUST be shown as explicitly not-applicable in every output format,
-  never as a crash, a blank omission, or a misleading zero.
+  dev-fee events, zero disputes with zero trades)? The affected fields MUST be shown as explicitly
+  not-applicable in every output format, never as a crash, a blank omission, or a misleading zero.
 - What happens when output is redirected but the user wants the colored console format anyway
   (e.g., piping into a pager that supports color)? An explicit override MUST always be available
   regardless of what the automatic context-based default would choose.
@@ -137,7 +146,9 @@ report contains the same 5 sections and content as the console mode, with no ANS
 - **FR-002**: The node identity header MUST identify which node the report describes clearly
   enough that the trader can confirm they queried the intended pubkey.
 - **FR-003**: The relay fetch summary MUST show which relays were queried and whether each
-  succeeded or failed.
+  succeeded or failed, plus totals for the events fetched across all relays: dev-fee-payment event
+  count, order event count, and the deduplicated unique-order count after applying Phase 1's
+  qualifying-order procedure, so a trader can sanity-check how much raw data backs the report.
 - **FR-004**: The activity grid MUST show one row per time bucket, with successful order count and
   volume (from Cumulative Performance), median trade size (from Trade Statistics), and active days
   plus max inactive gap (from Activity Consistency) as columns.
@@ -147,9 +158,13 @@ report contains the same 5 sections and content as the console mode, with no ANS
 - **FR-005a**: When a fine granularity (e.g., daily) is combined with a very wide time range, the
   system MUST warn the user that this can produce a large number of rows, rather than silently
   rendering an unbounded grid.
-- **FR-006**: The general statistics section MUST show Longevity, the Liveness rolling windows,
-  full Trade Statistics, Trade-Size Consistency, Dispute Signals, Rating Signals, Fiat Breakdown,
-  Payment Method Breakdown, and Premium Signal, all as defined in the Phase 1 metric spec.
+- **FR-006**: The general statistics section MUST show Longevity, Cumulative Performance (the
+  node's lifetime `total_successful_trades` and `total_volume_sats`, shown as a standalone figure
+  and not just left implicit in the activity grid's per-bucket rows), the Liveness rolling windows,
+  full Trade Statistics, Trade-Size Consistency, Dispute Signals (including its resolved-versus-
+  active breakdown), Fiat Breakdown, Payment Method Breakdown, and Premium Signal (including its
+  dispersion figure), all as defined in the Phase 1 metric spec. Rating Signals is not part of this
+  list: Phase 1 discarded it entirely, since kind `38384` cannot support a node-level metric.
 - **FR-007**: Bond Policy MUST be shown as its own distinctly labeled block, separate from
   trade-history statistics, since it describes a node policy setting rather than a historical
   metric.
@@ -162,12 +177,24 @@ report contains the same 5 sections and content as the console mode, with no ANS
   a cross-node baseline MUST be presented with informative context (e.g., sample size) instead of
   an unsupported elevated/low/normal label, and no metric's plain-language translation may overstate
   or alter what the underlying data actually supports.
+- **FR-008b**: Every section and every metric shown in the report MUST carry enough labeling or
+  inline explanation that a trader can understand what it means and how it was computed without
+  leaving the tool or consulting external documentation, per the Summer of Bitcoin proposal's Phase
+  2 commitment to "provide documentation explaining each section and the meaning of every metric."
+  This is a property of the report's own structure and content (what this spec defines), not of a
+  separate `--help` flag or user manual (Phase 3's concern, see Assumptions). A metric name alone
+  (for example, a bare "Premium Signal" label) does not satisfy this requirement; the report MUST
+  also convey, at minimum, what the number represents and, where relevant, what direction is
+  favorable, consistent with each metric's "Meaning" and "Unit and direction" as defined in the
+  Phase 1 metric spec and its companion decisions document.
 
 **Output format**
 
 - **FR-009**: System MUST support 3 output formats: a human-readable console format (sectioned,
-  tabular, colored), a plain-text format (same structure, no color or decoration), and a JSON
-  format (complete machine-readable structure).
+  tabular, colored), a plain-text format (the same 5 sections and content as console, no color or
+  decoration, with each metric rendered as one `label: value` line rather than in a decorative
+  table, so the output stays easy to grep or parse line by line in scripts), and a JSON format
+  (complete machine-readable structure).
 - **FR-010**: System MUST select a sensible default output format based on execution context
   (e.g., whether output is going to an interactive terminal versus being redirected or piped),
   while always allowing an explicit override of that default.
@@ -198,9 +225,12 @@ report contains the same 5 sections and content as the console mode, with no ANS
   noise.
 - **FR-018**: Numeric values (sats, fiat amounts) MUST be formatted with thousands separators for
   readability.
-- **FR-019**: The tool MUST return exit code zero on success and a distinct, documented exit code
-  for each main failure case (general error, invalid public key, unreachable relay, zero events
-  found), so calling scripts can react to each case individually.
+- **FR-019**: The tool MUST return exit code `0` on success, and a distinct, documented exit code
+  for each main failure case, so calling scripts can react to each case individually: `1` for a
+  general error, `2` for an invalid public key, `3` for an unreachable relay (all configured relays
+  failed; per the constitution's graceful-degradation principle, a single failed relay among
+  several that succeeded is not this case), and `4` for zero events found across all successfully
+  queried relays.
 
 ### Key Entities
 
@@ -234,13 +264,19 @@ report contains the same 5 sections and content as the console mode, with no ANS
   tool erroring or silently omitting sections.
 - **SC-005**: A user who cannot perceive color, or who reads the plain-text format, can still
   identify every risk or warning signal from textual markers alone, without relying on color.
+- **SC-006**: A trader with no prior knowledge of Mostro's reputation metrics can read any section
+  of the report and understand what each metric measures and, where relevant, which direction is
+  favorable, without leaving the tool or consulting a separate manual, per FR-008b.
 
 ## Assumptions
 
 - The exact CLI flags or arguments used to choose bucket granularity or force a specific output
   format are Phase 3's concern (CLI parameters and user manual), not part of this spec. This also
-  includes shell completion generation (bash/zsh/fish), a CLI-ergonomics item raised during this
-  session that belongs with Phase 3's CLI parameter work, not this report-structure spec.
+  includes shell completion generation (bash/zsh/fish), the `--help` flag's own text, and the
+  separate user manual document (setup, parameters, constraints, common use cases), all of which
+  belong with Phase 3's CLI-parameter work per the Summer of Bitcoin proposal's own phase split, not
+  this report-structure spec. FR-008b's requirement that the report explain its own sections and
+  metrics is distinct from and does not substitute for that Phase 3 work.
 - "Sensible default based on context" follows the common convention of detecting whether output is
   going to an interactive terminal versus being redirected or piped; the precise implementation
   mechanism is deferred to the planning phase.

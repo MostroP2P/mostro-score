@@ -48,3 +48,18 @@
   FR-012a; recommendations-block baseline honesty, FR-008a), plus one silent fix pulled from the
   source gist without a formal question (FR-005a, large-row-count warning). Checklist state
   unchanged, still 16/16 passing.
+- Reconciliation pass (2026-07-24): this spec was drafted before Phase 1's spec.md was finalized,
+  which then discarded Rating Signals entirely. Removed all Rating Signals references from FR-006
+  and Clarifications; added FR-006 mention of Cumulative Performance as its own line (was only
+  implicit in the activity grid); fixed concrete exit codes in FR-019 (0/1/2/3/4) instead of
+  leaving them unspecified; added dev-fee/order/unique-event totals to FR-003; reconciled FR-009's
+  plain-text format with the source gist's "one record per line" characterization without
+  contradicting the already-established "same 5 sections" framing; added FR-008b (every section
+  and metric must carry enough inline explanation for a trader to understand it without leaving
+  the tool, per the Summer of Bitcoin proposal's explicit Phase 2 text) with a matching acceptance
+  scenario and SC-006, since it had none before; dropped a stale "no ratings" Edge Case example.
+  `/speckit-clarify` re-run against the fully updated spec found no further critical ambiguities
+  worth a formal question; the remaining loose ends (exact row-count thresholds, JSON field-naming
+  convention, locale-aware number formatting) are legitimately plan-level "how" decisions, not
+  spec-level gaps, consistent with this spec's own established philosophy. Checklist re-validated
+  item by item against the fully updated spec: no regressions, still 16/16 passing.
