@@ -48,7 +48,9 @@ accurate on their own): FR-007 (Rating Signals) is discarded and does not exist 
 requirement in `spec.md`. Where earlier notes below mention "review-coverage formula (FR-007)" or
 similar, they describe an earlier point in this session, before FR-007 was found unfixable and
 removed; the final, authoritative state is described in the last two entries of this log and in
-FR-007's own rejection entry in `spec.md`.
+FR-007's own rejection entry in `spec.md`. FR-011's `premium_deviation` (a per-order figure) was
+also dropped later (2026-07-24, during Phase 3 work) — see spec.md Clarifications; FR-011 now
+reports only the node-level `premium_baseline`/`premium_dispersion` pair. Checklist still 16/16.
 
 - All checklist items pass. FR-012 (Bond Policy data source) was resolved: `bond_enabled` tag on
   the node's kind `38385` instance status event, confirmed against the source gist analysis.
