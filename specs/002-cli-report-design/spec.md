@@ -84,8 +84,8 @@ with partial or missing data.
 1. **Given** a node with complete trade history, **When** the JSON output is requested, **Then**
    the JSON contains every metric defined in the Phase 1 spec, structured consistently.
 2. **Given** a node with zero successful trades, **When** the JSON output is requested, **Then**
-   metrics that cannot be computed are represented explicitly (e.g., `null` or a not-applicable
-   marker), not silently omitted from the JSON structure.
+   metrics that cannot be computed are represented explicitly as JSON `null` (per FR-012), not
+   silently omitted from the JSON structure.
 
 ---
 
@@ -216,8 +216,13 @@ report contains the same 5 sections and content as the console mode, with no ANS
 - **FR-007**: Bond Policy MUST be shown as its own distinctly labeled block within the general
   statistics section (not a 6th top-level section; FR-001 fixes the report at 5), visually
   separated from the trade-history metrics list, since it describes a node policy setting rather
-  than a historical metric. In JSON output, this MUST correspond to its own distinctly named field
-  or sub-object within the general-statistics structure, not merged into the trade-history metrics
+  than a historical metric. Its value MUST be derived exactly as Phase 1's FR-012 defines: the
+  node's kind `38385` instance status event whose `d` tag equals the node's own pubkey, selecting
+  the highest-`created_at` event within that set (ties broken by the lexicographically greatest
+  event id), then reading `bond_enabled` from it. When no valid such event exists, or
+  `bond_enabled` is missing or not parseable as `true`/`false`, the report MUST show unknown rather
+  than `false`. In JSON output, this MUST correspond to its own distinctly named field or
+  sub-object within the general-statistics structure, not merged into the trade-history metrics
   object.
 - **FR-008**: The recommendations block MUST synthesize the metrics above into plain-language
   guidance, and MUST explicitly state that there is nothing notable to flag when no signal warrants
@@ -254,10 +259,17 @@ report contains the same 5 sections and content as the console mode, with no ANS
   constitution's graceful-degradation principle. Malformed or incomplete individual events are not
   an error condition under this requirement: per Phase 1's FR-013, they MUST be silently excluded
   from computation without surfacing a message, as long as enough valid data remains to produce a
-  report.
+  report. In JSON output, a fatal error MUST be its own distinct envelope, not a report-shaped
+  document with the affected fields left null: a schema-version field, a stable machine-readable
+  error code (one per FR-019 exit code), a human-readable message, and, for relay-related failures,
+  which relay(s) were involved.
 - **FR-012**: JSON output MUST include a stable, complete set of fields regardless of whether the
-  underlying node has enough data to compute every metric, representing missing or not-applicable
-  metrics explicitly rather than omitting keys.
+  underlying node has enough data to compute every metric. Every metric key MUST always be present.
+  For a numeric metric (per FR-018), a computed value MUST be a JSON number and a missing or
+  not-applicable value MUST be JSON `null`, never a formatted placeholder string such as `"N/A"`,
+  so a consumer can distinguish "not applicable" from "zero" without string matching. Non-numeric
+  metrics (for example Bond Policy's unknown state, per FR-007) keep whichever explicit
+  representation their own requirement defines.
 - **FR-012a**: JSON output MUST include an explicit schema version field, so external consumers
   can detect a future shape change instead of assuming the structure is implicitly stable.
 
