@@ -1,19 +1,14 @@
+mod fetch;
 mod models;
 
 use clap::Parser;
 use colored::Colorize;
+use fetch::client::{EventSource, RelayEventSource};
 use models::core::partition_by_z_y_tag;
-use models::dedup::dedup_orders_by_d_tag;
-use models::dev_fee::select_oldest_dev_fee_event;
-use mostro_core::prelude::Status as OrderStatus;
+use models::dev_fee::aggregate_dev_fee_events;
+use models::order::aggregate_order_events;
 use nostr_sdk::prelude::*;
-use nostr_sdk::{Alphabet, SingleLetterTag};
-use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
-use std::time::Duration;
-
-/// Dev-fee payment event kind (not in mostro-core)
-const DEV_FEE_EVENT_KIND: u16 = 8383;
+use std::collections::HashSet;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -38,59 +33,6 @@ struct MostroStats {
     trade_amounts: Vec<u64>,
     // Rolling window data (Section 4.2.2)
     successful_trade_timestamps: Vec<i64>,
-}
-
-/// Seam introduced by PR 1 Step 0: the event-fetching surface `run()` depends on, so
-/// production code and tests can supply different implementations (real relays vs. a
-/// fixture replaying a captured event set). A generic bound, not `&dyn EventSource`,
-/// since only two implementations exist and stable async-fn-in-traits needs no boxing
-/// for static dispatch.
-trait EventSource {
-    async fn fetch(&self, public_key: PublicKey) -> Result<Vec<Event>>;
-}
-
-/// Production `EventSource`: connects to the configured relays and issues the same two
-/// filters `main()` used to build inline (dev-fee events, then order events), chaining
-/// both result sets into one `Vec<Event>` exactly as before.
-struct RelayEventSource {
-    relays: Vec<String>,
-}
-
-impl EventSource for RelayEventSource {
-    async fn fetch(&self, public_key: PublicKey) -> Result<Vec<Event>> {
-        let client = Client::new(Keys::generate());
-
-        for relay in &self.relays {
-            client.add_relay(relay.as_str()).await?;
-        }
-
-        client.connect().await;
-
-        // Filter 1: Development Fee Events (z=dev-fee-payment, y=mostro)
-        let dev_fee_filter = Filter::new()
-            .kind(Kind::Custom(DEV_FEE_EVENT_KIND))
-            .author(public_key)
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "dev-fee-payment")
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::Y), "mostro");
-
-        // Filter 2: Order Events (z=order)
-        let order_filter = Filter::new()
-            .kind(Kind::PeerToPeerOrder)
-            .author(public_key)
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "order");
-
-        let dev_fee_events_result = client
-            .fetch_events(dev_fee_filter, Duration::from_secs(10))
-            .await?;
-        let order_events_result = client
-            .fetch_events(order_filter, Duration::from_secs(10))
-            .await?;
-
-        Ok(dev_fee_events_result
-            .into_iter()
-            .chain(order_events_result.into_iter())
-            .collect())
-    }
 }
 
 /// PR 1 Step 0: today's `main()` body, extracted verbatim into an ordinary (not
@@ -148,18 +90,16 @@ async fn run<E: EventSource>(
     // Process dev fee events to get instance start timestamp
     let mut stats = MostroStats::default();
 
-    let dev_fee_count = dev_fee_events.len();
-    if let Some(oldest_dev_fee) = select_oldest_dev_fee_event(dev_fee_events) {
-        stats.first_dev_fee_ts = Some(oldest_dev_fee.created_at.as_u64() as i64);
-
+    let dev_fee_aggregate = aggregate_dev_fee_events(dev_fee_events);
+    stats.first_dev_fee_ts = dev_fee_aggregate.first_dev_fee_ts;
+    if let Some(first_dev_fee_ts) = dev_fee_aggregate.first_dev_fee_ts {
         writeln!(out, "\n=== MOSTRO TRADING ACTIVITY ===")?;
         writeln!(
             out,
             "First dev fee payment: {}",
-            chrono::DateTime::from_timestamp(oldest_dev_fee.created_at.as_u64() as i64, 0)
-                .unwrap_or_default()
+            chrono::DateTime::from_timestamp(first_dev_fee_ts, 0).unwrap_or_default()
         )?;
-        writeln!(out, "Total dev fee events: {}", dev_fee_count)?;
+        writeln!(out, "Total dev fee events: {}", dev_fee_aggregate.count)?;
         writeln!(out, "================================\n")?;
     } else {
         writeln!(
@@ -173,100 +113,36 @@ async fn run<E: EventSource>(
     }
 
     // 5. Analyze orders
-    stats.first_order_ts = i64::MAX;
-
-    // Debug tracking
-    let total_order_count = order_events.len();
-    let mut s_tag_distribution: HashMap<String, usize> = HashMap::new();
-
-    // We need to deduplicate orders because Mostro updates the same order (same 'd' tag) multiple times.
-    // We care about the *latest* state of each order.
-    let mut pending_dedup_events: Vec<Event> = Vec::new();
-
-    for event in order_events {
-        // Track order time range
-        if (event.created_at.as_u64() as i64) < stats.first_order_ts {
-            stats.first_order_ts = event.created_at.as_u64() as i64;
-        }
-        if (event.created_at.as_u64() as i64) > stats.last_order_ts {
-            stats.last_order_ts = event.created_at.as_u64() as i64;
-        }
-
-        // Track status distribution for all fetched events (all are orders now)
-        let s_tag = event
-            .tags
-            .iter()
-            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("s"));
-        let s_value = s_tag
-            .and_then(|t| t.as_slice().get(1))
-            .map(|s| s.to_string());
-        match &s_value {
-            Some(val) => {
-                *s_tag_distribution.entry(val.clone()).or_insert(0) += 1;
-            }
-            None => {
-                *s_tag_distribution
-                    .entry("(missing)".to_string())
-                    .or_insert(0) += 1;
-            }
-        }
-
-        pending_dedup_events.push(event);
-    }
-
-    let orders_map = dedup_orders_by_d_tag(pending_dedup_events);
+    let order_aggregate = aggregate_order_events(order_events);
+    stats.first_order_ts = order_aggregate.first_order_ts;
+    stats.last_order_ts = order_aggregate.last_order_ts;
+    stats.successful_orders = order_aggregate.successful_orders;
+    stats.total_volume_sats = order_aggregate.total_volume_sats;
+    stats.trade_amounts = order_aggregate.trade_amounts;
+    stats.successful_trade_timestamps = order_aggregate.successful_trade_timestamps;
 
     // Print debug information
     writeln!(out, "\n=== DEBUG INFORMATION ===")?;
-    writeln!(out, "Total order events fetched: {}", total_order_count)?;
+    writeln!(
+        out,
+        "Total order events fetched: {}",
+        order_aggregate.total_order_count
+    )?;
     writeln!(
         out,
         "Unique orders after deduplication: {}",
-        orders_map.len()
+        order_aggregate.unique_order_count
     )?;
 
-    if !s_tag_distribution.is_empty() {
+    if !order_aggregate.s_tag_distribution.is_empty() {
         writeln!(out, "\nStatus distribution for order events (s tag):")?;
-        for (status, count) in s_tag_distribution.iter() {
+        for (status, count) in order_aggregate.s_tag_distribution.iter() {
             writeln!(out, "  s='{}': {} events", status, count)?;
         }
     } else {
         writeln!(out, "\nNo order events found with s tags")?;
     }
     writeln!(out, "========================\n")?;
-
-    // Process the final state of unique orders
-    for (_order_id, event) in orders_map {
-        // Check Status 's'
-        let s_tag = event
-            .tags
-            .iter()
-            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("s"));
-        let status_str = s_tag
-            .and_then(|t| t.as_slice().get(1))
-            .map(|s| s.as_str())
-            .unwrap_or("unknown");
-
-        if OrderStatus::from_str(status_str) == Ok(OrderStatus::Success) {
-            stats.successful_orders += 1;
-            let event_ts = event.created_at.as_u64() as i64;
-            stats.successful_trade_timestamps.push(event_ts);
-
-            // Get Amount 'amt' (sats)
-            if let Some(amt_tag) = event
-                .tags
-                .iter()
-                .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("amt"))
-            {
-                if let Some(amt_str) = amt_tag.as_slice().get(1) {
-                    if let Ok(amount) = amt_str.parse::<u64>() {
-                        stats.total_volume_sats += amount;
-                        stats.trade_amounts.push(amount);
-                    }
-                }
-            }
-        }
-    }
 
     // 6. Output Report
     let now = now().timestamp();

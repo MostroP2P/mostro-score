@@ -1,6 +1,7 @@
 pub mod core;
 pub mod dedup;
 pub mod dev_fee;
+pub mod order;
 
 /// Shared test-only event-construction helper, used by every `models` submodule's
 /// characterization tests to build hand-crafted, signed `Event`s without a real relay

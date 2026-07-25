@@ -12,6 +12,27 @@ pub fn select_oldest_dev_fee_event(mut dev_fee_events: Vec<Event>) -> Option<Eve
     Some(dev_fee_events[0].clone())
 }
 
+/// PR 1 Step C: per-kind dev-fee aggregation — the total fetched count plus the
+/// longevity anchor timestamp (the oldest dev-fee event's `created_at`), verbatim from
+/// the wrapped function body's dev-fee handling. Presentation (the "MOSTRO TRADING
+/// ACTIVITY" block and the no-dev-fee warning) stays in `report/render/console.rs`
+/// (T037); this function only computes the values that block prints.
+pub struct DevFeeAggregate {
+    pub count: usize,
+    pub first_dev_fee_ts: Option<i64>,
+}
+
+pub fn aggregate_dev_fee_events(dev_fee_events: Vec<Event>) -> DevFeeAggregate {
+    let count = dev_fee_events.len();
+    let first_dev_fee_ts =
+        select_oldest_dev_fee_event(dev_fee_events).map(|e| e.created_at.as_u64() as i64);
+
+    DevFeeAggregate {
+        count,
+        first_dev_fee_ts,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
