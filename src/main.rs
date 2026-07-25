@@ -4,13 +4,12 @@ mod report;
 mod stats;
 
 use clap::Parser;
-use colored::Colorize;
 use fetch::client::{EventSource, RelayEventSource};
 use models::core::partition_by_z_y_tag;
 use models::dev_fee::aggregate_dev_fee_events;
 use models::order::aggregate_order_events;
 use nostr_sdk::prelude::*;
-use report::format::format_relative_time;
+use report::render::console;
 use stats::lifecycle::{compute_activity_consistency, compute_rolling_windows};
 use stats::trade_size::compute_trade_stats;
 
@@ -55,98 +54,35 @@ async fn run<E: EventSource>(
 ) -> Result<()> {
     let _ = &err; // no diagnostic routing to `err` yet — that is PR 2's job.
 
-    writeln!(out, "Analyzing Mostro Node: {}", public_key.to_bech32()?)?;
-    writeln!(out, "Hex: {}", public_key.to_hex())?;
-
-    writeln!(
-        out,
-        "Connected to relays. Fetching history... (this might take a moment)"
-    )?;
+    console::render_identity_header(out, public_key)?;
+    console::render_connecting_message(out)?;
 
     // 4. Fetch Both Event Types
     let events: Vec<Event> = event_source.fetch(public_key).await?;
 
-    writeln!(out, "Fetched {} events. Analyzing...", events.len())?;
-
-    // Print sample events to understand structure
-    writeln!(out, "\n=== SAMPLE EVENTS (first 3) ===")?;
-    for (idx, event) in events.iter().take(3).enumerate() {
-        writeln!(out, "\nEvent #{}", idx + 1)?;
-        writeln!(out, "  ID: {}", event.id)?;
-        writeln!(out, "  created_at: {}", event.created_at)?;
-        writeln!(out, "  Tags:")?;
-        for tag in event.tags.iter() {
-            writeln!(out, "    {:?}", tag.as_slice())?;
-        }
-    }
-    writeln!(out, "==============================\n")?;
+    console::render_fetched_count(out, events.len())?;
+    console::render_sample_events(out, &events)?;
 
     // Separate dev fee events and order events
     let (dev_fee_events, order_events) = partition_by_z_y_tag(events);
-
-    writeln!(
-        out,
-        "Found {} dev fee events and {} order events",
-        dev_fee_events.len(),
-        order_events.len()
-    )?;
+    console::render_partition_summary(out, dev_fee_events.len(), order_events.len())?;
 
     // Process dev fee events to get instance start timestamp
     let mut stats = MostroStats::default();
 
     let dev_fee_aggregate = aggregate_dev_fee_events(dev_fee_events);
     stats.first_dev_fee_ts = dev_fee_aggregate.first_dev_fee_ts;
-    if let Some(first_dev_fee_ts) = dev_fee_aggregate.first_dev_fee_ts {
-        writeln!(out, "\n=== MOSTRO TRADING ACTIVITY ===")?;
-        writeln!(
-            out,
-            "First dev fee payment: {}",
-            chrono::DateTime::from_timestamp(first_dev_fee_ts, 0).unwrap_or_default()
-        )?;
-        writeln!(out, "Total dev fee events: {}", dev_fee_aggregate.count)?;
-        writeln!(out, "================================\n")?;
-    } else {
-        writeln!(
-            out,
-            "\n⚠ Warning: No dev fee events found (z=dev-fee-payment, y=mostro)."
-        )?;
-        writeln!(
-            out,
-            "Falling back to order timestamps for days_active calculation.\n"
-        )?;
-    }
+    console::render_dev_fee_section(out, &dev_fee_aggregate)?;
 
     // 5. Analyze orders
     let order_aggregate = aggregate_order_events(order_events);
+    console::render_order_debug_section(out, &order_aggregate)?;
     stats.first_order_ts = order_aggregate.first_order_ts;
     stats.last_order_ts = order_aggregate.last_order_ts;
     stats.successful_orders = order_aggregate.successful_orders;
     stats.total_volume_sats = order_aggregate.total_volume_sats;
     stats.trade_amounts = order_aggregate.trade_amounts;
     stats.successful_trade_timestamps = order_aggregate.successful_trade_timestamps;
-
-    // Print debug information
-    writeln!(out, "\n=== DEBUG INFORMATION ===")?;
-    writeln!(
-        out,
-        "Total order events fetched: {}",
-        order_aggregate.total_order_count
-    )?;
-    writeln!(
-        out,
-        "Unique orders after deduplication: {}",
-        order_aggregate.unique_order_count
-    )?;
-
-    if !order_aggregate.s_tag_distribution.is_empty() {
-        writeln!(out, "\nStatus distribution for order events (s tag):")?;
-        for (status, count) in order_aggregate.s_tag_distribution.iter() {
-            writeln!(out, "  s='{}': {} events", status, count)?;
-        }
-    } else {
-        writeln!(out, "\nNo order events found with s tags")?;
-    }
-    writeln!(out, "========================\n")?;
 
     // 6. Output Report
     let now = now().timestamp();
@@ -160,7 +96,7 @@ async fn run<E: EventSource>(
         None => {
             // Fallback: use order timestamps
             if stats.last_order_ts == 0 {
-                writeln!(out, "No events found.")?;
+                console::render_no_events_found(out)?;
                 return Ok(());
             }
             let days = (stats.last_order_ts - stats.first_order_ts) as f64 / 86400.0;
@@ -181,163 +117,26 @@ async fn run<E: EventSource>(
         0
     };
 
-    // Header
-    writeln!(
+    console::render_report_header(out, public_key)?;
+    console::render_longevity_section(out, days_active, instance_started)?;
+    console::render_liveness_section(out, stats.last_order_ts, now, days_since_last)?;
+    console::render_recent_activity_section(out, trades_7d, trades_30d, trades_90d)?;
+    console::render_activity_consistency_section(out, active_days_30d, max_inactive_gap)?;
+    console::render_cumulative_performance_section(
         out,
-        "\n{}",
-        "========================================".cyan()
-    )?;
-    writeln!(
-        out,
-        "{}",
-        "     MOSTRO NODE REPUTATION REPORT     ".cyan().bold()
-    )?;
-    writeln!(out, "{}", "========================================".cyan())?;
-    writeln!(out, "Node: {}", public_key.to_bech32()?)?;
-
-    // Section: Longevity (4.1.1)
-    writeln!(
-        out,
-        "{}",
-        "----------------------------------------".dimmed()
-    )?;
-    writeln!(out, "{}", "LONGEVITY".bold())?;
-    if let Some(start_ts) = instance_started {
-        writeln!(
-            out,
-            "  First Activity:  {}",
-            chrono::DateTime::from_timestamp(start_ts, 0).unwrap_or_default()
-        )?;
-        writeln!(out, "  Days Active:     {:.1} days", days_active)?;
-    } else {
-        writeln!(
-            out,
-            "  {} Days Active:     {:.1} days (estimated from orders)",
-            "⚠".yellow(),
-            days_active
-        )?;
-    }
-
-    // Section: Liveness (4.2.1) - PROMINENT per spec
-    writeln!(
-        out,
-        "{}",
-        "----------------------------------------".dimmed()
-    )?;
-    writeln!(out, "{}", "LIVENESS".bold())?;
-    if stats.last_order_ts > 0 {
-        let relative_time = format_relative_time(stats.last_order_ts, now);
-        let last_trade_display = format!(
-            "  Last Trade:      {} ({})",
-            chrono::DateTime::from_timestamp(stats.last_order_ts, 0).unwrap_or_default(),
-            relative_time
-        );
-
-        // Color based on activity status
-        if days_since_last > 30 {
-            writeln!(out, "{}", last_trade_display.red())?;
-            writeln!(
-                out,
-                "  Days Since Last: {} {}",
-                days_since_last,
-                "INACTIVE".red().bold()
-            )?;
-        } else if days_since_last > 7 {
-            writeln!(out, "{}", last_trade_display.yellow())?;
-            writeln!(
-                out,
-                "  Days Since Last: {} {}",
-                days_since_last,
-                "LOW ACTIVITY".yellow()
-            )?;
-        } else {
-            writeln!(out, "{}", last_trade_display.green())?;
-            writeln!(
-                out,
-                "  Days Since Last: {} {}",
-                days_since_last,
-                "ACTIVE".green()
-            )?;
-        }
-    } else {
-        writeln!(out, "  {} No successful trades recorded", "⚠".yellow())?;
-    }
-
-    // Section: Rolling Windows (4.2.2)
-    writeln!(
-        out,
-        "{}",
-        "----------------------------------------".dimmed()
-    )?;
-    writeln!(out, "{}", "RECENT ACTIVITY".bold())?;
-    writeln!(out, "  Last 7 days:     {} trades", trades_7d)?;
-    writeln!(out, "  Last 30 days:    {} trades", trades_30d)?;
-    writeln!(out, "  Last 90 days:    {} trades", trades_90d)?;
-
-    // Section: Activity Consistency (4.2.3)
-    writeln!(
-        out,
-        "{}",
-        "----------------------------------------".dimmed()
-    )?;
-    writeln!(out, "{}", "ACTIVITY CONSISTENCY (30 days)".bold())?;
-    writeln!(out, "  Active Days:     {}/30", active_days_30d)?;
-    if max_inactive_gap > 7 {
-        writeln!(
-            out,
-            "  Max Inactive Gap: {} days {}",
-            max_inactive_gap,
-            "⚠".yellow()
-        )?;
-    } else {
-        writeln!(out, "  Max Inactive Gap: {} days", max_inactive_gap)?;
-    }
-
-    // Section: Cumulative Performance (4.1.2)
-    writeln!(
-        out,
-        "{}",
-        "----------------------------------------".dimmed()
-    )?;
-    writeln!(out, "{}", "CUMULATIVE PERFORMANCE".bold())?;
-    writeln!(out, "  Successful Trades: {}", stats.successful_orders)?;
-    writeln!(
-        out,
-        "  Total Volume:      {} sats ({:.4} BTC)",
+        stats.successful_orders,
         stats.total_volume_sats,
-        stats.total_volume_sats as f64 / 100_000_000.0
     )?;
-
-    // Section: Trade Statistics (4.1.3)
-    if !stats.trade_amounts.is_empty() {
-        writeln!(
-            out,
-            "{}",
-            "----------------------------------------".dimmed()
-        )?;
-        writeln!(out, "{}", "TRADE STATISTICS".bold())?;
-        writeln!(out, "  Min Trade:       {} sats", min_trade)?;
-        writeln!(out, "  Max Trade:       {} sats", max_trade)?;
-        writeln!(out, "  Mean Trade:      {:.0} sats", mean_trade)?;
-        writeln!(out, "  Median Trade:    {} sats", median_trade)?;
-    }
-
-    // Trust Score
-    writeln!(
+    console::render_trade_statistics_section(
         out,
-        "{}",
-        "----------------------------------------".dimmed()
+        stats.trade_amounts.is_empty(),
+        min_trade,
+        max_trade,
+        mean_trade,
+        median_trade,
     )?;
     let score = stats::calculate_score(&stats, days_active);
-    let score_display = format!("TRUST SCORE:       {}/100", score);
-    if score >= 70 {
-        writeln!(out, "{}", score_display.green().bold())?;
-    } else if score >= 40 {
-        writeln!(out, "{}", score_display.yellow().bold())?;
-    } else {
-        writeln!(out, "{}", score_display.red().bold())?;
-    }
-    writeln!(out, "{}", "========================================".cyan())?;
+    console::render_trust_score_section(out, score)?;
 
     Ok(())
 }
