@@ -74,12 +74,12 @@ PR 1 cannot be split further without breaking its own safety net: every step (wr
 
 ### Step B — Extract a seam, test, then move
 
-- [ ] T017 Extract order dedup-by-`d`-tag into a named function in `src/main.rs`; re-run T011's golden test.
-- [ ] T018 Characterization test for the extracted dedup function.
-- [ ] T019 Extract dev-fee event selection into a named function in `src/main.rs`; re-run T011's golden test.
-- [ ] T020 Characterization test for the extracted dev-fee selection function.
-- [ ] T021 Extract `z`/`y` tag partitioning into a named function in `src/main.rs`; re-run T011's golden test.
-- [ ] T022 Characterization test for the extracted `z`/`y` partitioning function.
+- [x] T017 Extract order dedup-by-`d`-tag into a named function in `src/main.rs`; re-run T011's golden test.
+- [x] T018 Characterization test for the extracted dedup function.
+- [x] T019 Extract dev-fee event selection into a named function in `src/main.rs`; re-run T011's golden test.
+- [x] T020 Characterization test for the extracted dev-fee selection function.
+- [x] T021 Extract `z`/`y` tag partitioning into a named function in `src/main.rs`; re-run T011's golden test.
+- [x] T022 Characterization test for the extracted `z`/`y` partitioning function.
 - [ ] T023 Move the dedup function + test to `src/models/dedup.rs` (pure file move).
 - [ ] T024 Move the dev-fee selection function + test to `src/models/dev_fee.rs` (pure file move).
 - [ ] T025 Move the `z`/`y` partitioning function + test to `src/models/core.rs` (pure file move).
