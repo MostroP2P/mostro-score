@@ -56,10 +56,15 @@ pub fn render_partition_summary(
 
 /// PR 2 (T070/T071): the success case is report content (`out`); the "no dev fee events"
 /// branch is a diagnostic warning about data availability, not a report figure (`err`).
+/// PR 4: `has_qualifying_orders` distinguishes an actual fallback (orders exist) from a
+/// node with neither anchor at all (e.g. dispute/instance-status-only) — claiming a
+/// fallback to "order timestamps" when there are no orders to fall back to would be
+/// false diagnostic output.
 pub fn render_dev_fee_section(
     out: &mut impl std::io::Write,
     err: &mut impl std::io::Write,
     aggregate: &DevFeeAggregate,
+    has_qualifying_orders: bool,
 ) -> Result<()> {
     if let Some(first_dev_fee_ts) = aggregate.first_dev_fee_ts {
         writeln!(out, "\n=== MOSTRO TRADING ACTIVITY ===")?;
@@ -75,10 +80,17 @@ pub fn render_dev_fee_section(
             err,
             "\n⚠ Warning: No dev fee events found (z=dev-fee-payment, y=mostro)."
         )?;
-        writeln!(
-            err,
-            "Falling back to order timestamps for days_active calculation.\n"
-        )?;
+        if has_qualifying_orders {
+            writeln!(
+                err,
+                "Falling back to order timestamps for days_active calculation.\n"
+            )?;
+        } else {
+            writeln!(
+                err,
+                "No successful orders either; days_active is not applicable.\n"
+            )?;
+        }
     }
     Ok(())
 }
@@ -116,15 +128,6 @@ pub fn render_order_debug_section(
     Ok(())
 }
 
-/// PR 3: scoped to what this branch actually knows is empty — dev-fee and order history
-/// — not "no events found" in general, since a node reaching this branch may still have
-/// usable dispute or instance-status data (PR 3's exit-code-4 gate already confirmed
-/// that, or `run()` would have returned `AppError::NoUsableEvents` before this point).
-pub fn render_no_events_found(out: &mut impl std::io::Write) -> Result<()> {
-    writeln!(out, "No dev fee or order history found for this node.")?;
-    Ok(())
-}
-
 pub fn render_report_header(out: &mut impl std::io::Write, public_key: PublicKey) -> Result<()> {
     writeln!(
         out,
@@ -143,7 +146,7 @@ pub fn render_report_header(out: &mut impl std::io::Write, public_key: PublicKey
 
 pub fn render_longevity_section(
     out: &mut impl std::io::Write,
-    days_active: f64,
+    days_active: Option<f64>,
     instance_started: Option<i64>,
 ) -> Result<()> {
     writeln!(
@@ -152,20 +155,30 @@ pub fn render_longevity_section(
         "----------------------------------------".dimmed()
     )?;
     writeln!(out, "{}", "LONGEVITY".bold())?;
-    if let Some(start_ts) = instance_started {
-        writeln!(
-            out,
-            "  First Activity:  {}",
-            chrono::DateTime::from_timestamp(start_ts, 0).unwrap_or_default()
-        )?;
-        writeln!(out, "  Days Active:     {:.1} days", days_active)?;
-    } else {
-        writeln!(
-            out,
-            "  {} Days Active:     {:.1} days (estimated from orders)",
-            "⚠".yellow(),
-            days_active
-        )?;
+    match (instance_started, days_active) {
+        (Some(start_ts), Some(days)) => {
+            writeln!(
+                out,
+                "  First Activity:  {}",
+                chrono::DateTime::from_timestamp(start_ts, 0).unwrap_or_default()
+            )?;
+            writeln!(out, "  Days Active:     {:.1} days", days)?;
+        }
+        (None, Some(days)) => {
+            writeln!(
+                out,
+                "  {} Days Active:     {:.1} days (estimated from orders)",
+                "⚠".yellow(),
+                days
+            )?;
+        }
+        (_, None) => {
+            writeln!(
+                out,
+                "  {} Days Active:     N/A (no dev-fee anchor or successful orders)",
+                "⚠".yellow()
+            )?;
+        }
     }
     Ok(())
 }
@@ -173,9 +186,9 @@ pub fn render_longevity_section(
 #[allow(clippy::too_many_arguments)]
 pub fn render_liveness_section(
     out: &mut impl std::io::Write,
-    last_order_ts: i64,
+    last_successful_trade_at: Option<i64>,
     now: i64,
-    days_since_last: u64,
+    days_since_last: Option<u64>,
 ) -> Result<()> {
     writeln!(
         out,
@@ -183,11 +196,13 @@ pub fn render_liveness_section(
         "----------------------------------------".dimmed()
     )?;
     writeln!(out, "{}", "LIVENESS".bold())?;
-    if last_order_ts > 0 {
-        let relative_time = format_relative_time(last_order_ts, now);
+    if let (Some(last_successful_trade_at), Some(days_since_last)) =
+        (last_successful_trade_at, days_since_last)
+    {
+        let relative_time = format_relative_time(last_successful_trade_at, now);
         let last_trade_display = format!(
             "  Last Trade:      {} ({})",
-            chrono::DateTime::from_timestamp(last_order_ts, 0).unwrap_or_default(),
+            chrono::DateTime::from_timestamp(last_successful_trade_at, 0).unwrap_or_default(),
             relative_time
         );
 
@@ -290,23 +305,31 @@ pub fn render_cumulative_performance_section(
 #[allow(clippy::too_many_arguments)]
 pub fn render_trade_statistics_section(
     out: &mut impl std::io::Write,
-    trade_amounts_is_empty: bool,
-    min_trade: u64,
-    max_trade: u64,
-    mean_trade: f64,
-    median_trade: u64,
+    min_trade: Option<u64>,
+    max_trade: Option<u64>,
+    mean_trade: Option<f64>,
+    median_trade: Option<f64>,
 ) -> Result<()> {
-    if !trade_amounts_is_empty {
-        writeln!(
-            out,
-            "{}",
-            "----------------------------------------".dimmed()
-        )?;
-        writeln!(out, "{}", "TRADE STATISTICS".bold())?;
-        writeln!(out, "  Min Trade:       {} sats", min_trade)?;
-        writeln!(out, "  Max Trade:       {} sats", max_trade)?;
-        writeln!(out, "  Mean Trade:      {:.0} sats", mean_trade)?;
-        writeln!(out, "  Median Trade:    {} sats", median_trade)?;
+    writeln!(
+        out,
+        "{}",
+        "----------------------------------------".dimmed()
+    )?;
+    writeln!(out, "{}", "TRADE STATISTICS".bold())?;
+    match (min_trade, max_trade, mean_trade, median_trade) {
+        (Some(min_trade), Some(max_trade), Some(mean_trade), Some(median_trade)) => {
+            writeln!(out, "  Min Trade:       {} sats", min_trade)?;
+            writeln!(out, "  Max Trade:       {} sats", max_trade)?;
+            writeln!(out, "  Mean Trade:      {:.0} sats", mean_trade)?;
+            writeln!(out, "  Median Trade:    {:.1} sats", median_trade)?;
+        }
+        _ => {
+            writeln!(
+                out,
+                "  {} N/A (no successful orders with a parseable amount)",
+                "⚠".yellow()
+            )?;
+        }
     }
     Ok(())
 }
@@ -327,4 +350,65 @@ pub fn render_trust_score_section(out: &mut impl std::io::Write, score: u64) -> 
     }
     writeln!(out, "{}", "========================================".cyan())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rendered(f: impl FnOnce(&mut Vec<u8>) -> Result<()>) -> String {
+        let mut out: Vec<u8> = Vec::new();
+        f(&mut out).expect("render succeeds");
+        String::from_utf8(out).expect("valid utf8")
+    }
+
+    #[test]
+    fn render_longevity_section_shows_first_activity_when_dev_fee_anchor_present() {
+        let output = rendered(|out| render_longevity_section(out, Some(90.0), Some(1_700_000_000)));
+        assert!(output.contains("First Activity"));
+        assert!(output.contains("Days Active:     90.0 days"));
+    }
+
+    #[test]
+    fn render_longevity_section_shows_estimated_from_orders_when_only_fallback_available() {
+        let output = rendered(|out| render_longevity_section(out, Some(5.0), None));
+        assert!(output.contains("estimated from orders"));
+        assert!(!output.contains("First Activity"));
+    }
+
+    #[test]
+    fn render_longevity_section_shows_not_applicable_when_neither_anchor_exists() {
+        let output = rendered(|out| render_longevity_section(out, None, None));
+        assert!(output.contains("N/A"));
+    }
+
+    #[test]
+    fn render_liveness_section_shows_last_trade_when_present() {
+        let now = 1_700_100_000;
+        let output =
+            rendered(|out| render_liveness_section(out, Some(1_700_000_000), now, Some(1)));
+        assert!(output.contains("Last Trade"));
+    }
+
+    #[test]
+    fn render_liveness_section_reports_no_successful_trades_when_not_applicable() {
+        let output = rendered(|out| render_liveness_section(out, None, 1_700_000_000, None));
+        assert!(output.contains("No successful trades recorded"));
+    }
+
+    #[test]
+    fn render_trade_statistics_section_shows_values_when_all_present() {
+        let output = rendered(|out| {
+            render_trade_statistics_section(out, Some(10), Some(40), Some(25.0), Some(25.0))
+        });
+        assert!(output.contains("Min Trade:       10 sats"));
+        assert!(output.contains("Median Trade:    25.0 sats"));
+    }
+
+    #[test]
+    fn render_trade_statistics_section_shows_not_applicable_when_any_field_missing() {
+        let output = rendered(|out| render_trade_statistics_section(out, None, None, None, None));
+        assert!(output.contains("N/A"));
+        assert!(!output.contains("Min Trade"));
+    }
 }

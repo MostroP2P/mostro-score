@@ -352,12 +352,18 @@ async fn a_node_with_only_a_dispute_event_does_not_trigger_no_usable_events() {
     let mut out: Vec<u8> = Vec::new();
     let mut err: Vec<u8> = Vec::new();
 
-    let result = mostro_score::run(public_key, event_source, &now, &mut out, &mut err).await;
+    mostro_score::run(public_key, event_source, &now, &mut out, &mut err)
+        .await
+        .expect("a node with a dispute event but no dev-fee/order events must not exit 4");
 
-    assert!(
-        result.is_ok(),
-        "a node with a dispute event but no dev-fee/order events must not exit 4: {result:?}"
-    );
+    // The report must render in full with not-applicable markers, not be silently
+    // truncated: the removed early-return branch also returned Ok, so asserting only
+    // success cannot prove the rest of the report actually rendered.
+    let actual_out = String::from_utf8(out).unwrap();
+    assert!(actual_out.contains("LONGEVITY"));
+    assert!(actual_out.contains("LIVENESS"));
+    assert!(actual_out.contains("N/A"));
+    assert!(!actual_out.contains("No dev fee or order history found"));
 }
 
 /// T097: same as above, using an instance-status event as the node's only usable data.
@@ -387,12 +393,15 @@ async fn a_node_with_only_an_instance_status_event_does_not_trigger_no_usable_ev
     let mut out: Vec<u8> = Vec::new();
     let mut err: Vec<u8> = Vec::new();
 
-    let result = mostro_score::run(public_key, event_source, &now, &mut out, &mut err).await;
+    mostro_score::run(public_key, event_source, &now, &mut out, &mut err)
+        .await
+        .expect("a node with an instance-status event but no dev-fee/order events must not exit 4");
 
-    assert!(
-        result.is_ok(),
-        "a node with an instance-status event but no dev-fee/order events must not exit 4: {result:?}"
-    );
+    let actual_out = String::from_utf8(out).unwrap();
+    assert!(actual_out.contains("LONGEVITY"));
+    assert!(actual_out.contains("LIVENESS"));
+    assert!(actual_out.contains("N/A"));
+    assert!(!actual_out.contains("No dev fee or order history found"));
 }
 
 /// FR-014 regression: an event whose `created_at` is later than report-generation time

@@ -195,18 +195,18 @@ work they described no longer applies.
 
 **Depends on**: 3. Requirements: 001 FR-001..FR-005, FR-010.
 
-- [ ] T099 No golden fixture to retire (PR 2 removed `tests/fixtures/` and the golden/characterization test files — see `plan.md`'s PR 1 Amendment). Instead: failing test with 2-3 hand-built synthetic order events (no dev-fee event) asserting `days_active` spans first order to *now*, not first order to *last* order, per 001 FR-001.
-- [ ] T100 [RED] Failing tests for longevity, `days_active` spanning first order to **now** (fixes PR 1 deviation), in `src/stats/lifecycle.rs`.
-- [ ] T101 [GREEN] Implement longevity per 001 FR-001 in `src/stats/lifecycle.rs`.
-- [ ] T102 [RED] Failing tests for cumulative performance in `src/stats/lifecycle.rs`.
-- [ ] T103 [GREEN] Implement cumulative performance per 001 FR-002 in `src/stats/lifecycle.rs`.
-- [ ] T104 [RED] Failing tests for trade-size stats (min/max/mean/median, std dev, CV, not-applicable branches) in `src/stats/trade_size.rs`.
-- [ ] T105 [GREEN] Implement trade-size stats per 001 FR-003, FR-010 in `src/stats/trade_size.rs`.
-- [ ] T106 [RED] Failing tests for liveness (last trade, 7/30/90-day counts) in `src/stats/lifecycle.rs`.
-- [ ] T107 [GREEN] Implement liveness per 001 FR-004 in `src/stats/lifecycle.rs`.
-- [ ] T108 [RED] Failing tests for activity consistency, including the all-zero-activity edge case, in `src/stats/lifecycle.rs`.
-- [ ] T109 [GREEN] Implement activity consistency per 001 FR-005 in `src/stats/lifecycle.rs`.
-- [ ] T110 Introduce the `NodeMetrics` struct in `src/stats/mod.rs` with `longevity`, `cumulative`, `trade_size`, `liveness`, and `consistency` fields, assembled from this PR's computations in `src/stats/lifecycle.rs` and `src/stats/trade_size.rs` (pure struct assembly, no new logic to characterize).
+- [x] T099 No golden fixture to retire (PR 2 removed `tests/fixtures/` and the golden/characterization test files — see `plan.md`'s PR 1 Amendment). Instead: failing test with 2-3 hand-built synthetic order events (no dev-fee event) asserting `days_active` spans first order to *now*, not first order to *last* order, per 001 FR-001.
+- [x] T100 [RED] Failing tests for longevity, `days_active` spanning first order to **now** (fixes PR 1 deviation), in `src/stats/lifecycle.rs`.
+- [x] T101 [GREEN] Implement longevity per 001 FR-001 in `src/stats/lifecycle.rs`.
+- [x] T102 [RED] Failing tests for cumulative performance in `src/stats/lifecycle.rs`.
+- [x] T103 [GREEN] Implement cumulative performance per 001 FR-002 in `src/stats/lifecycle.rs`.
+- [x] T104 [RED] Failing tests for trade-size stats (min/max/mean/median, std dev, CV, not-applicable branches) in `src/stats/trade_size.rs`.
+- [x] T105 [GREEN] Implement trade-size stats per 001 FR-003, FR-010 in `src/stats/trade_size.rs`.
+- [x] T106 [RED] Failing tests for liveness (last trade, 7/30/90-day counts) in `src/stats/lifecycle.rs`.
+- [x] T107 [GREEN] Implement liveness per 001 FR-004 in `src/stats/lifecycle.rs`.
+- [x] T108 [RED] Failing tests for activity consistency, including the all-zero-activity edge case, in `src/stats/lifecycle.rs`.
+- [x] T109 [GREEN] Implement activity consistency per 001 FR-005 in `src/stats/lifecycle.rs`.
+- [x] T110 Introduce the `NodeMetrics` struct in `src/stats/mod.rs` with `longevity`, `cumulative`, `trade_size`, `liveness`, and `consistency` fields, assembled from this PR's computations in `src/stats/lifecycle.rs` and `src/stats/trade_size.rs` (pure struct assembly, no new logic to characterize).
 
 ---
 
