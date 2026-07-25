@@ -240,7 +240,7 @@ work they described no longer applies.
 
 **Depends on**: 4, 5, 6. Requirements: 002 FR-001..FR-008b, FR-013..FR-018.
 
-- [ ] T123 No golden fixture to retire (see T099's note). Instead: failing test with a hand-built synthetic event set asserting the report no longer contains a `TRUST SCORE` line, per the plan's Complexity Tracking decision to remove it entirely rather than migrate it.
+- [ ] T123 No golden fixture to retire (see T099's note). Instead: failing test that renders a hand-built synthetic event set through the console renderer (`src/report/render/console.rs`) and asserts its actual output no longer contains a `TRUST SCORE` line — not just that the report model has no score field, since the model could drop the field while the renderer still prints the old line — per the plan's Complexity Tracking decision to remove it entirely rather than migrate it.
 - [ ] T124 Remove `calculate_score` and its output entirely (no replacement; relocated to `src/stats/mod.rs` by PR 1's T036; see Complexity Tracking).
 - [ ] T125 [RED] Failing tests for the 5-section report model + `schema_version`, consuming PR 6's now-complete `NodeMetrics` as the `stats` section's source, in `src/report/model.rs`.
 - [ ] T126 [GREEN] Implement the report model per 002 FR-001/FR-002/FR-006 in `src/report/model.rs`, populating the `stats` section from PR 6's now-complete `NodeMetrics` (longevity, cumulative, trade_size, liveness, consistency, disputes, fiat_breakdown, payment_method_breakdown, premium, bond_policy).
