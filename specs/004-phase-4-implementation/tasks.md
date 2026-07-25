@@ -142,22 +142,22 @@ work they described no longer applies.
 
 - [x] T058 Delete `tests/fixtures/` and `tests/cli_behavior.rs`/`tests/metrics_end_to_end.rs` entirely (supersedes the original per-scenario fixture-retirement plan).
 - [x] T059 Confirm `cargo build --all-targets`, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo fmt --check` all pass with the fixture-dependent tests gone.
-- [x] T060 [RED] Failing tests for `AppError` variants in `src/error/mod.rs`.
-- [x] T061 [GREEN] Implement `AppError` with `thiserror` in `src/error/mod.rs`.
-- [x] T062 [RED] Failing tests for exit code mapping (`0`/`1`/`2`/`3`/`5`) in `src/error/exit_code.rs`.
-- [x] T063 [GREEN] Implement exit code mapping in `src/error/exit_code.rs`.
-- [x] T064 [RED] Failing test: invalid `--pubkey` exits `5` (fixes PR 1 deviation) — `tests/error_handling.rs::invalid_pubkey_exits_5`.
-- [x] T065 [GREEN] Wire invalid-pubkey branch in `src/main.rs` to `AppError::InvalidPubkey`.
-- [x] T066 [RED] Failing test: one relay failing among several succeeding still yields a successful report + warning — `tests/error_handling.rs::one_failed_relay_among_several_is_a_warning_not_a_failure`.
-- [x] T067 [GREEN] Implement graceful partial-relay-failure handling in `src/fetch/client.rs`.
-- [x] T068 [RED] Failing test: all relays failing exits `3` — `tests/error_handling.rs::all_relays_unreachable_is_fatal`.
-- [x] T069 [GREEN] Wire all-relays-failed to `AppError::RelaysUnreachable` in `src/lib.rs`'s `run()`.
-- [x] T070 [RED] Failing tests: debug/sample-event dumps and no-dev-fee warning route to `err`, not `out` (fixes PR 1 deviation) — `tests/error_handling.rs::diagnostics_route_to_err_not_out`.
-- [x] T071 [GREEN] Rewrite those diagnostic `writeln!(out, ...)` calls to `writeln!(err, ...)` in `src/report/render/console.rs`.
-- [x] T072 [RED] Failing tests: the two transient status lines (`"Connected to relays. Fetching history... (this might take a moment)"` and `"Fetched {N} events. Analyzing..."`) route to `err`, not `out` — same test as T070, both lines asserted.
-- [x] T073 [GREEN] Rewrite those two transient-status `writeln!(out, ...)` calls to `writeln!(err, ...)` in `src/report/render/console.rs` — stderr is the correct interim destination since `ProgressReporter`'s concrete implementation is not wired in until PR 7's T138.
-- [x] T074 [RED] Failing test: `s_tag_distribution` prints sorted by key, deterministic across runs — `tests/error_handling.rs::s_tag_distribution_prints_sorted_by_key`.
-- [x] T075 [GREEN] Sort `s_tag_distribution` by key in `src/report/render/console.rs`.
+- [ ] T060 [RED] Failing tests for `AppError` variants in `src/error/mod.rs`.
+- [ ] T061 [GREEN] Implement `AppError` with `thiserror` in `src/error/mod.rs`.
+- [ ] T062 [RED] Failing tests for exit code mapping (`0`/`1`/`2`/`3`/`5`) in `src/error/exit_code.rs`.
+- [ ] T063 [GREEN] Implement exit code mapping in `src/error/exit_code.rs`.
+- [ ] T064 [RED] Failing test: invalid `--pubkey` exits `5` (fixes PR 1 deviation) — `tests/error_handling.rs::invalid_pubkey_exits_5`.
+- [ ] T065 [GREEN] Wire invalid-pubkey branch in `src/main.rs` to `AppError::InvalidPubkey`.
+- [ ] T066 [RED] Failing test: one relay failing among several succeeding still yields a successful report + warning — `tests/error_handling.rs::one_failed_relay_among_several_is_a_warning_not_a_failure`.
+- [ ] T067 [GREEN] Implement graceful partial-relay-failure handling in `src/fetch/client.rs`.
+- [ ] T068 [RED] Failing test: all relays failing exits `3` — `tests/error_handling.rs::all_relays_unreachable_is_fatal`.
+- [ ] T069 [GREEN] Wire all-relays-failed to `AppError::RelaysUnreachable` in `src/lib.rs`'s `run()`.
+- [ ] T070 [RED] Failing tests: debug/sample-event dumps and no-dev-fee warning route to `err`, not `out` (fixes PR 1 deviation) — `tests/error_handling.rs::diagnostics_route_to_err_not_out`.
+- [ ] T071 [GREEN] Rewrite those diagnostic `writeln!(out, ...)` calls to `writeln!(err, ...)` in `src/report/render/console.rs`.
+- [ ] T072 [RED] Failing tests: the two transient status lines (`"Connected to relays. Fetching history... (this might take a moment)"` and `"Fetched {N} events. Analyzing..."`) route to `err`, not `out` — same test as T070, both lines asserted.
+- [ ] T073 [GREEN] Rewrite those two transient-status `writeln!(out, ...)` calls to `writeln!(err, ...)` in `src/report/render/console.rs` — stderr is the correct interim destination since `ProgressReporter`'s concrete implementation is not wired in until PR 7's T138.
+- [ ] T074 [RED] Failing test: `s_tag_distribution` prints sorted by key, deterministic across runs — `tests/error_handling.rs::s_tag_distribution_prints_sorted_by_key`.
+- [ ] T075 [GREEN] Sort `s_tag_distribution` by key in `src/report/render/console.rs`.
 
 ---
 
