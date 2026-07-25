@@ -49,28 +49,28 @@ PR 1 cannot be split further without breaking its own safety net: every step (wr
 
 ### Step -1 — Golden baseline (before any source change)
 
-- [ ] T001 Build the current unmodified binary; capture baseline scenario 1 (happy path — dedicated settled test node, real relay round trip): serialize the fetched event set to `tests/fixtures/`, record the pre-launch `now` wall-clock second (verified against post-exit), and capture stdout/stderr/exit status byte-for-byte.
-- [ ] T002 [P] Capture baseline scenario 2 — malformed `--pubkey`.
-- [ ] T003 [P] Capture baseline scenario 3 — syntactically malformed `--relays` value.
-- [ ] T004 [P] Capture baseline scenario 4 — well-formed but unreachable `--relays` address: a closed local port on loopback (e.g. `ws://127.0.0.1:1`, or bind to port 0 for an OS-assigned free port and never listen on it) rather than a reserved/non-routable address, so the connection is refused immediately and deterministically, with no live internet dependency or OS-level timeout risk.
-- [ ] T005 [P] Capture baseline scenario 5 — fresh never-published keypair (zero fetched events).
-- [ ] T006 [P] Capture baseline scenario 6 — qualifying orders, no qualifying dev-fee event.
-- [ ] T007 [P] Capture baseline scenario 7 — qualifying dev-fee event, zero qualifying orders.
-- [ ] T008 [P] Capture baseline scenario 8 — two relays, one reachable, one not.
+- [x] T001 Build the current unmodified binary; capture baseline scenario 1 (happy path — dedicated settled test node, real relay round trip): serialize the fetched event set to `tests/fixtures/`, record the pre-launch `now` wall-clock second (verified against post-exit), and capture stdout/stderr/exit status byte-for-byte.
+- [x] T002 [P] Capture baseline scenario 2 — malformed `--pubkey`.
+- [x] T003 [P] Capture baseline scenario 3 — syntactically malformed `--relays` value.
+- [x] T004 [P] Capture baseline scenario 4 — well-formed but unreachable `--relays` address: a closed local port on loopback (e.g. `ws://127.0.0.1:1`, or bind to port 0 for an OS-assigned free port and never listen on it) rather than a reserved/non-routable address, so the connection is refused immediately and deterministically, with no live internet dependency or OS-level timeout risk.
+- [x] T005 [P] Capture baseline scenario 5 — fresh never-published keypair (zero fetched events).
+- [x] T006 [P] Capture baseline scenario 6 — qualifying orders, no qualifying dev-fee event.
+- [x] T007 [P] Capture baseline scenario 7 — qualifying dev-fee event, zero qualifying orders.
+- [x] T008 [P] Capture baseline scenario 8 — two relays, one reachable, one not.
 
 ### Step 0 — Wrap `main()` before splitting
 
-- [ ] T009 In `src/main.rs`, extract `main()`'s body verbatim into a private `async fn` taking `public_key: PublicKey`, `event_source: E where E: EventSource`, `now: &dyn Fn() -> DateTime<Utc>`, `out: &mut impl Write`, `err: &mut impl Write`, returning `Result<()>` — the same `Result` alias current `main()` already uses via `nostr_sdk::prelude::*` (`Result<T, Box<dyn std::error::Error>>`); PR 1 must not change the error type.
-- [ ] T010 Shrink production `main()` in `src/main.rs` to arg/pubkey parsing, constructing the real relay-backed `EventSource`, wiring `chrono::Utc::now` and `io::stdout()`/`io::stderr()`, and awaiting the wrapped function.
-- [ ] T011 In `src/main.rs`'s `#[cfg(test)] mod tests`, call the wrapped function with a fixture `EventSource` (T001's events), T001's recorded `now`, and `Vec<u8>` writers; assert against T001's captured stdout/stderr (`s_tag_distribution` sorted by key for comparison only).
+- [x] T009 In `src/main.rs`, extract `main()`'s body verbatim into a private `async fn` taking `public_key: PublicKey`, `event_source: E where E: EventSource`, `now: &dyn Fn() -> DateTime<Utc>`, `out: &mut impl Write`, `err: &mut impl Write`, returning `Result<()>` — the same `Result` alias current `main()` already uses via `nostr_sdk::prelude::*` (`Result<T, Box<dyn std::error::Error>>`); PR 1 must not change the error type.
+- [x] T010 Shrink production `main()` in `src/main.rs` to arg/pubkey parsing, constructing the real relay-backed `EventSource`, wiring `chrono::Utc::now` and `io::stdout()`/`io::stderr()`, and awaiting the wrapped function.
+- [x] T011 In `src/main.rs`'s `#[cfg(test)] mod tests`, call the wrapped function with a fixture `EventSource` (T001's events), T001's recorded `now`, and `Vec<u8>` writers; assert against T001's captured stdout/stderr (`s_tag_distribution` sorted by key for comparison only).
 
 ### Step A — Test the already-standalone functions
 
-- [ ] T012 [P] Characterization tests for `compute_trade_stats` against current `src/main.rs`.
-- [ ] T013 [P] Characterization tests for `compute_rolling_windows` against current `src/main.rs`.
-- [ ] T014 [P] Characterization tests for `compute_activity_consistency` against current `src/main.rs`.
-- [ ] T015 [P] Characterization tests for `format_relative_time`, every branch including future timestamps.
-- [ ] T016 [P] Characterization tests for `calculate_score`.
+- [x] T012 [P] Characterization tests for `compute_trade_stats` against current `src/main.rs`.
+- [x] T013 [P] Characterization tests for `compute_rolling_windows` against current `src/main.rs`.
+- [x] T014 [P] Characterization tests for `compute_activity_consistency` against current `src/main.rs`.
+- [x] T015 [P] Characterization tests for `format_relative_time`, every branch including future timestamps.
+- [x] T016 [P] Characterization tests for `calculate_score`.
 
 ### Step B — Extract a seam, test, then move
 
