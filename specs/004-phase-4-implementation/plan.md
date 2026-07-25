@@ -451,9 +451,9 @@ automatic defaults.
 |----|-------|-------------|------------|
 | 2 | Error taxonomy; exit codes `0`/`1`/`2`/`3`/`5` (none need domain scoping to detect); graceful relay degradation; diagnostic routing — rewrites every diagnostic `writeln!(out, ...)` call PR 1 produced (see the PR 1 deviations table) to `writeln!(err, ...)` via the injected writer, never a direct `eprintln!` — closing FR-017 completely | 002 FR-011, FR-017; part of FR-019 (all exit codes except `4`); Principle VI | 1 |
 | 3 | Event scoping, deduplication, domain models, exit code `4` (whether any of the four scoped kinds is usable is only knowable once this PR's scoping exists, so it cannot be claimed in PR 2) | 001 FR-002, FR-013, FR-014, FR-015; remainder of 002 FR-019 (exit code `4`) | 1, 2 |
-| 4 | Core metrics: longevity, cumulative, trade statistics, liveness, activity consistency | 001 FR-001..FR-005 (spec 001 US1, P1) | 3 |
+| 4 | Core metrics: longevity, cumulative, trade statistics including std dev/CV, liveness, activity consistency | 001 FR-001..FR-005, FR-010 (spec 001 US1, P1) | 3 |
 | 5 | Dispute signals (depends on 4, not just 3: FR-006's disputes-per-100-trades ratio needs PR 4's `total_successful_trades` as its denominator) | 001 FR-006 (spec 001 US2, P2) | 3, 4 |
-| 6 | Descriptive context: fiat and payment-method breakdowns, trade-size consistency, premium signal, bond policy | 001 FR-008..FR-012 (spec 001 US3, P3) | 3, 4 |
+| 6 | Descriptive context: fiat and payment-method breakdowns, premium signal, bond policy | 001 FR-008, FR-009, FR-011, FR-012 (spec 001 US3, P3) | 3, 4 |
 | 7 | Report model, 5 sections, activity grid with automatic granularity, recommendations, console renderer | 002 FR-001..FR-008b, FR-013..FR-018 (spec 002 US1, P1) | 4, 5, 6 |
 | 8 | Plain-text and JSON renderers, context-based format default, schema version, JSON fatal envelope | 002 FR-009..FR-012a (spec 002 US2/US3) | 7 |
 | 9 | CLI flags: pubkey and relays with environment fallbacks, format, color, quiet, help, version | 003 FR-001..FR-003, FR-010..FR-013a (spec 003 US1, US3) | 8 |
