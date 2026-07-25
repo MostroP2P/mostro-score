@@ -311,8 +311,11 @@ used, since the point is to observe the shipped binary's real behavior. Three ar
   qualifying dev-fee event, pinning the no-dev-fee fallback at `src/main.rs:142-160`; (7) a pubkey with
   a qualifying dev-fee event but zero qualifying orders — distinct from (6) and (5): `first_dev_fee_ts`
   is `Some`, so the early `"No events found."` return at `src/main.rs:283-284` is never reached, and
-  the run falls through to a full report with every order-derived section empty. Locating or
-  constructing real nodes with properties (5)-(7) is part of this step's setup work.
+  the run falls through to a full report with every order-derived section empty; (8) two configured
+  relays, one reachable and one not, distinct from (4): the constitution's graceful-degradation rule
+  requires this to warn and still produce a successful report from the relay that succeeded, a path
+  (4)'s all-relays-unreachable case does not exercise. Locating or constructing real nodes with
+  properties (5)-(8) is part of this step's setup work.
 
 These artifacts are the one and only golden reference for the rest of this pull request: Step 0,
 Steps A through D, and the module move all compare against them; no later step takes a fresh capture
@@ -328,7 +331,8 @@ So, before any extraction, the first code change is a single mechanical wrap: ex
 scope in `main.rs`, callable by production `main()` in a normal `cargo build` — only its *test*, in a
 `#[cfg(test)] mod tests` block in the same file, is test-only. This stays a same-crate unit test
 rather than a `tests/` integration test because the wrapped function is still local to the binary
-crate. Four parameters replace its one caller-supplied input and its three hidden dependencies:
+crate. Five parameters replace its one caller-supplied input and its three hidden dependencies (the
+writers count as two, one per stream):
 
 - The node's public key (`public_key: PublicKey`, the `nostr_sdk` type `main.rs` already parses
   `--pubkey` into at `src/main.rs:44`), used to print the identity header (`src/main.rs:52-53`) and
@@ -421,6 +425,7 @@ Deviations knowingly carried forward by this pull request, each with the pull re
 | Invalid pubkey prints to stderr and returns success | 002 FR-019 (must exit `5`) | PR 2 |
 | Debug/sample-event dumps and the no-dev-fee-events warning write to `out` (PR 1 turned every original `println!` into a `writeln!(out, ...)`; these three never distinguished report content from diagnostics) | 002 FR-017 (diagnostics belong on `err`) | PR 2 |
 | `calculate_score` trust score is reported | No spec defines it (see Complexity Tracking) | Removed in PR 7 |
+| `s_tag_distribution`'s printed order follows `HashMap` iteration (nondeterministic across process runs) | Technical Context's determinism constraint | PR 2 (already touches this block to route it to `err`; sort by key there too) |
 
 ### Pull requests 2 onward — one per user story or functional area
 
@@ -523,10 +528,15 @@ a JSON consumer is not exempt. Wrapping each metric value in an object (`{"value
 turning every one of the 28 `stats` fields into an object would violate that type contract. Instead,
 `metric_definitions` is a single object, keyed by the same dotted path
 `recommendations.items[].metric` already uses (for example `stats.trade_size.coefficient_of_variation`),
-where each entry is `{ "label": string, "meaning": string, "unit_and_direction": string }`. Every key
-in `stats`, `activity`, and `fetch` that a trader reads as a metric (not a bookkeeping count like
-`fetch.dev_fee_events`) has an entry; the identity fields in `node` and the mechanical fields in the
-error envelope do not, since they need no interpretation. FR-008b cites a companion decisions document
+where each entry is `{ "label": string, "meaning": string, "unit_and_direction": string }`. The key
+set is exhaustive and mechanically checkable, not judgment-based: every row already listed in the
+`stats` table above (all ten sub-objects' fields), plus `activity.granularity` and
+`buckets[].median_trade_sats`, plus `fetch.relays[].status` and `fetch.relays[].error`, gets an entry
+— nothing else does. That excludes `node`'s identity fields, the error envelope's mechanical fields,
+and `fetch`'s bookkeeping counts (`dev_fee_events`, `order_events`, `unique_orders`,
+`dispute_events`, `instance_status_found`), none of which need interpretation. PR 8's test asserts
+this key set matches exactly: one entry per field named above, no more, no fewer. FR-008b cites a
+companion decisions document
 that does not exist in the repository; spec 001 covers each metric's meaning only in its FR prose. PR
 8 therefore authors the three string fields per metric, grounded in that FR prose — for example
 `trade_size.coefficient_of_variation`'s `meaning` restates FR-010's explanation of the ratio, and its
