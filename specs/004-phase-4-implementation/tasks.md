@@ -80,10 +80,10 @@ PR 1 cannot be split further without breaking its own safety net: every step (wr
 - [x] T020 Characterization test for the extracted dev-fee selection function.
 - [x] T021 Extract `z`/`y` tag partitioning into a named function in `src/main.rs`; re-run T011's golden test.
 - [x] T022 Characterization test for the extracted `z`/`y` partitioning function.
-- [ ] T023 Move the dedup function + test to `src/models/dedup.rs` (pure file move).
-- [ ] T024 Move the dev-fee selection function + test to `src/models/dev_fee.rs` (pure file move).
-- [ ] T025 Move the `z`/`y` partitioning function + test to `src/models/core.rs` (pure file move).
-- [ ] T026 Re-run T011's golden test after the three moves.
+- [x] T023 Move the dedup function + test to `src/models/dedup.rs` (pure file move).
+- [x] T024 Move the dev-fee selection function + test to `src/models/dev_fee.rs` (pure file move).
+- [x] T025 Move the `z`/`y` partitioning function + test to `src/models/core.rs` (pure file move).
+- [x] T026 Re-run T011's golden test after the three moves.
 
 ### Step C — Decompose the remaining body
 

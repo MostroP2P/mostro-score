@@ -1,5 +1,10 @@
+mod models;
+
 use clap::Parser;
 use colored::Colorize;
+use models::core::partition_by_z_y_tag;
+use models::dedup::dedup_orders_by_d_tag;
+use models::dev_fee::select_oldest_dev_fee_event;
 use mostro_core::prelude::Status as OrderStatus;
 use nostr_sdk::prelude::*;
 use nostr_sdk::{Alphabet, SingleLetterTag};
@@ -481,82 +486,6 @@ async fn main() -> Result<()> {
     run(public_key, event_source, &now, &mut stdout, &mut stderr).await
 }
 
-/// PR 1 Step B seam: partition fetched events into dev-fee events (z=dev-fee-payment,
-/// y=mostro) and order events (z=order). Extracted verbatim from the wrapped function
-/// body; pure signature, no network, no I/O.
-fn partition_by_z_y_tag(events: Vec<Event>) -> (Vec<Event>, Vec<Event>) {
-    let mut dev_fee_events: Vec<Event> = Vec::new();
-    let mut order_events: Vec<Event> = Vec::new();
-
-    for event in events {
-        let z_tag = event
-            .tags
-            .iter()
-            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("z"))
-            .and_then(|t| t.as_slice().get(1))
-            .map(|s| s.as_str());
-
-        let y_tag = event
-            .tags
-            .iter()
-            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("y"))
-            .and_then(|t| t.as_slice().get(1))
-            .map(|s| s.as_str());
-
-        match (z_tag, y_tag) {
-            (Some("dev-fee-payment"), Some("mostro")) => dev_fee_events.push(event),
-            (Some("order"), _) => order_events.push(event),
-            _ => {}
-        }
-    }
-
-    (dev_fee_events, order_events)
-}
-
-/// PR 1 Step B seam: select the oldest dev-fee event (the longevity anchor), sorted by
-/// `created_at` ascending. Extracted verbatim from the wrapped function body; pure
-/// signature, no network, no I/O.
-fn select_oldest_dev_fee_event(mut dev_fee_events: Vec<Event>) -> Option<Event> {
-    if dev_fee_events.is_empty() {
-        return None;
-    }
-
-    dev_fee_events.sort_by_key(|e| e.created_at);
-    Some(dev_fee_events[0].clone())
-}
-
-/// PR 1 Step B seam: deduplicate order events by their `d` tag, keeping the event with
-/// the greatest `created_at` for each order id. Extracted verbatim from the loop body
-/// previously inline in the wrapped function; pure signature, no network, no I/O.
-fn dedup_orders_by_d_tag(order_events: Vec<Event>) -> HashMap<String, Event> {
-    let mut orders_map: HashMap<String, Event> = HashMap::new();
-
-    for event in order_events {
-        // If it's an order, map it by 'd' tag (Order ID) to get the final state
-        if let Some(d_tag) = event
-            .tags
-            .iter()
-            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("d"))
-        {
-            if let Some(order_id) = d_tag.as_slice().get(1) {
-                // Logic: Keep the event with the latest created_at for this Order ID
-                match orders_map.get(order_id.as_str()) {
-                    Some(existing) => {
-                        if event.created_at > existing.created_at {
-                            orders_map.insert(order_id.to_string(), event.clone());
-                        }
-                    }
-                    None => {
-                        orders_map.insert(order_id.to_string(), event.clone());
-                    }
-                }
-            }
-        }
-    }
-
-    orders_map
-}
-
 /// Compute trade amount statistics (Section 4.1.3)
 fn compute_trade_stats(amounts: &[u64]) -> (u64, u64, f64, u64) {
     if amounts.is_empty() {
@@ -706,22 +635,6 @@ mod tests {
             .collect()
     }
 
-    /// Builds a signed, syntactically valid `Event` for characterization tests, so Step
-    /// B/C's extracted seams can be tested with hand-crafted tag sets instead of real
-    /// captured fixtures.
-    fn make_event(kind: u16, created_at: u64, tags: Vec<(&str, &str)>) -> Event {
-        let keys = Keys::generate();
-        let parsed_tags: Vec<Tag> = tags
-            .into_iter()
-            .map(|(name, value)| Tag::parse([name, value]).expect("valid tag"))
-            .collect();
-        EventBuilder::new(Kind::Custom(kind), "")
-            .tags(parsed_tags)
-            .custom_created_at(Timestamp::from(created_at))
-            .sign_with_keys(&keys)
-            .expect("event signs")
-    }
-
     /// Normalizes the "Status distribution for order events (s tag):" block: its lines
     /// come from `HashMap` iteration, so their order is nondeterministic across process
     /// runs, independent of any code change. Both sides of a comparison must have that
@@ -793,66 +706,9 @@ mod tests {
         );
     }
 
-    // Step B — characterization tests for seams extracted from the wrapped function
-    // body. Written against the newly extracted, still-inline-in-main.rs functions.
-
-    #[test]
-    fn dedup_orders_by_d_tag_keeps_greatest_created_at_per_order_id() {
-        let older = make_event(38383, 100, vec![("d", "order-1"), ("s", "pending")]);
-        let newer = make_event(38383, 200, vec![("d", "order-1"), ("s", "success")]);
-        let other = make_event(38383, 150, vec![("d", "order-2"), ("s", "success")]);
-
-        let deduped = dedup_orders_by_d_tag(vec![older, newer.clone(), other.clone()]);
-
-        assert_eq!(deduped.len(), 2);
-        assert_eq!(deduped.get("order-1").unwrap().id, newer.id);
-        assert_eq!(deduped.get("order-2").unwrap().id, other.id);
-    }
-
-    #[test]
-    fn dedup_orders_by_d_tag_ignores_events_without_a_d_tag() {
-        let no_d_tag = make_event(38383, 100, vec![("s", "success")]);
-        let deduped = dedup_orders_by_d_tag(vec![no_d_tag]);
-        assert!(deduped.is_empty());
-    }
-
-    #[test]
-    fn select_oldest_dev_fee_event_empty_is_none() {
-        assert!(select_oldest_dev_fee_event(vec![]).is_none());
-    }
-
-    #[test]
-    fn select_oldest_dev_fee_event_picks_earliest_created_at() {
-        let older = make_event(8383, 100, vec![("z", "dev-fee-payment"), ("y", "mostro")]);
-        let newer = make_event(8383, 200, vec![("z", "dev-fee-payment"), ("y", "mostro")]);
-
-        let oldest = select_oldest_dev_fee_event(vec![newer, older.clone()]).unwrap();
-
-        assert_eq!(oldest.id, older.id);
-    }
-
-    #[test]
-    fn partition_by_z_y_tag_splits_dev_fee_and_order_events() {
-        let dev_fee = make_event(8383, 100, vec![("z", "dev-fee-payment"), ("y", "mostro")]);
-        let order = make_event(38383, 100, vec![("z", "order")]);
-        let unrelated = make_event(1, 100, vec![("z", "something-else")]);
-
-        let (dev_fee_events, order_events) =
-            partition_by_z_y_tag(vec![dev_fee.clone(), order.clone(), unrelated]);
-
-        assert_eq!(dev_fee_events.len(), 1);
-        assert_eq!(dev_fee_events[0].id, dev_fee.id);
-        assert_eq!(order_events.len(), 1);
-        assert_eq!(order_events[0].id, order.id);
-    }
-
-    #[test]
-    fn partition_by_z_y_tag_requires_y_mostro_for_dev_fee_events() {
-        let wrong_y = make_event(8383, 100, vec![("z", "dev-fee-payment"), ("y", "other")]);
-        let (dev_fee_events, order_events) = partition_by_z_y_tag(vec![wrong_y]);
-        assert!(dev_fee_events.is_empty());
-        assert!(order_events.is_empty());
-    }
+    // Step B's dedup/dev-fee-selection/z-y-partitioning characterization tests moved to
+    // `src/models/dedup.rs`, `src/models/dev_fee.rs`, and `src/models/core.rs`
+    // respectively, alongside the functions they cover (T023-T025).
 
     // Step A — characterization tests for functions that are already standalone,
     // unaffected by Step 0's wrap. Written directly against current `main.rs` code,
