@@ -49,83 +49,83 @@ PR 1 cannot be split further without breaking its own safety net: every step (wr
 
 ### Step -1 — Golden baseline (before any source change)
 
-- [ ] T001 Build the current unmodified binary; capture baseline scenario 1 (happy path — dedicated settled test node, real relay round trip): serialize the fetched event set to `tests/fixtures/`, record the pre-launch `now` wall-clock second (verified against post-exit), and capture stdout/stderr/exit status byte-for-byte.
-- [ ] T002 [P] Capture baseline scenario 2 — malformed `--pubkey`.
-- [ ] T003 [P] Capture baseline scenario 3 — syntactically malformed `--relays` value.
-- [ ] T004 [P] Capture baseline scenario 4 — well-formed but unreachable `--relays` address: a closed local port on loopback (e.g. `ws://127.0.0.1:1`, or bind to port 0 for an OS-assigned free port and never listen on it) rather than a reserved/non-routable address, so the connection is refused immediately and deterministically, with no live internet dependency or OS-level timeout risk.
-- [ ] T005 [P] Capture baseline scenario 5 — fresh never-published keypair (zero fetched events).
-- [ ] T006 [P] Capture baseline scenario 6 — qualifying orders, no qualifying dev-fee event.
-- [ ] T007 [P] Capture baseline scenario 7 — qualifying dev-fee event, zero qualifying orders.
-- [ ] T008 [P] Capture baseline scenario 8 — two relays, one reachable, one not.
+- [x] T001 Build the current unmodified binary; capture baseline scenario 1 (happy path — dedicated settled test node, real relay round trip): serialize the fetched event set to `tests/fixtures/`, record the pre-launch `now` wall-clock second (verified against post-exit), and capture stdout/stderr/exit status byte-for-byte.
+- [x] T002 [P] Capture baseline scenario 2 — malformed `--pubkey`.
+- [x] T003 [P] Capture baseline scenario 3 — syntactically malformed `--relays` value.
+- [x] T004 [P] Capture baseline scenario 4 — well-formed but unreachable `--relays` address: a closed local port on loopback (e.g. `ws://127.0.0.1:1`, or bind to port 0 for an OS-assigned free port and never listen on it) rather than a reserved/non-routable address, so the connection is refused immediately and deterministically, with no live internet dependency or OS-level timeout risk.
+- [x] T005 [P] Capture baseline scenario 5 — fresh never-published keypair (zero fetched events).
+- [x] T006 [P] Capture baseline scenario 6 — qualifying orders, no qualifying dev-fee event.
+- [x] T007 [P] Capture baseline scenario 7 — qualifying dev-fee event, zero qualifying orders.
+- [x] T008 [P] Capture baseline scenario 8 — two relays, one reachable, one not.
 
 ### Step 0 — Wrap `main()` before splitting
 
-- [ ] T009 In `src/main.rs`, extract `main()`'s body verbatim into a private `async fn` taking `public_key: PublicKey`, `event_source: E where E: EventSource`, `now: &dyn Fn() -> DateTime<Utc>`, `out: &mut impl Write`, `err: &mut impl Write`, returning `Result<()>` — the same `Result` alias current `main()` already uses via `nostr_sdk::prelude::*` (`Result<T, Box<dyn std::error::Error>>`); PR 1 must not change the error type.
-- [ ] T010 Shrink production `main()` in `src/main.rs` to arg/pubkey parsing, constructing the real relay-backed `EventSource`, wiring `chrono::Utc::now` and `io::stdout()`/`io::stderr()`, and awaiting the wrapped function.
-- [ ] T011 In `src/main.rs`'s `#[cfg(test)] mod tests`, call the wrapped function with a fixture `EventSource` (T001's events), T001's recorded `now`, and `Vec<u8>` writers; assert against T001's captured stdout/stderr (`s_tag_distribution` sorted by key for comparison only).
+- [x] T009 In `src/main.rs`, extract `main()`'s body verbatim into a private `async fn` taking `public_key: PublicKey`, `event_source: E where E: EventSource`, `now: &dyn Fn() -> DateTime<Utc>`, `out: &mut impl Write`, `err: &mut impl Write`, returning `Result<()>` — the same `Result` alias current `main()` already uses via `nostr_sdk::prelude::*` (`Result<T, Box<dyn std::error::Error>>`); PR 1 must not change the error type.
+- [x] T010 Shrink production `main()` in `src/main.rs` to arg/pubkey parsing, constructing the real relay-backed `EventSource`, wiring `chrono::Utc::now` and `io::stdout()`/`io::stderr()`, and awaiting the wrapped function.
+- [x] T011 In `src/main.rs`'s `#[cfg(test)] mod tests`, call the wrapped function with a fixture `EventSource` (T001's events), T001's recorded `now`, and `Vec<u8>` writers; assert against T001's captured stdout/stderr (`s_tag_distribution` sorted by key for comparison only).
 
 ### Step A — Test the already-standalone functions
 
-- [ ] T012 [P] Characterization tests for `compute_trade_stats` against current `src/main.rs`.
-- [ ] T013 [P] Characterization tests for `compute_rolling_windows` against current `src/main.rs`.
-- [ ] T014 [P] Characterization tests for `compute_activity_consistency` against current `src/main.rs`.
-- [ ] T015 [P] Characterization tests for `format_relative_time`, every branch including future timestamps.
-- [ ] T016 [P] Characterization tests for `calculate_score`.
+- [x] T012 [P] Characterization tests for `compute_trade_stats` against current `src/main.rs`.
+- [x] T013 [P] Characterization tests for `compute_rolling_windows` against current `src/main.rs`.
+- [x] T014 [P] Characterization tests for `compute_activity_consistency` against current `src/main.rs`.
+- [x] T015 [P] Characterization tests for `format_relative_time`, every branch including future timestamps.
+- [x] T016 [P] Characterization tests for `calculate_score`.
 
 ### Step B — Extract a seam, test, then move
 
-- [ ] T017 Extract order dedup-by-`d`-tag into a named function in `src/main.rs`; re-run T011's golden test.
-- [ ] T018 Characterization test for the extracted dedup function.
-- [ ] T019 Extract dev-fee event selection into a named function in `src/main.rs`; re-run T011's golden test.
-- [ ] T020 Characterization test for the extracted dev-fee selection function.
-- [ ] T021 Extract `z`/`y` tag partitioning into a named function in `src/main.rs`; re-run T011's golden test.
-- [ ] T022 Characterization test for the extracted `z`/`y` partitioning function.
-- [ ] T023 Move the dedup function + test to `src/models/dedup.rs` (pure file move).
-- [ ] T024 Move the dev-fee selection function + test to `src/models/dev_fee.rs` (pure file move).
-- [ ] T025 Move the `z`/`y` partitioning function + test to `src/models/core.rs` (pure file move).
-- [ ] T026 Re-run T011's golden test after the three moves.
+- [x] T017 Extract order dedup-by-`d`-tag into a named function in `src/main.rs`; re-run T011's golden test.
+- [x] T018 Characterization test for the extracted dedup function.
+- [x] T019 Extract dev-fee event selection into a named function in `src/main.rs`; re-run T011's golden test.
+- [x] T020 Characterization test for the extracted dev-fee selection function.
+- [x] T021 Extract `z`/`y` tag partitioning into a named function in `src/main.rs`; re-run T011's golden test.
+- [x] T022 Characterization test for the extracted `z`/`y` partitioning function.
+- [x] T023 Move the dedup function + test to `src/models/dedup.rs` (pure file move).
+- [x] T024 Move the dev-fee selection function + test to `src/models/dev_fee.rs` (pure file move).
+- [x] T025 Move the `z`/`y` partitioning function + test to `src/models/core.rs` (pure file move).
+- [x] T026 Re-run T011's golden test after the three moves.
 
 ### Step C — Decompose the remaining body
 
-- [ ] T027 Create `src/fetch/mod.rs` and `src/fetch/client.rs`; move relay client setup and the two-filter query verbatim into the real `EventSource` implementation.
-- [ ] T028 Move per-kind dev-fee aggregation verbatim into `src/models/dev_fee.rs`.
-- [ ] T029 Move per-kind order aggregation (qualifying-order selection, `s=success` filter) verbatim into `src/models/order.rs`.
-- [ ] T030 Create empty scaffolding for `src/models/dispute.rs` (stub types only, no aggregation logic) — base `src/main.rs` has no dispute aggregation to move verbatim; the real dispute dedup-by-`d`-tag and resolved/active/unknown classification logic is implemented in PR 3 (T086-T087).
-- [ ] T031 Create empty scaffolding for `src/models/instance_status.rs` (stub types only, no aggregation logic) — base `src/main.rs` has no instance-status aggregation to move verbatim; the real instance-status selection logic is implemented in PR 3 (T088-T089).
-- [ ] T032 Extract shared tag accessors (`z`/`y`/`d`/`s`/`amt`/`f`/`pm`/`premium`/`bond_enabled`) into `src/models/core.rs`.
-- [ ] T033 Move `compute_trade_stats` verbatim into `src/stats/trade_size.rs`.
-- [ ] T034 Move `compute_rolling_windows` and `compute_activity_consistency` verbatim into `src/stats/lifecycle.rs`.
-- [ ] T035 Move `format_relative_time` (plus its Step A characterization test, T015) verbatim into `src/report/format.rs` — rendering/presentation logic, not a stats computation, per the plan's module tree; must land before T037 moves the console formatting calls that consume it.
-- [ ] T036 Move `calculate_score` (plus its Step A characterization test, T016) verbatim into `src/stats/mod.rs` as a private function still called by the wrapped function — PR 1 is behavior-preserving, so it is relocated here rather than deleted; removed later in PR 7's T124 once the report model no longer needs it, per the plan's Complexity Tracking decision.
-- [ ] T037 Move every remaining formatting/coloring `writeln!` call verbatim into `src/report/render/console.rs`; add minimal `src/report/mod.rs` and `src/report/render/mod.rs` wiring for the console-only path.
-- [ ] T038 Create empty scaffolding for `src/error/mod.rs` and `src/error/exit_code.rs` with stub types only, no behavior — at this point in history `main()` returns `Result<()>` and relies on the runtime's implicit termination on error, with no distinct exit-code mapping logic to move; the actual exit-code mapping is implemented in PR 2 (T062-T063).
-- [ ] T039 Create stub `src/cli/mod.rs` and `src/config/mod.rs` (empty modules, no logic yet); wire both into `src/lib.rs` so all seven constitution modules exist under `src/` by the end of this PR — `cli` is populated in PR 9, `config` in PR 12.
-- [ ] T040 Re-run T001's full baseline comparison after the Step C moves and module scaffolding; confirm the wrapped function now contains only calls into `fetch`, `models`, `stats`, and `report`.
+- [x] T027 Create `src/fetch/mod.rs` and `src/fetch/client.rs`; move relay client setup and the two-filter query verbatim into the real `EventSource` implementation.
+- [x] T028 Move per-kind dev-fee aggregation verbatim into `src/models/dev_fee.rs`.
+- [x] T029 Move per-kind order aggregation (qualifying-order selection, `s=success` filter) verbatim into `src/models/order.rs`.
+- [x] T030 Create empty scaffolding for `src/models/dispute.rs` (stub types only, no aggregation logic) — base `src/main.rs` has no dispute aggregation to move verbatim; the real dispute dedup-by-`d`-tag and resolved/active/unknown classification logic is implemented in PR 3 (T086-T087).
+- [x] T031 Create empty scaffolding for `src/models/instance_status.rs` (stub types only, no aggregation logic) — base `src/main.rs` has no instance-status aggregation to move verbatim; the real instance-status selection logic is implemented in PR 3 (T088-T089).
+- [x] T032 Extract shared tag accessors (`z`/`y`/`d`/`s`/`amt`/`f`/`pm`/`premium`/`bond_enabled`) into `src/models/core.rs`.
+- [x] T033 Move `compute_trade_stats` verbatim into `src/stats/trade_size.rs`.
+- [x] T034 Move `compute_rolling_windows` and `compute_activity_consistency` verbatim into `src/stats/lifecycle.rs`.
+- [x] T035 Move `format_relative_time` (plus its Step A characterization test, T015) verbatim into `src/report/format.rs` — rendering/presentation logic, not a stats computation, per the plan's module tree; must land before T037 moves the console formatting calls that consume it.
+- [x] T036 Move `calculate_score` (plus its Step A characterization test, T016) verbatim into `src/stats/mod.rs` as a private function still called by the wrapped function — PR 1 is behavior-preserving, so it is relocated here rather than deleted; removed later in PR 7's T124 once the report model no longer needs it, per the plan's Complexity Tracking decision.
+- [x] T037 Move every remaining formatting/coloring `writeln!` call verbatim into `src/report/render/console.rs`; add minimal `src/report/mod.rs` and `src/report/render/mod.rs` wiring for the console-only path.
+- [x] T038 Create empty scaffolding for `src/error/mod.rs` and `src/error/exit_code.rs` with stub types only, no behavior — at this point in history `main()` returns `Result<()>` and relies on the runtime's implicit termination on error, with no distinct exit-code mapping logic to move; the actual exit-code mapping is implemented in PR 2 (T062-T063).
+- [x] T039 Create stub `src/cli/mod.rs` and `src/config/mod.rs` (empty modules, no logic yet); wire both into `src/lib.rs` so all seven constitution modules exist under `src/` by the end of this PR — `cli` is populated in PR 9, `config` in PR 12.
+- [x] T040 Re-run T001's full baseline comparison after the Step C moves and module scaffolding; confirm the wrapped function now contains only calls into `fetch`, `models`, `stats`, and `report`.
 
 ### Step D — Final module move
 
-- [ ] T041 Relocate the wrapped function to `src/lib.rs` as `pub async fn run<E: EventSource>(public_key: PublicKey, event_source: E, now: &dyn Fn() -> DateTime<Utc>, out: &mut impl std::io::Write, err: &mut impl std::io::Write) -> Result<()>` (same `Result` alias as T009; PR 2's T061/T069 later swap it for `AppError`), clock call at the same logical point.
-- [ ] T042 Move T011's test to `tests/metrics_end_to_end.rs` as an integration test against `run()`; assert against T001's capture byte-for-byte.
-- [ ] T043 Confirm `src/main.rs` ends this PR as: parse args/pubkey, construct real `EventSource`, wire real clock and stdio, call `run()` — invalid-pubkey branch still pinned by T002.
+- [x] T041 Relocate the wrapped function to `src/lib.rs` as `pub async fn run<E: EventSource>(public_key: PublicKey, event_source: E, now: &dyn Fn() -> DateTime<Utc>, out: &mut impl std::io::Write, err: &mut impl std::io::Write) -> Result<()>` (same `Result` alias as T009; PR 2's T061/T069 later swap it for `AppError`), clock call at the same logical point.
+- [x] T042 Move T011's test to `tests/metrics_end_to_end.rs` as an integration test against `run()`; assert against T001's capture byte-for-byte.
+- [x] T043 Confirm `src/main.rs` ends this PR as: parse args/pubkey, construct real `EventSource`, wire real clock and stdio, call `run()` — invalid-pubkey branch still pinned by T002.
 
 ### Step D2 — Assert the remaining golden baseline scenarios
 
 Only scenario 1 (T001) is proved by T042's integration test, which calls `run()` in-process. Scenarios 2, 3, and 4 (T002, T003, T004) are pinned at binary level via `assert_cmd`, running the actual compiled binary as a subprocess: an in-process `run()` call only observes the library's `Result` and injected writers, so it cannot verify the real `main()`/tokio wrapper, the real process exit status, or error rendering at the process boundary, and a regression in that wiring layer could still pass an in-process test. Scenario 2 (malformed `--pubkey`) stays out of `run()` entirely, since pubkey parsing lives in `main()` itself. Scenarios 3 and 4 depend only on deterministic connection-layer behavior against a fixed bad target — a syntactically invalid `--relays` value for scenario 3, and a closed local port on loopback for scenario 4 (T004; not a reserved/non-routable address, which risks a slow OS-level connection timeout and platform-dependent behavior) — not on any relay's real event history, so both are asserted against the compiled binary's real stdout/stderr/exit code, exercising the real, production `fetch::client::EventSource` through the real process. Scenarios 5 through 8 (T005-T008) depend on real historical event data, so they stay on a fixture `EventSource` called in-process against `run()`, plus a frozen `now`, matching the same fixture-plus-frozen-clock discipline as T042 — no live relay access in any of these four.
 
-- [ ] T044 [RED] Write an `assert_cmd` binary-level test asserting scenario 2 (malformed `--pubkey`) matches T002's capture (stdout/stderr/exit status) in `tests/cli_behavior.rs`.
-- [ ] T045 [GREEN] Run the scenario 2 test against the fully refactored binary; confirm it passes, fixing any wiring regression found.
-- [ ] T046 [RED] Write an `assert_cmd` binary-level test in `tests/cli_behavior.rs` asserting scenario 3 (T003's syntactically malformed `--relays` value) matches T003's capture (stdout/stderr/exit status), running the actual compiled binary.
-- [ ] T047 [GREEN] Run the scenario 3 test against the fully refactored binary; confirm it passes, fixing any wiring regression found.
-- [ ] T048 [RED] Write an `assert_cmd` binary-level test in `tests/cli_behavior.rs` asserting scenario 4 (T004's closed local port on loopback) matches T004's capture (stdout/stderr/exit status), running the actual compiled binary.
-- [ ] T049 [GREEN] Run the scenario 4 test against the fully refactored binary; confirm it passes, fixing any wiring regression found.
-- [ ] T050 [RED] Write a test in `tests/cli_behavior.rs` calling `run()` with a fixture `EventSource` returning T005's empty event set and a frozen `now`; assert output matches T005's capture, no live relay access.
-- [ ] T051 [GREEN] Run the scenario 5 test against the fully refactored `run()`; confirm it passes, fixing any wiring regression found.
-- [ ] T052 [RED] Write a test in `tests/cli_behavior.rs` calling `run()` with a fixture `EventSource` returning T006's captured events (qualifying orders, no qualifying dev-fee event) and a frozen `now`; assert output matches T006's capture, no live relay access.
-- [ ] T053 [GREEN] Run the scenario 6 test against the fully refactored `run()`; confirm it passes, fixing any wiring regression found.
-- [ ] T054 [RED] Write a test in `tests/cli_behavior.rs` calling `run()` with a fixture `EventSource` returning T007's captured events (qualifying dev-fee event, zero qualifying orders) and a frozen `now`; assert output matches T007's capture, no live relay access.
-- [ ] T055 [GREEN] Run the scenario 7 test against the fully refactored `run()`; confirm it passes, fixing any wiring regression found.
-- [ ] T056 [RED] Write a test in `tests/cli_behavior.rs` calling `run()` with a fixture `EventSource` simulating T008's two-relay outcome (one reachable, one not) and a frozen `now`; assert output matches T008's capture, no live relay access.
-- [ ] T057 [GREEN] Run the scenario 8 test against the fully refactored `run()`; confirm it passes, fixing any wiring regression found.
+- [x] T044 [RED] Write an `assert_cmd` binary-level test asserting scenario 2 (malformed `--pubkey`) matches T002's capture (stdout/stderr/exit status) in `tests/cli_behavior.rs`.
+- [x] T045 [GREEN] Run the scenario 2 test against the fully refactored binary; confirm it passes, fixing any wiring regression found.
+- [x] T046 [RED] Write an `assert_cmd` binary-level test in `tests/cli_behavior.rs` asserting scenario 3 (T003's syntactically malformed `--relays` value) matches T003's capture (stdout/stderr/exit status), running the actual compiled binary.
+- [x] T047 [GREEN] Run the scenario 3 test against the fully refactored binary; confirm it passes, fixing any wiring regression found — found and fixed a real regression: Step 0's original wrap (previous batch) had moved the "Connected to relays" print to before relay setup, so a malformed `--relays` value printed one extra line the pre-PR1 binary never did. Fixed by splitting `EventSource` into `connect()` (fallible relay setup) and `fetch()` (unchanged), called in the original order.
+- [x] T048 [RED] Write an `assert_cmd` binary-level test in `tests/cli_behavior.rs` asserting scenario 4 (T004's closed local port on loopback) matches T004's capture (stdout/stderr/exit status), running the actual compiled binary.
+- [x] T049 [GREEN] Run the scenario 4 test against the fully refactored binary; confirm it passes, fixing any wiring regression found.
+- [x] T050 [RED] Write a test in `tests/cli_behavior.rs` calling `run()` with a fixture `EventSource` returning T005's empty event set and a frozen `now`; assert output matches T005's capture, no live relay access.
+- [x] T051 [GREEN] Run the scenario 5 test against the fully refactored `run()`; confirm it passes, fixing any wiring regression found.
+- [x] T052 [RED] Write a test in `tests/cli_behavior.rs` calling `run()` with a fixture `EventSource` returning T006's captured events (qualifying orders, no qualifying dev-fee event) and a frozen `now`; assert output matches T006's capture, no live relay access.
+- [x] T053 [GREEN] Run the scenario 6 test against the fully refactored `run()`; confirm it passes, fixing any wiring regression found.
+- [x] T054 [RED] Write a test in `tests/cli_behavior.rs` calling `run()` with a fixture `EventSource` returning T007's captured events (qualifying dev-fee event, zero qualifying orders) and a frozen `now`; assert output matches T007's capture, no live relay access.
+- [x] T055 [GREEN] Run the scenario 7 test against the fully refactored `run()`; confirm it passes, fixing any wiring regression found.
+- [x] T056 [RED] Write a test in `tests/cli_behavior.rs` asserting output for scenario 8's two-relay configuration (one reachable, one not) matches T008's capture, no live relay access. The pre-PR1 binary has no partial-relay-failure handling (that lands in PR 2/3), so this asserts output/event-set correspondence against the same captured behavior as scenario 7, not connection-failure handling — uses scenario 7's event set through a fixture `EventSource` whose `connect()` is a no-op, not `scenario8_events.ndjson`: that fixture's extra 15 order events come from a later, separate capture-harness query (the relay's documented flaky delivery per `MANIFEST.md`), not what the official binary run that produced `scenario8_stdout.txt` saw. Verified the 8 dev-fee event ids in both fixtures are identical.
+- [x] T057 [GREEN] Run the scenario 8 test against the fully refactored `run()`; confirm it passes, fixing any wiring regression found.
 
 ---
 
