@@ -328,7 +328,7 @@ async fn run<E: EventSource>(
         "{}",
         "----------------------------------------".dimmed()
     )?;
-    let score = calculate_score(&stats, days_active);
+    let score = stats::calculate_score(&stats, days_active);
     let score_display = format!("TRUST SCORE:       {}/100", score);
     if score >= 70 {
         writeln!(out, "{}", score_display.green().bold())?;
@@ -364,22 +364,6 @@ async fn main() -> Result<()> {
     let mut stderr = std::io::stderr();
 
     run(public_key, event_source, &now, &mut stdout, &mut stderr).await
-}
-
-fn calculate_score(stats: &MostroStats, days_active: f64) -> u64 {
-    let mut score = 0.0;
-
-    // 1. Age (Max 30 pts for > 1 year)
-    score += (days_active / 365.0).min(1.0) * 30.0;
-
-    // 2. Volume (Max 40 pts for > 1 BTC volume)
-    let btc_vol = stats.total_volume_sats as f64 / 100_000_000.0;
-    score += (btc_vol / 1.0).min(1.0) * 40.0;
-
-    // 3. Success Count (Max 30 pts for > 100 orders)
-    score += (stats.successful_orders as f64 / 100.0).min(1.0) * 30.0;
-
-    score as u64
 }
 
 #[cfg(test)]
@@ -483,35 +467,7 @@ mod tests {
     // respectively, alongside the functions they cover (T023-T025).
 
     // Step A's compute_trade_stats, compute_rolling_windows/compute_activity_consistency,
-    // and format_relative_time characterization tests moved to `src/stats/trade_size.rs`,
-    // `src/stats/lifecycle.rs`, and `src/report/format.rs` respectively, alongside the
-    // functions they cover (T033-T035).
-
-    #[test]
-    fn calculate_score_zero_activity_is_zero() {
-        let stats = MostroStats::default();
-        assert_eq!(calculate_score(&stats, 0.0), 0);
-    }
-
-    #[test]
-    fn calculate_score_caps_each_component_at_its_maximum() {
-        let stats = MostroStats {
-            total_volume_sats: 200_000_000, // > 1 BTC, caps volume component
-            successful_orders: 500,         // > 100, caps success-count component
-            ..Default::default()
-        };
-        // Age caps at 365+ days (30 pts) + volume caps at 40 pts + success caps at 30 pts.
-        assert_eq!(calculate_score(&stats, 400.0), 100);
-    }
-
-    #[test]
-    fn calculate_score_partial_credit_is_proportional() {
-        let stats = MostroStats {
-            total_volume_sats: 50_000_000, // 0.5 BTC -> 20 pts
-            successful_orders: 50,         // 50/100 -> 15 pts
-            ..Default::default()
-        };
-        // days_active/365 = 0.5 -> 15 pts age + 20 pts volume + 15 pts success = 50.
-        assert_eq!(calculate_score(&stats, 182.5), 50);
-    }
+    // format_relative_time, and calculate_score characterization tests moved to
+    // `src/stats/trade_size.rs`, `src/stats/lifecycle.rs`, `src/report/format.rs`, and
+    // `src/stats/mod.rs` respectively, alongside the functions they cover (T033-T036).
 }
