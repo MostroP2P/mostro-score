@@ -1,5 +1,7 @@
 mod fetch;
 mod models;
+mod report;
+mod stats;
 
 use clap::Parser;
 use colored::Colorize;
@@ -8,7 +10,9 @@ use models::core::partition_by_z_y_tag;
 use models::dev_fee::aggregate_dev_fee_events;
 use models::order::aggregate_order_events;
 use nostr_sdk::prelude::*;
-use std::collections::HashSet;
+use report::format::format_relative_time;
+use stats::lifecycle::{compute_activity_consistency, compute_rolling_windows};
+use stats::trade_size::compute_trade_stats;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -362,114 +366,6 @@ async fn main() -> Result<()> {
     run(public_key, event_source, &now, &mut stdout, &mut stderr).await
 }
 
-/// Compute trade amount statistics (Section 4.1.3)
-fn compute_trade_stats(amounts: &[u64]) -> (u64, u64, f64, u64) {
-    if amounts.is_empty() {
-        return (0, 0, 0.0, 0);
-    }
-
-    let mut sorted = amounts.to_vec();
-    sorted.sort_unstable();
-
-    let min = sorted[0];
-    let max = sorted[sorted.len() - 1];
-    let sum: u128 = amounts.iter().map(|&v| v as u128).sum();
-    let mean = sum as f64 / amounts.len() as f64;
-
-    // Median calculation
-    let median = if sorted.len().is_multiple_of(2) {
-        ((sorted[sorted.len() / 2 - 1] as u128 + sorted[sorted.len() / 2] as u128) / 2) as u64
-    } else {
-        sorted[sorted.len() / 2]
-    };
-
-    (min, max, mean, median)
-}
-
-/// Compute rolling window metrics (Section 4.2.2)
-fn compute_rolling_windows(timestamps: &[i64], now: i64) -> (usize, usize, usize) {
-    let day_7 = now - (7 * 86400);
-    let day_30 = now - (30 * 86400);
-    let day_90 = now - (90 * 86400);
-
-    let last_7d = timestamps.iter().filter(|&&ts| ts >= day_7).count();
-    let last_30d = timestamps.iter().filter(|&&ts| ts >= day_30).count();
-    let last_90d = timestamps.iter().filter(|&&ts| ts >= day_90).count();
-
-    (last_7d, last_30d, last_90d)
-}
-
-/// Compute activity consistency (Section 4.2.3)
-fn compute_activity_consistency(timestamps: &[i64], now: i64) -> (usize, usize) {
-    let day_30_ago = now - (30 * 86400);
-
-    // Get unique days with trades in last 30 days
-    let active_days: HashSet<i64> = timestamps
-        .iter()
-        .filter(|&&ts| ts >= day_30_ago)
-        .map(|&ts| ts / 86400) // Convert to day number
-        .collect();
-
-    let active_days_count = active_days.len();
-
-    // Calculate max consecutive inactive days
-    if active_days.is_empty() {
-        return (0, 30);
-    }
-
-    let mut days: Vec<i64> = active_days.into_iter().collect();
-    days.sort_unstable();
-
-    let today = now / 86400;
-    let day_30_start = day_30_ago / 86400;
-
-    let mut max_gap = 0usize;
-    let mut prev_day = day_30_start;
-
-    for &day in &days {
-        let gap = (day - prev_day - 1).max(0) as usize;
-        max_gap = max_gap.max(gap);
-        prev_day = day;
-    }
-
-    // Check gap from last active day to today
-    let final_gap = (today - prev_day).max(0) as usize;
-    max_gap = max_gap.max(final_gap);
-
-    (active_days_count, max_gap)
-}
-
-/// Format relative time for human readability (Section 6.1)
-fn format_relative_time(timestamp: i64, now: i64) -> String {
-    let diff_secs = now - timestamp;
-
-    if diff_secs < 0 {
-        return "in the future".to_string();
-    }
-
-    let days = diff_secs / 86400;
-    let hours = (diff_secs % 86400) / 3600;
-
-    match days {
-        0 => {
-            if hours == 0 {
-                "less than an hour ago".to_string()
-            } else if hours == 1 {
-                "1 hour ago".to_string()
-            } else {
-                format!("{} hours ago", hours)
-            }
-        }
-        1 => "1 day ago".to_string(),
-        2..=6 => format!("{} days ago", days),
-        7..=13 => "1 week ago".to_string(),
-        14..=29 => format!("{} weeks ago", days / 7),
-        30..=59 => "1 month ago".to_string(),
-        60..=364 => format!("{} months ago", days / 30),
-        _ => format!("{} years ago", days / 365),
-    }
-}
-
 fn calculate_score(stats: &MostroStats, days_active: f64) -> u64 {
     let mut score = 0.0;
 
@@ -586,125 +482,10 @@ mod tests {
     // `src/models/dedup.rs`, `src/models/dev_fee.rs`, and `src/models/core.rs`
     // respectively, alongside the functions they cover (T023-T025).
 
-    // Step A — characterization tests for functions that are already standalone,
-    // unaffected by Step 0's wrap. Written directly against current `main.rs` code,
-    // before any module file is touched.
-
-    #[test]
-    fn compute_trade_stats_empty_returns_zeros() {
-        assert_eq!(compute_trade_stats(&[]), (0, 0, 0.0, 0));
-    }
-
-    #[test]
-    fn compute_trade_stats_single_value() {
-        assert_eq!(compute_trade_stats(&[100]), (100, 100, 100.0, 100));
-    }
-
-    #[test]
-    fn compute_trade_stats_odd_count_median_is_middle_value() {
-        let (min, max, mean, median) = compute_trade_stats(&[10, 30, 20]);
-        assert_eq!(min, 10);
-        assert_eq!(max, 30);
-        assert_eq!(mean, 20.0);
-        assert_eq!(median, 20);
-    }
-
-    #[test]
-    fn compute_trade_stats_even_count_median_is_average_of_middle_two() {
-        let (min, max, mean, median) = compute_trade_stats(&[10, 20, 30, 40]);
-        assert_eq!(min, 10);
-        assert_eq!(max, 40);
-        assert_eq!(mean, 25.0);
-        assert_eq!(median, 25);
-    }
-
-    #[test]
-    fn compute_rolling_windows_counts_each_window_independently() {
-        let now = 1_000_000_i64;
-        let timestamps = vec![
-            now - 86400,      // within 7, 30, 90
-            now - 10 * 86400, // within 30, 90
-            now - 60 * 86400, // within 90 only
-            now - 91 * 86400, // outside all windows
-        ];
-        assert_eq!(compute_rolling_windows(&timestamps, now), (1, 2, 3));
-    }
-
-    #[test]
-    fn compute_rolling_windows_empty_is_all_zero() {
-        assert_eq!(compute_rolling_windows(&[], 1_000_000), (0, 0, 0));
-    }
-
-    #[test]
-    fn compute_activity_consistency_no_trades_is_zero_active_thirty_gap() {
-        assert_eq!(compute_activity_consistency(&[], 1_000_000), (0, 30));
-    }
-
-    #[test]
-    fn compute_activity_consistency_counts_unique_active_days_and_max_gap() {
-        let now = 30 * 86400_i64;
-        // Active on day 0 and day 10 (relative to the 30-day window start), leaving a
-        // 9-day gap between them and a 20-day gap from day 10 to "today" (day 30).
-        let timestamps = vec![100, 10 * 86400 + 100];
-        let (active_days, max_gap) = compute_activity_consistency(&timestamps, now);
-        assert_eq!(active_days, 2);
-        assert_eq!(max_gap, 20);
-    }
-
-    #[test]
-    fn format_relative_time_future_timestamp() {
-        assert_eq!(format_relative_time(200, 100), "in the future");
-    }
-
-    #[test]
-    fn format_relative_time_less_than_an_hour() {
-        assert_eq!(format_relative_time(0, 1800), "less than an hour ago");
-    }
-
-    #[test]
-    fn format_relative_time_exactly_one_hour() {
-        assert_eq!(format_relative_time(0, 3600), "1 hour ago");
-    }
-
-    #[test]
-    fn format_relative_time_multiple_hours() {
-        assert_eq!(format_relative_time(0, 3 * 3600), "3 hours ago");
-    }
-
-    #[test]
-    fn format_relative_time_exactly_one_day() {
-        assert_eq!(format_relative_time(0, 86400), "1 day ago");
-    }
-
-    #[test]
-    fn format_relative_time_several_days() {
-        assert_eq!(format_relative_time(0, 4 * 86400), "4 days ago");
-    }
-
-    #[test]
-    fn format_relative_time_one_week_boundary() {
-        assert_eq!(format_relative_time(0, 7 * 86400), "1 week ago");
-    }
-
-    #[test]
-    fn format_relative_time_several_weeks() {
-        assert_eq!(format_relative_time(0, 20 * 86400), "2 weeks ago");
-    }
-
-    #[test]
-    fn format_relative_time_one_month_boundary() {
-        assert_eq!(format_relative_time(0, 30 * 86400), "1 month ago");
-    }
-
-    #[test]
-    fn format_relative_time_several_months() {
-        assert_eq!(format_relative_time(0, 90 * 86400), "3 months ago");
-    }
-
-    #[test]
-    fn format_relative_time_one_year_or_more() {
-        assert_eq!(format_relative_time(0, 400 * 86400), "1 years ago");
-    }
+    // Step A's compute_trade_stats, compute_rolling_windows/compute_activity_consistency,
+    // and format_relative_time characterization tests moved to `src/stats/trade_size.rs`,
+    // `src/stats/lifecycle.rs`, and `src/report/format.rs` respectively, alongside the
+    // functions they cover (T033-T035).
 
     #[test]
     fn calculate_score_zero_activity_is_zero() {
