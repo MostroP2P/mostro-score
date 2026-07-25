@@ -116,8 +116,12 @@ pub fn render_order_debug_section(
     Ok(())
 }
 
+/// PR 3: scoped to what this branch actually knows is empty — dev-fee and order history
+/// — not "no events found" in general, since a node reaching this branch may still have
+/// usable dispute or instance-status data (PR 3's exit-code-4 gate already confirmed
+/// that, or `run()` would have returned `AppError::NoUsableEvents` before this point).
 pub fn render_no_events_found(out: &mut impl std::io::Write) -> Result<()> {
-    writeln!(out, "No events found.")?;
+    writeln!(out, "No dev fee or order history found for this node.")?;
     Ok(())
 }
 

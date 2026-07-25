@@ -1,10 +1,7 @@
+use crate::fetch::filters_summary::build_scoped_filters;
 use nostr_sdk::prelude::*;
-use nostr_sdk::{Alphabet, SingleLetterTag};
 use std::time::Duration;
 use tokio::sync::OnceCell;
-
-/// Dev-fee payment event kind (not in mostro-core)
-const DEV_FEE_EVENT_KIND: u16 = 8383;
 
 /// Timeout for both the relay connection attempt and each fetch query.
 const RELAY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -58,12 +55,13 @@ fn interpret_connect_output(output: &Output<()>) -> RelayConnectionOutcome {
 ///
 /// Two methods, not one: the original (pre-PR1) `main()` prints "Connected to relays"
 /// only after relay setup (`add_relay`, which can fail) succeeds, and strictly before
-/// issuing the dev-fee/order filters. A single `fetch()` call collapsing both phases
+/// issuing any fetch filters. A single `fetch()` call collapsing both phases
 /// would either print that message too early (before a malformed relay's `add_relay`
 /// failure surfaces) or require `run()` to reach into connection internals it has no
 /// business owning. `connect()` isolates exactly the fallible relay-setup step so
 /// `run()` can print its status line at the same logical point the original code did;
-/// `fetch()` keeps issuing the two filters, unchanged from Step 0's wrap.
+/// `fetch()` issues its filters afterward (PR 1's original two, expanded to PR 3's
+/// four kind-scoped filters).
 #[allow(async_fn_in_trait)]
 pub trait EventSource {
     /// Establishes whatever connection this source needs before any event is fetched,
@@ -75,11 +73,11 @@ pub trait EventSource {
     async fn fetch(&self, public_key: PublicKey) -> Result<Vec<Event>>;
 }
 
-/// Production `EventSource`: connects to the configured relays and issues the same two
-/// filters `main()` used to build inline (dev-fee events, then order events), chaining
-/// both result sets into one `Vec<Event>` exactly as before. The connected `Client` is
-/// cached in `connect()` and reused by `fetch()`, since the original code builds the
-/// client and relay connection once, then queries twice against the same connection.
+/// Production `EventSource`: connects to the configured relays and issues the four
+/// kind-scoped filters from `filters_summary.rs` (PR 3), chaining every result set into
+/// one `Vec<Event>`. The connected `Client` is cached in `connect()` and reused by
+/// `fetch()`, since the original code builds the client and relay connection once, then
+/// queries against that same connection.
 pub struct RelayEventSource {
     pub relays: Vec<String>,
     client: OnceCell<Client>,
@@ -130,30 +128,28 @@ impl EventSource for RelayEventSource {
             .get()
             .ok_or("RelayEventSource::fetch called before connect()")?;
 
-        // Filter 1: Development Fee Events (z=dev-fee-payment, y=mostro)
-        let dev_fee_filter = Filter::new()
-            .kind(Kind::Custom(DEV_FEE_EVENT_KIND))
-            .author(public_key)
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "dev-fee-payment")
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::Y), "mostro");
+        // PR 3 (T097/T098): the four kind-scoped filters per 001 FR-015 — dev-fee
+        // (8383), order (38383), instance-status (38385), and dispute (38386) —
+        // replacing PR 1's original two-filter query.
+        //
+        // Each fetch runs in its own spawned task: `nostr-relay-pool` 0.43.1's
+        // `fetch_events` constructs an internal `mpsc::channel(streams.len() * 512)`,
+        // which Tokio panics on when every targeted relay's stream setup fails (e.g. a
+        // relay disconnects between `connect()` succeeding and this call) — a real
+        // transient-failure path, not a hypothetical one, that would otherwise abort the
+        // whole process outside the `AppError` taxonomy (Principle VI). `tokio::spawn`
+        // isolates a panic into a catchable `JoinError` instead of unwinding past it.
+        let mut events: Vec<Event> = Vec::new();
+        for filter in build_scoped_filters(public_key) {
+            let client = client.clone();
+            let fetched =
+                tokio::spawn(async move { client.fetch_events(filter, RELAY_TIMEOUT).await })
+                    .await
+                    .map_err(|_| "relay fetch task panicked")??;
+            events.extend(fetched);
+        }
 
-        // Filter 2: Order Events (z=order)
-        let order_filter = Filter::new()
-            .kind(Kind::PeerToPeerOrder)
-            .author(public_key)
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "order");
-
-        let dev_fee_events_result = client
-            .fetch_events(dev_fee_filter, Duration::from_secs(10))
-            .await?;
-        let order_events_result = client
-            .fetch_events(order_filter, Duration::from_secs(10))
-            .await?;
-
-        Ok(dev_fee_events_result
-            .into_iter()
-            .chain(order_events_result.into_iter())
-            .collect())
+        Ok(events)
     }
 }
 

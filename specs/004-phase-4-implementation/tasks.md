@@ -165,29 +165,29 @@ work they described no longer applies.
 
 **Depends on**: 1, 2. Requirements: 001 FR-002, FR-006, FR-012, FR-013, FR-014, FR-015; 002 FR-003 (fetch scoping), FR-019 (exit `4`).
 
-- [ ] T076 [RED] Failing tests for author/`z`/`y` scoping in `src/models/core.rs`.
-- [ ] T077 [GREEN] Implement scoping per 001 FR-015 in `src/models/core.rs`.
-- [ ] T078 [RED] Failing tests for future-timestamp exclusion in `src/models/core.rs`.
-- [ ] T079 [GREEN] Implement future-timestamp exclusion per 001 FR-014 in `src/models/core.rs`.
-- [ ] T080 [RED] Failing tests for the dedup tie-break by greatest event id on equal `created_at` in `src/models/dedup.rs`.
-- [ ] T081 [GREEN] Implement the tie-break rule per 001 FR-002/006/012/014 in `src/models/dedup.rs`.
-- [ ] T082 [RED] Failing tests for the four-kind fetch filter expansion (`8383`/`38383`/`38385`/`38386`) in `src/fetch/filters_summary.rs`.
-- [ ] T083 [GREEN] Implement the four-kind filter query per 001 FR-015, 002 FR-003 in `src/fetch/filters_summary.rs`; `RelayFetchOutcome`'s per-field counts are implemented separately below, each against its own semantic rule.
-- [ ] T084 [RED] Failing tests for qualifying-order selection (`d`-tag dedup to the highest `created_at`, then the `s=success` filter) in `src/models/order.rs`.
-- [ ] T085 [GREEN] Implement qualifying-order selection per 001 FR-002 in `src/models/order.rs`.
-- [ ] T086 [RED] Failing tests for dispute event dedup-by-`d`-tag and resolved/active/unknown classification in `src/models/dispute.rs`.
-- [ ] T087 [GREEN] Implement dispute dedup and classification per 001 FR-006, FR-015 in `src/models/dispute.rs`.
-- [ ] T088 [RED] Failing tests for instance-status kind-`38385` selection (`d` = node pubkey, highest `created_at`, tie-break by event id) in `src/models/instance_status.rs`.
-- [ ] T089 [GREEN] Implement instance-status selection per 001 FR-012, FR-015 in `src/models/instance_status.rs`.
-- [ ] T090 [RED] Failing tests asserting that events with malformed or missing required tags across all four scoped kinds (`8383` dev-fee, `38383` order, `38385` instance-status, `38386` dispute) are safely excluded from aggregation without panicking, in `src/models/core.rs`.
-- [ ] T091 [GREEN] Implement malformed/incomplete-tag exclusion per 001 FR-013 across `src/models/dev_fee.rs`, `src/models/order.rs`, `src/models/dispute.rs`, `src/models/instance_status.rs`, routed through the shared tag accessors in `src/models/core.rs`.
-- [ ] T092 [RED] Failing tests asserting each `RelayFetchOutcome`/fetch-summary count follows its own semantic rule, not a single generic id-dedup helper: `dev_fee_events` deduplicated by event id only (raw fetch count); `order_events` deduplicated by event id only (raw fetch count); `unique_orders` applying `src/models/order.rs`'s full qualifying-order procedure (`d`-tag dedup to the highest `created_at`, then the `s=success` filter, per 001 FR-002); `dispute_events` deduplicated by `d` tag via `src/models/dispute.rs`'s classification (NIP-33 replaceable event, latest status wins); `instance_status_found` reflecting `src/models/instance_status.rs`'s actual valid-instance selection (highest `created_at` kind-`38385` event for the node's own pubkey, per 001's Clarifications), not merely whether a kind-`38385` event was fetched — in `src/fetch/filters_summary.rs`.
-- [ ] T093 [RED] Failing test: two relays both returning the same kind-`8383` dev-fee event id yield `dev_fee_events == 1`, not `2`, per 002 FR-003's event-id dedup rule, in `src/fetch/filters_summary.rs`.
-- [ ] T094 [GREEN] Implement each `RelayFetchOutcome` count against its own semantic rule per 002 FR-003, 001 FR-002/FR-006/FR-012 in `src/fetch/filters_summary.rs`, consuming `src/models/order.rs`, `src/models/dispute.rs`, and `src/models/instance_status.rs` rather than a single generic id-dedup helper.
-- [ ] T095 [RED] Failing test: exit `4` when zero dev-fee/order/dispute/instance-status events are usable.
-- [ ] T096 [GREEN] Wire `AppError::NoUsableEvents` (exit `4`) into `src/lib.rs`'s `run()`.
-- [ ] T097 [RED] Failing tests: (1) `src/fetch/client.rs`'s real `EventSource` implementation issues all four filters (`8383`/`38383`/`38385`/`38386`) from `src/fetch/filters_summary.rs`, replacing PR 1's original two-filter query; (2) an integration-level test proving a node whose only usable data is a dispute or instance-status event (no dev-fee event, no orders) is fetched successfully and does not trigger `AppError::NoUsableEvents` (exit code `4`).
-- [ ] T098 [GREEN] Wire `src/fetch/client.rs`'s real `EventSource` implementation to issue all four filters from `src/fetch/filters_summary.rs`, replacing PR 1's original two-filter query.
+- [x] T076 [RED] Failing tests for author/`z`/`y` scoping in `src/models/core.rs`.
+- [x] T077 [GREEN] Implement scoping per 001 FR-015 in `src/models/core.rs`.
+- [x] T078 [RED] Failing tests for future-timestamp exclusion in `src/models/core.rs`.
+- [x] T079 [GREEN] Implement future-timestamp exclusion per 001 FR-014 in `src/models/core.rs`.
+- [x] T080 [RED] Failing tests for the dedup tie-break by greatest event id on equal `created_at` in `src/models/dedup.rs`.
+- [x] T081 [GREEN] Implement the tie-break rule per 001 FR-002/006/012/014 in `src/models/dedup.rs`.
+- [x] T082 [RED] Failing tests for the four-kind fetch filter expansion (`8383`/`38383`/`38385`/`38386`) in `src/fetch/filters_summary.rs`.
+- [x] T083 [GREEN] Implement the four-kind filter query per 001 FR-015, 002 FR-003 in `src/fetch/filters_summary.rs`; `RelayFetchOutcome`'s per-field counts are implemented separately below, each against its own semantic rule.
+- [x] T084 [RED] Failing tests for qualifying-order selection (`d`-tag dedup to the highest `created_at`, then the `s=success` filter) in `src/models/order.rs`.
+- [x] T085 [GREEN] Implement qualifying-order selection per 001 FR-002 in `src/models/order.rs`.
+- [x] T086 [RED] Failing tests for dispute event dedup-by-`d`-tag and resolved/active/unknown classification in `src/models/dispute.rs`.
+- [x] T087 [GREEN] Implement dispute dedup and classification per 001 FR-006, FR-015 in `src/models/dispute.rs`.
+- [x] T088 [RED] Failing tests for instance-status kind-`38385` selection (`d` = node pubkey, highest `created_at`, tie-break by event id) in `src/models/instance_status.rs`.
+- [x] T089 [GREEN] Implement instance-status selection per 001 FR-012, FR-015 in `src/models/instance_status.rs`.
+- [x] T090 [RED] Failing tests asserting that events with malformed or missing required tags across all four scoped kinds (`8383` dev-fee, `38383` order, `38385` instance-status, `38386` dispute) are safely excluded from aggregation without panicking, in `src/models/core.rs`.
+- [x] T091 [GREEN] Implement malformed/incomplete-tag exclusion per 001 FR-013 across `src/models/dev_fee.rs`, `src/models/order.rs`, `src/models/dispute.rs`, `src/models/instance_status.rs`, routed through the shared tag accessors in `src/models/core.rs`.
+- [x] T092 [RED] Failing tests asserting each `RelayFetchOutcome`/fetch-summary count follows its own semantic rule, not a single generic id-dedup helper: `dev_fee_events` deduplicated by event id only (raw fetch count); `order_events` deduplicated by event id only (raw fetch count); `unique_orders` applying `src/models/order.rs`'s full qualifying-order procedure (`d`-tag dedup to the highest `created_at`, then the `s=success` filter, per 001 FR-002); `dispute_events` deduplicated by `d` tag via `src/models/dispute.rs`'s classification (NIP-33 replaceable event, latest status wins); `instance_status_found` reflecting `src/models/instance_status.rs`'s actual valid-instance selection (highest `created_at` kind-`38385` event for the node's own pubkey, per 001's Clarifications), not merely whether a kind-`38385` event was fetched — in `src/fetch/filters_summary.rs`.
+- [x] T093 [RED] Failing test: two relays both returning the same kind-`8383` dev-fee event id yield `dev_fee_events == 1`, not `2`, per 002 FR-003's event-id dedup rule, in `src/fetch/filters_summary.rs`.
+- [x] T094 [GREEN] Implement each `RelayFetchOutcome` count against its own semantic rule per 002 FR-003, 001 FR-002/FR-006/FR-012 in `src/fetch/filters_summary.rs`, consuming `src/models/order.rs`, `src/models/dispute.rs`, and `src/models/instance_status.rs` rather than a single generic id-dedup helper.
+- [x] T095 [RED] Failing test: exit `4` when zero dev-fee/order/dispute/instance-status events are usable.
+- [x] T096 [GREEN] Wire `AppError::NoUsableEvents` (exit `4`) into `src/lib.rs`'s `run()`.
+- [x] T097 [RED] Failing tests: (1) `src/fetch/client.rs`'s real `EventSource` implementation issues all four filters (`8383`/`38383`/`38385`/`38386`) from `src/fetch/filters_summary.rs`, replacing PR 1's original two-filter query; (2) an integration-level test proving a node whose only usable data is a dispute or instance-status event (no dev-fee event, no orders) is fetched successfully and does not trigger `AppError::NoUsableEvents` (exit code `4`).
+- [x] T098 [GREEN] Wire `src/fetch/client.rs`'s real `EventSource` implementation to issue all four filters from `src/fetch/filters_summary.rs`, replacing PR 1's original two-filter query.
 
 ---
 

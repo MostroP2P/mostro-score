@@ -13,7 +13,11 @@ pub mod stats;
 
 use error::AppError;
 use fetch::client::EventSource;
-use models::core::partition_by_z_y_tag;
+use fetch::filters_summary::{
+    compute_relay_fetch_outcome, dedup_by_event_id_count, partition_scoped_events,
+};
+use models::core::exclude_future_events;
+use models::dedup::dedup_events_by_id;
 use models::dev_fee::aggregate_dev_fee_events;
 use models::order::aggregate_order_events;
 use nostr_sdk::prelude::*;
@@ -75,9 +79,41 @@ pub async fn run<E: EventSource>(
     console::render_fetched_count(err, events.len())?;
     console::render_sample_events(err, &events)?;
 
-    // Separate dev fee events and order events
-    let (dev_fee_events, order_events) = partition_by_z_y_tag(events);
-    console::render_partition_summary(out, dev_fee_events.len(), order_events.len())?;
+    // Captured once, here, and reused for both FR-014's future-event exclusion below
+    // and the report's own "now" (Section 6): a single consistent instant for the
+    // whole run, not two separate clock reads that could disagree if execution takes
+    // any measurable time.
+    let report_generated_at = now();
+    let events = exclude_future_events(
+        events,
+        Timestamp::from(report_generated_at.timestamp() as u64),
+    );
+
+    // PR 3 (T095/T096): route the four scoped kinds (001 FR-015) into their own
+    // buckets, then gate on whether any of them yielded usable data at all (002
+    // FR-019 exit code 4). A node with, say, zero successful orders but a usable
+    // dispute or instance-status event is still a valid, reportable state.
+    let partitioned = partition_scoped_events(events, &public_key);
+    // Dev-fee events have no `d`-tag replaceable-event semantics of their own (unlike
+    // orders/disputes/instance-status), so event-id dedup is their only dedup axis;
+    // deduplicated once, here, and reused below so it is never rescanned or recounted.
+    let dev_fee_events = dedup_events_by_id(partitioned.dev_fee_events);
+    let dev_fee_event_count = dev_fee_events.len();
+    let order_event_count = dedup_by_event_id_count(&partitioned.order_events);
+    let order_aggregate = aggregate_order_events(partitioned.order_events);
+    let fetch_outcome = compute_relay_fetch_outcome(
+        dev_fee_event_count,
+        order_event_count,
+        &order_aggregate,
+        partitioned.instance_status_events,
+        partitioned.dispute_events,
+        &public_key,
+    );
+    if fetch_outcome.has_no_usable_events() {
+        return Err(AppError::NoUsableEvents);
+    }
+
+    console::render_partition_summary(out, dev_fee_event_count, order_event_count)?;
 
     // Process dev fee events to get instance start timestamp
     let mut stats = MostroStats::default();
@@ -86,8 +122,7 @@ pub async fn run<E: EventSource>(
     stats.first_dev_fee_ts = dev_fee_aggregate.first_dev_fee_ts;
     console::render_dev_fee_section(out, err, &dev_fee_aggregate)?;
 
-    // 5. Analyze orders
-    let order_aggregate = aggregate_order_events(order_events);
+    // 5. Analyze orders (already aggregated above, for the exit-4 gate)
     console::render_order_debug_section(err, &order_aggregate)?;
     stats.first_order_ts = order_aggregate.first_order_ts;
     stats.last_order_ts = order_aggregate.last_order_ts;
@@ -97,7 +132,7 @@ pub async fn run<E: EventSource>(
     stats.successful_trade_timestamps = order_aggregate.successful_trade_timestamps;
 
     // 6. Output Report
-    let now = now().timestamp();
+    let now = report_generated_at.timestamp();
 
     // Calculate days_active from dev fee events or fallback to orders
     let (days_active, instance_started) = match stats.first_dev_fee_ts {

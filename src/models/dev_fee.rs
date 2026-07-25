@@ -43,6 +43,19 @@ mod tests {
         assert!(select_oldest_dev_fee_event(vec![]).is_none());
     }
 
+    /// FR-013: a dev-fee event carrying no tags at all must not panic anywhere in this
+    /// aggregation path — it is simply an event with an unknown longevity-relevant
+    /// content, still ordered on `created_at` alone.
+    #[test]
+    fn aggregate_dev_fee_events_handles_a_tagless_event_without_panicking() {
+        let tagless = make_event(8383, 100, vec![]);
+
+        let aggregate = aggregate_dev_fee_events(vec![tagless]);
+
+        assert_eq!(aggregate.count, 1);
+        assert_eq!(aggregate.first_dev_fee_ts, Some(100));
+    }
+
     #[test]
     fn select_oldest_dev_fee_event_picks_earliest_created_at() {
         let older = make_event(8383, 100, vec![("z", "dev-fee-payment"), ("y", "mostro")]);

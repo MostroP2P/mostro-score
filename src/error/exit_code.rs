@@ -1,7 +1,7 @@
 //! PR 2 (T062-T063): `AppError` -> process exit-code mapping per 002 FR-019. Exit code `0`
 //! has no entry here since it is simply the absence of an `AppError` (the default success
-//! exit); exit code `4` (`no_usable_events`) is added in PR 3 once the four-kind event
-//! scoping it depends on exists.
+//! exit). PR 3 (T096) adds exit code `4` (`no_usable_events`), now that the four-kind
+//! event scoping it depends on exists.
 
 use crate::error::AppError;
 
@@ -10,6 +10,7 @@ pub fn exit_code_for(error: &AppError) -> i32 {
         AppError::UsageError(_) => 2,
         AppError::RelaysUnreachable => 3,
         AppError::InvalidPubkey => 5,
+        AppError::NoUsableEvents => 4,
         AppError::Other(_) => 1,
     }
 }
@@ -34,6 +35,11 @@ mod tests {
             exit_code_for(&AppError::UsageError("bad flag combination".to_string())),
             2
         );
+    }
+
+    #[test]
+    fn no_usable_events_maps_to_exit_code_4() {
+        assert_eq!(exit_code_for(&AppError::NoUsableEvents), 4);
     }
 
     #[test]

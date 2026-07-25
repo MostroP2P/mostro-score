@@ -14,6 +14,18 @@ pub(crate) mod test_support {
 
     pub(crate) fn make_event(kind: u16, created_at: u64, tags: Vec<(&str, &str)>) -> Event {
         let keys = Keys::generate();
+        make_event_with_keys(&keys, kind, created_at, tags)
+    }
+
+    /// Same as `make_event`, signed with a caller-supplied key pair, so tests exercising
+    /// author scoping (FR-015) can build multiple events sharing (or deliberately not
+    /// sharing) the same signer.
+    pub(crate) fn make_event_with_keys(
+        keys: &Keys,
+        kind: u16,
+        created_at: u64,
+        tags: Vec<(&str, &str)>,
+    ) -> Event {
         let parsed_tags: Vec<Tag> = tags
             .into_iter()
             .map(|(name, value)| Tag::parse([name, value]).expect("valid tag"))
@@ -21,7 +33,7 @@ pub(crate) mod test_support {
         EventBuilder::new(Kind::Custom(kind), "")
             .tags(parsed_tags)
             .custom_created_at(Timestamp::from(created_at))
-            .sign_with_keys(&keys)
+            .sign_with_keys(keys)
             .expect("event signs")
     }
 }
