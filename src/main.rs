@@ -45,9 +45,12 @@ async fn main() {
 
 /// Maps `run()`'s (or pubkey parsing's) error to its exit code (T062/T063) and prints its
 /// `Display` message, never a raw `Debug` dump (Principle VI) — Rust's default
-/// `Result`-returning-`main` behavior does neither, so `main` handles this explicitly.
+/// `Result`-returning-`main` behavior does neither, so `main` handles this explicitly. Uses
+/// `write!`, not `eprintln!`, since the latter panics on a write failure (e.g. a closed
+/// stderr) — the mapped exit code must still apply even if the message can't be printed.
 fn exit_with_error(err: AppError) -> ! {
-    eprintln!("Error: {err}");
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr(), "Error: {err}");
     std::process::exit(exit_code_for(&err));
 }
 

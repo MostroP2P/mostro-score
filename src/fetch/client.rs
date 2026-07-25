@@ -128,7 +128,7 @@ impl EventSource for RelayEventSource {
         let client = self
             .client
             .get()
-            .expect("connect() must be called before fetch()");
+            .ok_or("RelayEventSource::fetch called before connect()")?;
 
         // Filter 1: Development Fee Events (z=dev-fee-payment, y=mostro)
         let dev_fee_filter = Filter::new()
@@ -154,5 +154,23 @@ impl EventSource for RelayEventSource {
             .into_iter()
             .chain(order_events_result.into_iter())
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The plan's constraint ("`unwrap`/`expect` are permitted only in tests") rules out
+    /// panicking when `fetch()` is called before `connect()` — an internal misuse that must
+    /// still surface as an ordinary `AppError`, not abort the process.
+    #[tokio::test]
+    async fn fetch_before_connect_returns_an_error_instead_of_panicking() {
+        let source = RelayEventSource::new(vec!["wss://relay.example".to_string()]);
+        let public_key = Keys::generate().public_key();
+
+        let result = source.fetch(public_key).await;
+
+        assert!(result.is_err());
     }
 }
