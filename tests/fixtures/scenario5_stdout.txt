@@ -1,0 +1,22 @@
+Analyzing Mostro Node: npub14xc7udl30d863dg5sp9s8kf8wnlcy5yjxzgadcy2cvtjxdzcs3ysdfzdyl
+Hex: a9b1ee37f17b4fa8b514804b03d92774ff8250923091d6e08ac3172334588449
+Connected to relays. Fetching history... (this might take a moment)
+Fetched 0 events. Analyzing...
+
+=== SAMPLE EVENTS (first 3) ===
+==============================
+
+Found 0 dev fee events and 0 order events
+
+⚠ Warning: No dev fee events found (z=dev-fee-payment, y=mostro).
+Falling back to order timestamps for days_active calculation.
+
+
+=== DEBUG INFORMATION ===
+Total order events fetched: 0
+Unique orders after deduplication: 0
+
+No order events found with s tags
+========================
+
+No events found.

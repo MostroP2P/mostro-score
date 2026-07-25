@@ -35,74 +35,100 @@ struct MostroStats {
     successful_trade_timestamps: Vec<i64>,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    env_logger::init();
-    let args = Args::parse();
+/// Seam introduced by PR 1 Step 0: the event-fetching surface `run()` depends on, so
+/// production code and tests can supply different implementations (real relays vs. a
+/// fixture replaying a captured event set). A generic bound, not `&dyn EventSource`,
+/// since only two implementations exist and stable async-fn-in-traits needs no boxing
+/// for static dispatch.
+trait EventSource {
+    async fn fetch(&self, public_key: PublicKey) -> Result<Vec<Event>>;
+}
 
-    // 1. Parse Pubkey
-    let public_key = match PublicKey::parse(&args.pubkey) {
-        Ok(pk) => pk,
-        Err(_) => {
-            eprintln!("Error: Invalid public key format.");
-            return Ok(());
+/// Production `EventSource`: connects to the configured relays and issues the same two
+/// filters `main()` used to build inline (dev-fee events, then order events), chaining
+/// both result sets into one `Vec<Event>` exactly as before.
+struct RelayEventSource {
+    relays: Vec<String>,
+}
+
+impl EventSource for RelayEventSource {
+    async fn fetch(&self, public_key: PublicKey) -> Result<Vec<Event>> {
+        let client = Client::new(Keys::generate());
+
+        for relay in &self.relays {
+            client.add_relay(relay.as_str()).await?;
         }
-    };
 
-    println!("Analyzing Mostro Node: {}", public_key.to_bech32()?);
-    println!("Hex: {}", public_key.to_hex());
+        client.connect().await;
 
-    // 2. Setup Client
-    let client = Client::new(Keys::generate());
-    let relays: Vec<&str> = args.relays.split(',').collect();
+        // Filter 1: Development Fee Events (z=dev-fee-payment, y=mostro)
+        let dev_fee_filter = Filter::new()
+            .kind(Kind::Custom(DEV_FEE_EVENT_KIND))
+            .author(public_key)
+            .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "dev-fee-payment")
+            .custom_tag(SingleLetterTag::lowercase(Alphabet::Y), "mostro");
 
-    for relay in relays {
-        client.add_relay(relay).await?;
+        // Filter 2: Order Events (z=order)
+        let order_filter = Filter::new()
+            .kind(Kind::PeerToPeerOrder)
+            .author(public_key)
+            .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "order");
+
+        let dev_fee_events_result = client
+            .fetch_events(dev_fee_filter, Duration::from_secs(10))
+            .await?;
+        let order_events_result = client
+            .fetch_events(order_filter, Duration::from_secs(10))
+            .await?;
+
+        Ok(dev_fee_events_result
+            .into_iter()
+            .chain(order_events_result.into_iter())
+            .collect())
     }
+}
 
-    client.connect().await;
-    println!("Connected to relays. Fetching history... (this might take a moment)");
+/// PR 1 Step 0: today's `main()` body, extracted verbatim into an ordinary (not
+/// `#[cfg(test)]`-gated) private function, callable by production `main()` in a normal
+/// `cargo build`. Five parameters replace the one caller-supplied input and the three
+/// hidden dependencies the original body had (relay query, clock read, and the
+/// `println!`/`eprintln!` calls — the writers count as two, one per stream). This is a
+/// purely mechanical wrap: no logic changes, no output changes.
+#[allow(clippy::too_many_arguments)]
+async fn run<E: EventSource>(
+    public_key: PublicKey,
+    event_source: E,
+    now: &dyn Fn() -> chrono::DateTime<chrono::Utc>,
+    out: &mut impl std::io::Write,
+    err: &mut impl std::io::Write,
+) -> Result<()> {
+    let _ = &err; // no diagnostic routing to `err` yet — that is PR 2's job.
 
-    // 3. Create Filters
-    // Filter 1: Development Fee Events (z=dev-fee-payment, y=mostro)
-    let dev_fee_filter = Filter::new()
-        .kind(Kind::Custom(DEV_FEE_EVENT_KIND))
-        .author(public_key)
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "dev-fee-payment")
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::Y), "mostro");
+    writeln!(out, "Analyzing Mostro Node: {}", public_key.to_bech32()?)?;
+    writeln!(out, "Hex: {}", public_key.to_hex())?;
 
-    // Filter 2: Order Events (z=order)
-    let order_filter = Filter::new()
-        .kind(Kind::PeerToPeerOrder)
-        .author(public_key)
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::Z), "order");
+    writeln!(
+        out,
+        "Connected to relays. Fetching history... (this might take a moment)"
+    )?;
 
     // 4. Fetch Both Event Types
-    let dev_fee_events_result = client
-        .fetch_events(dev_fee_filter, Duration::from_secs(10))
-        .await?;
-    let order_events_result = client
-        .fetch_events(order_filter, Duration::from_secs(10))
-        .await?;
-    let events: Vec<Event> = dev_fee_events_result
-        .into_iter()
-        .chain(order_events_result.into_iter())
-        .collect();
+    let events: Vec<Event> = event_source.fetch(public_key).await?;
 
-    println!("Fetched {} events. Analyzing...", events.len());
+    writeln!(out, "Fetched {} events. Analyzing...", events.len())?;
 
     // Print sample events to understand structure
-    println!("\n=== SAMPLE EVENTS (first 3) ===");
+    writeln!(out, "\n=== SAMPLE EVENTS (first 3) ===")?;
     for (idx, event) in events.iter().take(3).enumerate() {
-        println!("\nEvent #{}", idx + 1);
-        println!("  ID: {}", event.id);
-        println!("  created_at: {}", event.created_at);
-        println!("  Tags:");
+        writeln!(out, "\nEvent #{}", idx + 1)?;
+        writeln!(out, "  ID: {}", event.id)?;
+        writeln!(out, "  created_at: {}", event.created_at)?;
+        writeln!(out, "  Tags:")?;
         for tag in event.tags.iter() {
-            println!("    {:?}", tag.as_slice());
+            writeln!(out, "    {:?}", tag.as_slice())?;
         }
     }
-    println!("==============================\n");
+    writeln!(out, "==============================\n")?;
 
     // Separate dev fee events and order events
     let mut dev_fee_events: Vec<Event> = Vec::new();
@@ -130,11 +156,12 @@ async fn main() -> Result<()> {
         }
     }
 
-    println!(
+    writeln!(
+        out,
         "Found {} dev fee events and {} order events",
         dev_fee_events.len(),
         order_events.len()
-    );
+    )?;
 
     // Process dev fee events to get instance start timestamp
     let mut stats = MostroStats::default();
@@ -146,17 +173,24 @@ async fn main() -> Result<()> {
 
         stats.first_dev_fee_ts = Some(oldest_dev_fee.created_at.as_u64() as i64);
 
-        println!("\n=== MOSTRO TRADING ACTIVITY ===");
-        println!(
+        writeln!(out, "\n=== MOSTRO TRADING ACTIVITY ===")?;
+        writeln!(
+            out,
             "First dev fee payment: {}",
             chrono::DateTime::from_timestamp(oldest_dev_fee.created_at.as_u64() as i64, 0)
                 .unwrap_or_default()
-        );
-        println!("Total dev fee events: {}", dev_fee_events.len());
-        println!("================================\n");
+        )?;
+        writeln!(out, "Total dev fee events: {}", dev_fee_events.len())?;
+        writeln!(out, "================================\n")?;
     } else {
-        println!("\n⚠ Warning: No dev fee events found (z=dev-fee-payment, y=mostro).");
-        println!("Falling back to order timestamps for days_active calculation.\n");
+        writeln!(
+            out,
+            "\n⚠ Warning: No dev fee events found (z=dev-fee-payment, y=mostro)."
+        )?;
+        writeln!(
+            out,
+            "Falling back to order timestamps for days_active calculation.\n"
+        )?;
     }
 
     // 5. Analyze orders
@@ -221,19 +255,23 @@ async fn main() -> Result<()> {
     }
 
     // Print debug information
-    println!("\n=== DEBUG INFORMATION ===");
-    println!("Total order events fetched: {}", total_order_count);
-    println!("Unique orders after deduplication: {}", orders_map.len());
+    writeln!(out, "\n=== DEBUG INFORMATION ===")?;
+    writeln!(out, "Total order events fetched: {}", total_order_count)?;
+    writeln!(
+        out,
+        "Unique orders after deduplication: {}",
+        orders_map.len()
+    )?;
 
     if !s_tag_distribution.is_empty() {
-        println!("\nStatus distribution for order events (s tag):");
+        writeln!(out, "\nStatus distribution for order events (s tag):")?;
         for (status, count) in s_tag_distribution.iter() {
-            println!("  s='{}': {} events", status, count);
+            writeln!(out, "  s='{}': {} events", status, count)?;
         }
     } else {
-        println!("\nNo order events found with s tags");
+        writeln!(out, "\nNo order events found with s tags")?;
     }
-    println!("========================\n");
+    writeln!(out, "========================\n")?;
 
     // Process the final state of unique orders
     for (_order_id, event) in orders_map {
@@ -269,7 +307,7 @@ async fn main() -> Result<()> {
     }
 
     // 6. Output Report
-    let now = chrono::Utc::now().timestamp();
+    let now = now().timestamp();
 
     // Calculate days_active from dev fee events or fallback to orders
     let (days_active, instance_started) = match stats.first_dev_fee_ts {
@@ -280,7 +318,7 @@ async fn main() -> Result<()> {
         None => {
             // Fallback: use order timestamps
             if stats.last_order_ts == 0 {
-                println!("No events found.");
+                writeln!(out, "No events found.")?;
                 return Ok(());
             }
             let days = (stats.last_order_ts - stats.first_order_ts) as f64 / 86400.0;
@@ -302,34 +340,49 @@ async fn main() -> Result<()> {
     };
 
     // Header
-    println!("\n{}", "========================================".cyan());
-    println!(
+    writeln!(
+        out,
+        "\n{}",
+        "========================================".cyan()
+    )?;
+    writeln!(
+        out,
         "{}",
         "     MOSTRO NODE REPUTATION REPORT     ".cyan().bold()
-    );
-    println!("{}", "========================================".cyan());
-    println!("Node: {}", public_key.to_bech32()?);
+    )?;
+    writeln!(out, "{}", "========================================".cyan())?;
+    writeln!(out, "Node: {}", public_key.to_bech32()?)?;
 
     // Section: Longevity (4.1.1)
-    println!("{}", "----------------------------------------".dimmed());
-    println!("{}", "LONGEVITY".bold());
+    writeln!(
+        out,
+        "{}",
+        "----------------------------------------".dimmed()
+    )?;
+    writeln!(out, "{}", "LONGEVITY".bold())?;
     if let Some(start_ts) = instance_started {
-        println!(
+        writeln!(
+            out,
             "  First Activity:  {}",
             chrono::DateTime::from_timestamp(start_ts, 0).unwrap_or_default()
-        );
-        println!("  Days Active:     {:.1} days", days_active);
+        )?;
+        writeln!(out, "  Days Active:     {:.1} days", days_active)?;
     } else {
-        println!(
+        writeln!(
+            out,
             "  {} Days Active:     {:.1} days (estimated from orders)",
             "⚠".yellow(),
             days_active
-        );
+        )?;
     }
 
     // Section: Liveness (4.2.1) - PROMINENT per spec
-    println!("{}", "----------------------------------------".dimmed());
-    println!("{}", "LIVENESS".bold());
+    writeln!(
+        out,
+        "{}",
+        "----------------------------------------".dimmed()
+    )?;
+    writeln!(out, "{}", "LIVENESS".bold())?;
     if stats.last_order_ts > 0 {
         let relative_time = format_relative_time(stats.last_order_ts, now);
         let last_trade_display = format!(
@@ -340,86 +393,135 @@ async fn main() -> Result<()> {
 
         // Color based on activity status
         if days_since_last > 30 {
-            println!("{}", last_trade_display.red());
-            println!(
+            writeln!(out, "{}", last_trade_display.red())?;
+            writeln!(
+                out,
                 "  Days Since Last: {} {}",
                 days_since_last,
                 "INACTIVE".red().bold()
-            );
+            )?;
         } else if days_since_last > 7 {
-            println!("{}", last_trade_display.yellow());
-            println!(
+            writeln!(out, "{}", last_trade_display.yellow())?;
+            writeln!(
+                out,
                 "  Days Since Last: {} {}",
                 days_since_last,
                 "LOW ACTIVITY".yellow()
-            );
+            )?;
         } else {
-            println!("{}", last_trade_display.green());
-            println!(
+            writeln!(out, "{}", last_trade_display.green())?;
+            writeln!(
+                out,
                 "  Days Since Last: {} {}",
                 days_since_last,
                 "ACTIVE".green()
-            );
+            )?;
         }
     } else {
-        println!("  {} No successful trades recorded", "⚠".yellow());
+        writeln!(out, "  {} No successful trades recorded", "⚠".yellow())?;
     }
 
     // Section: Rolling Windows (4.2.2)
-    println!("{}", "----------------------------------------".dimmed());
-    println!("{}", "RECENT ACTIVITY".bold());
-    println!("  Last 7 days:     {} trades", trades_7d);
-    println!("  Last 30 days:    {} trades", trades_30d);
-    println!("  Last 90 days:    {} trades", trades_90d);
+    writeln!(
+        out,
+        "{}",
+        "----------------------------------------".dimmed()
+    )?;
+    writeln!(out, "{}", "RECENT ACTIVITY".bold())?;
+    writeln!(out, "  Last 7 days:     {} trades", trades_7d)?;
+    writeln!(out, "  Last 30 days:    {} trades", trades_30d)?;
+    writeln!(out, "  Last 90 days:    {} trades", trades_90d)?;
 
     // Section: Activity Consistency (4.2.3)
-    println!("{}", "----------------------------------------".dimmed());
-    println!("{}", "ACTIVITY CONSISTENCY (30 days)".bold());
-    println!("  Active Days:     {}/30", active_days_30d);
+    writeln!(
+        out,
+        "{}",
+        "----------------------------------------".dimmed()
+    )?;
+    writeln!(out, "{}", "ACTIVITY CONSISTENCY (30 days)".bold())?;
+    writeln!(out, "  Active Days:     {}/30", active_days_30d)?;
     if max_inactive_gap > 7 {
-        println!(
+        writeln!(
+            out,
             "  Max Inactive Gap: {} days {}",
             max_inactive_gap,
             "⚠".yellow()
-        );
+        )?;
     } else {
-        println!("  Max Inactive Gap: {} days", max_inactive_gap);
+        writeln!(out, "  Max Inactive Gap: {} days", max_inactive_gap)?;
     }
 
     // Section: Cumulative Performance (4.1.2)
-    println!("{}", "----------------------------------------".dimmed());
-    println!("{}", "CUMULATIVE PERFORMANCE".bold());
-    println!("  Successful Trades: {}", stats.successful_orders);
-    println!(
+    writeln!(
+        out,
+        "{}",
+        "----------------------------------------".dimmed()
+    )?;
+    writeln!(out, "{}", "CUMULATIVE PERFORMANCE".bold())?;
+    writeln!(out, "  Successful Trades: {}", stats.successful_orders)?;
+    writeln!(
+        out,
         "  Total Volume:      {} sats ({:.4} BTC)",
         stats.total_volume_sats,
         stats.total_volume_sats as f64 / 100_000_000.0
-    );
+    )?;
 
     // Section: Trade Statistics (4.1.3)
     if !stats.trade_amounts.is_empty() {
-        println!("{}", "----------------------------------------".dimmed());
-        println!("{}", "TRADE STATISTICS".bold());
-        println!("  Min Trade:       {} sats", min_trade);
-        println!("  Max Trade:       {} sats", max_trade);
-        println!("  Mean Trade:      {:.0} sats", mean_trade);
-        println!("  Median Trade:    {} sats", median_trade);
+        writeln!(
+            out,
+            "{}",
+            "----------------------------------------".dimmed()
+        )?;
+        writeln!(out, "{}", "TRADE STATISTICS".bold())?;
+        writeln!(out, "  Min Trade:       {} sats", min_trade)?;
+        writeln!(out, "  Max Trade:       {} sats", max_trade)?;
+        writeln!(out, "  Mean Trade:      {:.0} sats", mean_trade)?;
+        writeln!(out, "  Median Trade:    {} sats", median_trade)?;
     }
 
     // Trust Score
-    println!("{}", "----------------------------------------".dimmed());
+    writeln!(
+        out,
+        "{}",
+        "----------------------------------------".dimmed()
+    )?;
     let score = calculate_score(&stats, days_active);
     let score_display = format!("TRUST SCORE:       {}/100", score);
     if score >= 70 {
-        println!("{}", score_display.green().bold());
+        writeln!(out, "{}", score_display.green().bold())?;
     } else if score >= 40 {
-        println!("{}", score_display.yellow().bold());
+        writeln!(out, "{}", score_display.yellow().bold())?;
     } else {
-        println!("{}", score_display.red().bold());
+        writeln!(out, "{}", score_display.red().bold())?;
     }
-    println!("{}", "========================================".cyan());
+    writeln!(out, "{}", "========================================".cyan())?;
 
     Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    env_logger::init();
+    let args = Args::parse();
+
+    // 1. Parse Pubkey
+    let public_key = match PublicKey::parse(&args.pubkey) {
+        Ok(pk) => pk,
+        Err(_) => {
+            eprintln!("Error: Invalid public key format.");
+            return Ok(());
+        }
+    };
+
+    let relays: Vec<String> = args.relays.split(',').map(|s| s.to_string()).collect();
+    let event_source = RelayEventSource { relays };
+    let now = chrono::Utc::now;
+
+    let mut stdout = std::io::stdout();
+    let mut stderr = std::io::stderr();
+
+    run(public_key, event_source, &now, &mut stdout, &mut stderr).await
 }
 
 /// Compute trade amount statistics (Section 4.1.3)
@@ -544,4 +646,249 @@ fn calculate_score(stats: &MostroStats, days_active: f64) -> u64 {
     score += (stats.successful_orders as f64 / 100.0).min(1.0) * 30.0;
 
     score as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    /// Fixture `EventSource`: replays a canned event set (captured once from a real
+    /// relay round trip, Step -1) instead of querying relays. No network access.
+    struct FixtureEventSource {
+        events: Vec<Event>,
+    }
+
+    impl EventSource for FixtureEventSource {
+        async fn fetch(&self, _public_key: PublicKey) -> Result<Vec<Event>> {
+            Ok(self.events.clone())
+        }
+    }
+
+    fn load_fixture_events(path: &str) -> Vec<Event> {
+        let raw = fs::read_to_string(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        raw.lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| Event::from_json(l).unwrap_or_else(|e| panic!("parse event line: {e}")))
+            .collect()
+    }
+
+    /// Normalizes the "Status distribution for order events (s tag):" block: its lines
+    /// come from `HashMap` iteration, so their order is nondeterministic across process
+    /// runs, independent of any code change. Both sides of a comparison must have that
+    /// block's lines sorted before the rest of the text is compared byte-for-byte.
+    fn normalize_s_tag_distribution(text: &str) -> String {
+        let lines: Vec<&str> = text.lines().collect();
+        let mut normalized: Vec<String> = Vec::with_capacity(lines.len());
+        let mut i = 0;
+        while i < lines.len() {
+            let line = lines[i];
+            normalized.push(line.to_string());
+            if line == "Status distribution for order events (s tag):" {
+                i += 1;
+                let mut block: Vec<&str> = Vec::new();
+                while i < lines.len() && lines[i].trim_start().starts_with("s=") {
+                    block.push(lines[i]);
+                    i += 1;
+                }
+                block.sort_unstable();
+                normalized.extend(block.into_iter().map(|s| s.to_string()));
+                continue;
+            }
+            i += 1;
+        }
+        normalized.join("\n")
+    }
+
+    #[tokio::test]
+    async fn wrapped_run_matches_step_minus_1_golden_scenario_1() {
+        let fixture_events = load_fixture_events("tests/fixtures/scenario1_events.ndjson");
+        let expected_stdout = fs::read_to_string("tests/fixtures/scenario1_stdout.txt")
+            .expect("read golden stdout capture");
+        let expected_stderr = fs::read_to_string("tests/fixtures/scenario1_stderr.txt")
+            .expect("read golden stderr capture");
+        let now_pre: i64 = fs::read_to_string("tests/fixtures/scenario1_now_pre.txt")
+            .expect("read golden now")
+            .trim()
+            .parse()
+            .expect("valid now timestamp");
+
+        let public_key =
+            PublicKey::parse("82fa8cb978b43c79b2156585bac2c011176a21d2aead6d9f7c575c005be88390")
+                .unwrap();
+        let event_source = FixtureEventSource {
+            events: fixture_events,
+        };
+        let frozen_now =
+            move || chrono::DateTime::<chrono::Utc>::from_timestamp(now_pre, 0).unwrap();
+
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+
+        run(public_key, event_source, &frozen_now, &mut out, &mut err)
+            .await
+            .expect("run() succeeds against the fixture event source");
+
+        let actual_stdout = String::from_utf8(out).expect("stdout is valid utf-8");
+        let actual_stderr = String::from_utf8(err).expect("stderr is valid utf-8");
+
+        assert_eq!(
+            normalize_s_tag_distribution(&actual_stdout),
+            normalize_s_tag_distribution(&expected_stdout),
+            "wrapped run() stdout must match Step -1's golden scenario 1 capture, \
+             modulo HashMap-ordered s_tag_distribution lines"
+        );
+        assert_eq!(
+            actual_stderr, expected_stderr,
+            "wrapped run() stderr must match Step -1's golden scenario 1 capture"
+        );
+    }
+
+    // Step A — characterization tests for functions that are already standalone,
+    // unaffected by Step 0's wrap. Written directly against current `main.rs` code,
+    // before any module file is touched.
+
+    #[test]
+    fn compute_trade_stats_empty_returns_zeros() {
+        assert_eq!(compute_trade_stats(&[]), (0, 0, 0.0, 0));
+    }
+
+    #[test]
+    fn compute_trade_stats_single_value() {
+        assert_eq!(compute_trade_stats(&[100]), (100, 100, 100.0, 100));
+    }
+
+    #[test]
+    fn compute_trade_stats_odd_count_median_is_middle_value() {
+        let (min, max, mean, median) = compute_trade_stats(&[10, 30, 20]);
+        assert_eq!(min, 10);
+        assert_eq!(max, 30);
+        assert_eq!(mean, 20.0);
+        assert_eq!(median, 20);
+    }
+
+    #[test]
+    fn compute_trade_stats_even_count_median_is_average_of_middle_two() {
+        let (min, max, mean, median) = compute_trade_stats(&[10, 20, 30, 40]);
+        assert_eq!(min, 10);
+        assert_eq!(max, 40);
+        assert_eq!(mean, 25.0);
+        assert_eq!(median, 25);
+    }
+
+    #[test]
+    fn compute_rolling_windows_counts_each_window_independently() {
+        let now = 1_000_000_i64;
+        let timestamps = vec![
+            now - 86400,      // within 7, 30, 90
+            now - 10 * 86400, // within 30, 90
+            now - 60 * 86400, // within 90 only
+            now - 91 * 86400, // outside all windows
+        ];
+        assert_eq!(compute_rolling_windows(&timestamps, now), (1, 2, 3));
+    }
+
+    #[test]
+    fn compute_rolling_windows_empty_is_all_zero() {
+        assert_eq!(compute_rolling_windows(&[], 1_000_000), (0, 0, 0));
+    }
+
+    #[test]
+    fn compute_activity_consistency_no_trades_is_zero_active_thirty_gap() {
+        assert_eq!(compute_activity_consistency(&[], 1_000_000), (0, 30));
+    }
+
+    #[test]
+    fn compute_activity_consistency_counts_unique_active_days_and_max_gap() {
+        let now = 30 * 86400_i64;
+        // Active on day 0 and day 10 (relative to the 30-day window start), leaving a
+        // 9-day gap between them and a 20-day gap from day 10 to "today" (day 30).
+        let timestamps = vec![100, 10 * 86400 + 100];
+        let (active_days, max_gap) = compute_activity_consistency(&timestamps, now);
+        assert_eq!(active_days, 2);
+        assert_eq!(max_gap, 20);
+    }
+
+    #[test]
+    fn format_relative_time_future_timestamp() {
+        assert_eq!(format_relative_time(200, 100), "in the future");
+    }
+
+    #[test]
+    fn format_relative_time_less_than_an_hour() {
+        assert_eq!(format_relative_time(0, 1800), "less than an hour ago");
+    }
+
+    #[test]
+    fn format_relative_time_exactly_one_hour() {
+        assert_eq!(format_relative_time(0, 3600), "1 hour ago");
+    }
+
+    #[test]
+    fn format_relative_time_multiple_hours() {
+        assert_eq!(format_relative_time(0, 3 * 3600), "3 hours ago");
+    }
+
+    #[test]
+    fn format_relative_time_exactly_one_day() {
+        assert_eq!(format_relative_time(0, 86400), "1 day ago");
+    }
+
+    #[test]
+    fn format_relative_time_several_days() {
+        assert_eq!(format_relative_time(0, 4 * 86400), "4 days ago");
+    }
+
+    #[test]
+    fn format_relative_time_one_week_boundary() {
+        assert_eq!(format_relative_time(0, 7 * 86400), "1 week ago");
+    }
+
+    #[test]
+    fn format_relative_time_several_weeks() {
+        assert_eq!(format_relative_time(0, 20 * 86400), "2 weeks ago");
+    }
+
+    #[test]
+    fn format_relative_time_one_month_boundary() {
+        assert_eq!(format_relative_time(0, 30 * 86400), "1 month ago");
+    }
+
+    #[test]
+    fn format_relative_time_several_months() {
+        assert_eq!(format_relative_time(0, 90 * 86400), "3 months ago");
+    }
+
+    #[test]
+    fn format_relative_time_one_year_or_more() {
+        assert_eq!(format_relative_time(0, 400 * 86400), "1 years ago");
+    }
+
+    #[test]
+    fn calculate_score_zero_activity_is_zero() {
+        let stats = MostroStats::default();
+        assert_eq!(calculate_score(&stats, 0.0), 0);
+    }
+
+    #[test]
+    fn calculate_score_caps_each_component_at_its_maximum() {
+        let stats = MostroStats {
+            total_volume_sats: 200_000_000, // > 1 BTC, caps volume component
+            successful_orders: 500,         // > 100, caps success-count component
+            ..Default::default()
+        };
+        // Age caps at 365+ days (30 pts) + volume caps at 40 pts + success caps at 30 pts.
+        assert_eq!(calculate_score(&stats, 400.0), 100);
+    }
+
+    #[test]
+    fn calculate_score_partial_credit_is_proportional() {
+        let stats = MostroStats {
+            total_volume_sats: 50_000_000, // 0.5 BTC -> 20 pts
+            successful_orders: 50,         // 50/100 -> 15 pts
+            ..Default::default()
+        };
+        // days_active/365 = 0.5 -> 15 pts age + 20 pts volume + 15 pts success = 50.
+        assert_eq!(calculate_score(&stats, 182.5), 50);
+    }
 }
