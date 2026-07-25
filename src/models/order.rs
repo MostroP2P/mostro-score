@@ -76,7 +76,12 @@ pub fn aggregate_order_events(order_events: Vec<Event>) -> OrderAggregate {
             // Get Amount 'amt' (sats)
             if let Some(amt_str) = amt_tag(&event) {
                 if let Ok(amount) = amt_str.parse::<u64>() {
-                    total_volume_sats += amount;
+                    // `amt` comes from an untrusted relay event; saturating_add avoids a
+                    // panic (debug) or silent wraparound (release) on a crafted extreme
+                    // value, per Principle VI (no panics on user-facing paths). No
+                    // observable difference for any realistic sat amount (bounded by the
+                    // 21M BTC supply, far below u64::MAX).
+                    total_volume_sats = total_volume_sats.saturating_add(amount);
                     trade_amounts.push(amount);
                 }
             }
