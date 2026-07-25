@@ -206,7 +206,10 @@ src/
 │   ├── metric.rs                # MetricValue: Computed(T) | NotApplicable, the not-applicable contract
 │   └── progress.rs              # ProgressReporter port (trait): fetch calls it, report implements it.
 │                                 # Lives here, not in fetch, so implementing it never requires report
-│                                 # to depend on fetch — both already depend on models.
+│                                 # to depend on fetch — both already depend on models. The concrete
+│                                 # instance is bound into fetch::client's EventSource at construction
+│                                 # in main()/lib.rs's wiring, not passed as its own run() parameter,
+│                                 # so run()'s signature stays EventSource-generic and unchanged.
 ├── stats/
 │   ├── mod.rs                   # the aggregate NodeMetrics assembled from the submodules below
 │   ├── longevity.rs             # 001 FR-001, including the corrected first-order-to-now fallback
