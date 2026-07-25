@@ -181,54 +181,63 @@ src/
 │   ├── mod.rs
 │   ├── args.rs                  # clap derive struct, value enums (Format, View, Section, ColorMode)
 │   ├── duration.rs              # --since/--until: ISO 8601 dates and Nd/Nmo/Ny shorthand (003 FR-004)
-│   ├── resolve.rs               # precedence chain: flag > env var > config file > compiled default
-│   └── validate.rs              # cross-flag rules: since>until, --color+--no-color, --force alone
+│   └── options.rs               # precedence chain (flag > env > config > default) and cross-flag
+│                                 # validation (since>until, --color+--no-color, --force alone) — one
+│                                 # file, since resolving a flag's value and validating it happen together
 ├── config/
 │   ├── mod.rs
-│   ├── defaults.rs              # compiled-in defaults (default relay, fetch timeout)
-│   ├── paths.rs                 # platform config directory resolution (003 FR-014)
+│   ├── paths_defaults.rs        # compiled-in defaults and platform config directory (003 FR-014), both
+│                                 # small, static, and looked up together at startup
 │   ├── file.rs                  # TOML schema, load with warn-and-ignore degradation (003 FR-015a)
 │   └── init.rs                  # --init-config scaffolding, overwrite refusal, --force (003 FR-017..019)
 ├── fetch/
 │   ├── mod.rs
 │   ├── client.rs                # relay connection, per-relay outcome tracking, partial-failure policy
-│   ├── filters.rs               # per-kind filters: 8383, 38383, 38385, 38386
-│   └── summary.rs               # RelayFetchOutcome and dedup-by-id event counts (002 FR-003)
+│   └── filters_summary.rs       # per-kind filters (8383/38383/38385/38386) and the RelayFetchOutcome
+│                                 # dedup-by-id counts they produce (002 FR-003) — paired since the
+│                                 # summary is just the filters' fetch result, tallied
 ├── models/
 │   ├── mod.rs
-│   ├── tags.rs                  # tag accessors: z, y, d, s, amt, f, pm, premium, bond_enabled
-│   ├── scope.rs                 # author/z/y scoping (001 FR-015), future-timestamp exclusion (FR-014)
+│   ├── core.rs                  # tag accessors (z/y/d/s/amt/f/pm/premium/bond_enabled), author/z/y
+│                                 # scoping (001 FR-015) and future-timestamp exclusion (FR-014),
+│                                 # MetricValue (Computed(T) | NotApplicable), and the ProgressReporter
+│                                 # port (trait). Four small, no-logic-of-their-own types and helpers
+│                                 # every other module in this tree depends on — grouped so `fetch` and
+│                                 # `report` both reach ProgressReporter through the same shared
+│                                 # dependency they already have, not through each other. The concrete
+│                                 # reporter instance is bound into fetch::client's EventSource at
+│                                 # construction in main()/lib.rs's wiring, not passed as its own run()
+│                                 # parameter, so run()'s signature stays EventSource-generic.
 │   ├── dedup.rs                 # highest created_at wins, ties by greatest event id (001 FR-002/006/012/014)
-│   ├── dev_fee.rs               # kind 8383, the longevity anchor
-│   ├── order.rs                 # kind 38383, qualifying-order selection and s=success filter
-│   ├── dispute.rs               # kind 38386, dedup by d tag, resolved/active/unknown classification
-│   ├── instance_status.rs       # kind 38385, selection by d = node pubkey, tri-state bond_enabled
-│   ├── metric.rs                # MetricValue: Computed(T) | NotApplicable, the not-applicable contract
-│   └── progress.rs              # ProgressReporter port (trait): fetch calls it, report implements it.
-│                                 # Lives here, not in fetch, so implementing it never requires report
-│                                 # to depend on fetch — both already depend on models. The concrete
-│                                 # instance is bound into fetch::client's EventSource at construction
-│                                 # in main()/lib.rs's wiring, not passed as its own run() parameter,
-│                                 # so run()'s signature stays EventSource-generic and unchanged.
+│   ├── dev_fee.rs                # kind 8383, the longevity anchor
+│   ├── order.rs                  # kind 38383, qualifying-order selection and s=success filter
+│   ├── dispute.rs                # kind 38386, dedup by d tag, resolved/active/unknown classification
+│   └── instance_status.rs        # kind 38385, selection by d = node pubkey, tri-state bond_enabled
 ├── stats/
 │   ├── mod.rs                   # the aggregate NodeMetrics assembled from the submodules below
-│   ├── longevity.rs             # 001 FR-001, including the corrected first-order-to-now fallback
-│   ├── cumulative.rs            # 001 FR-002
-│   ├── trade_size.rs            # 001 FR-003 and FR-010: min/max/mean/median, population std dev, CV
-│   ├── liveness.rs              # 001 FR-004: last trade, days since, rolling 7/30/90-day windows
-│   ├── consistency.rs           # 001 FR-005: active days and max inactive gap, UTC calendar days
+│   ├── lifecycle.rs             # 001 FR-001/002/004/005: longevity, cumulative performance, liveness,
+│                                 # activity consistency — one file, since all four answer "when and how
+│                                 # much has this node traded," each a few lines of pure arithmetic
+│   ├── trade_size.rs            # 001 FR-003 and FR-010: min/max/mean/median, population std dev, CV —
+│                                 # kept on its own; substantial enough (four figures, two nullability
+│                                 # rules) to earn a file the lifecycle group's smaller pieces don't need
 │   ├── disputes.rs              # 001 FR-006: ratio per 100 trades, resolved/active/unknown counts
-│   ├── breakdowns.rs            # 001 FR-008/FR-009: fiat partition, payment-method usage ranking
-│   ├── premium.rs               # 001 FR-011: node-level baseline and dispersion
-│   └── grid.rs                  # 002 FR-004/FR-005: bucketing, granularity auto-selection, FR-005a warning
+│   ├── context.rs               # 001 FR-008/FR-009/FR-011: fiat and payment-method breakdowns, premium
+│                                 # baseline/dispersion — spec 001's own User Story 3 already groups
+│                                 # these as descriptive due-diligence context, not core trust signals
+│   └── grid.rs                  # 002 FR-004/FR-005: bucketing, granularity auto-selection, FR-005a
+│                                 # warning — report/activity-grid logic, not a Phase 1 lifetime metric,
+│                                 # kept apart from `lifecycle.rs` for that reason
 ├── report/
 │   ├── mod.rs
 │   ├── model.rs                 # the 5-section report model, serde-annotated, schema_version
-│   ├── sections.rs              # section filtering for console/plain only (003 FR-008)
-│   ├── recommendations.rs       # plain-language synthesis with the baseline discipline of 002 FR-008a
-│   ├── format.rs                # thousands separators, relative time, not-applicable rendering
-│   ├── color.rs                 # tty/NO_COLOR/TERM=dumb policy and explicit overrides (002 FR-015)
-│   ├── progress.rs              # terminal impl of models::progress::ProgressReporter, suppressed off-tty and on --quiet
+│   ├── content.rs                # section filtering for console/plain only (003 FR-008) and
+│                                 # recommendation synthesis with the baseline discipline of 002 FR-008a
+│                                 # — both assemble what the report says before any renderer touches it
+│   ├── format.rs                 # thousands separators, relative time, not-applicable rendering,
+│                                 # tty/NO_COLOR/TERM=dumb color policy (002 FR-015) — the presentation
+│                                 # details every renderer below needs, not specific to any one of them
+│   ├── progress.rs              # terminal impl of models::core::ProgressReporter, suppressed off-tty and on --quiet
 │   └── render/
 │       ├── mod.rs               # Renderer trait, format auto-selection by context (002 FR-010)
 │       ├── console.rs           # colored, tabular, width-adaptive (002 FR-013)
@@ -252,9 +261,11 @@ no more, no fewer, no renames.
 
 Two clarifications about that mapping: the submodules shown inside each directory are internal to
 their parent, not additional top-level modules — the principle constrains top-level decomposition,
-and splitting `stats` into one file per metric keeps each file single-purpose rather than violating
-it. And the library/binary split is a Rust testability mechanism, not an eighth module: `main.rs`
-holds no logic, `lib.rs` holds only the wiring and the `run()` entry point.
+not how many files each module uses internally, so files inside `stats` and the others are grouped by
+what genuinely belongs together (each a few dozen lines answering one question) rather than split one
+metric per file, which would be its own kind of fragmentation. And the library/binary split is a Rust
+testability mechanism, not an eighth module: `main.rs` holds no logic, `lib.rs` holds only the wiring
+and the `run()` entry point.
 
 Files under `tests/` are integration tests against the library's public surface. Unit tests live in
 `#[cfg(test)]` modules inside the file they cover, per Rust convention.
@@ -388,7 +399,7 @@ function boundary a test can call. For each of the three: extract it verbatim in
 function within `main.rs` (pure signature: fetched events in, selected/partitioned events out — no
 network, no I/O), re-run Step 0's golden test to confirm the output is unchanged, then write its
 characterization test against the new function. Only once Steps A and B's tests are green does the
-module move (to `models/dedup.rs`, `models/dev_fee.rs`, `models/scope.rs`) happen — a pure file move
+module move (to `models/dedup.rs`, `models/dev_fee.rs`, `models/core.rs` for the `z`/`y` partitioning) happen — a pure file move
 of already-tested code, not an extraction under test.
 
 **Step C — decompose the rest of the body, not just the three named pieces.** Everything else in
@@ -664,7 +675,7 @@ and Liveness's last-trade pair, a zero denominator for either breakdown, and few
 
 `null` must mean not-applicable and nothing else, which is a real hazard in Rust: `serde_json`
 serializes an `f64` NaN or infinity as `null` without erroring, so a division that slipped through
-would be indistinguishable from a deliberate not-applicable value. `models/metric.rs`'s
+would be indistinguishable from a deliberate not-applicable value. `models/core.rs`'s
 `MetricValue::Computed(T) | NotApplicable` is therefore the only thing allowed to produce a `null`
 here — every `stats/` computation returns `NotApplicable` at its guard rather than letting a
 degenerate float reach the serializer.
@@ -833,4 +844,4 @@ pull request above is built, not a later phase.
 | A `plan` step with no matching `spec.md` (Principle V's sequence) | Phase 4 implements three already-ratified specs and introduces no new requirement; its `specify` and `clarify` steps were completed in Phases 1-3 | Writing a fourth spec that restates specs 001-003 would create a second source of truth for the same requirements, with a permanent drift risk and no reader benefit. The constitution's Development Workflow already permits documented reordering for phased, multi-pull-request delivery |
 | Dual crate targets (`lib.rs` alongside `main.rs`) where the constitution names seven modules | Rust integration tests under `tests/` cannot import a binary-only crate; without a library target, Principle IV's coverage floor could only be approached with inline unit tests and the CLI's end-to-end behavior would be untestable | A binary-only crate keeps the file count lower but makes the test requirement unreachable. The split adds no logic: `main.rs` only parses, calls, and maps an exit code |
 | Legacy `calculate_score` trust score carried into the refactor with no spec backing | Pull request 1 is behavior-preserving by definition; deleting the function there would make the characterization tests unable to prove output equivalence | Deleting it during the refactor would conflate two decisions. **Resolved: removed in pull request 7, not amended into spec 002** — 002 FR-006 and FR-001 fix the general statistics section's five-section content with no trust score, and a sound composite score would need cross-node relative normalization, out of this tool's single-node scope; deferred to a future `sdd-explore` cycle rather than shipped unspecified, per Principle I |
-| Submodules nested inside the seven mandated top-level modules | `stats` alone implements fourteen distinct requirements; one file per metric is what keeps each file single-purpose | A flat seven-file layout would recreate the monolith at a smaller scale — a 600-line `stats.rs` fails the same cohesion test `main.rs` fails today. Principle III constrains the top-level decomposition, which this layout matches exactly |
+| Submodules nested inside the seven mandated top-level modules | `stats` alone implements fourteen distinct requirements; grouping related ones (e.g. longevity, cumulative, liveness, and consistency into one `lifecycle.rs`) keeps files cohesive without a file per individual FR | A flat single file per top-level module would recreate the monolith at a smaller scale — a 600-line `stats.rs` fails the same cohesion test `main.rs` fails today. A file per individual metric was the other extreme, rejected as unnecessary fragmentation for pieces this small. Principle III constrains the top-level decomposition, which this layout matches exactly |
