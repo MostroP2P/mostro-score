@@ -104,9 +104,9 @@ PR 1 cannot be split further without breaking its own safety net: every step (wr
 
 ### Step D — Final module move
 
-- [ ] T041 Relocate the wrapped function to `src/lib.rs` as `pub async fn run<E: EventSource>(public_key: PublicKey, event_source: E, now: &dyn Fn() -> DateTime<Utc>, out: &mut impl std::io::Write, err: &mut impl std::io::Write) -> Result<()>` (same `Result` alias as T009; PR 2's T061/T069 later swap it for `AppError`), clock call at the same logical point.
-- [ ] T042 Move T011's test to `tests/metrics_end_to_end.rs` as an integration test against `run()`; assert against T001's capture byte-for-byte.
-- [ ] T043 Confirm `src/main.rs` ends this PR as: parse args/pubkey, construct real `EventSource`, wire real clock and stdio, call `run()` — invalid-pubkey branch still pinned by T002.
+- [x] T041 Relocate the wrapped function to `src/lib.rs` as `pub async fn run<E: EventSource>(public_key: PublicKey, event_source: E, now: &dyn Fn() -> DateTime<Utc>, out: &mut impl std::io::Write, err: &mut impl std::io::Write) -> Result<()>` (same `Result` alias as T009; PR 2's T061/T069 later swap it for `AppError`), clock call at the same logical point.
+- [x] T042 Move T011's test to `tests/metrics_end_to_end.rs` as an integration test against `run()`; assert against T001's capture byte-for-byte.
+- [x] T043 Confirm `src/main.rs` ends this PR as: parse args/pubkey, construct real `EventSource`, wire real clock and stdio, call `run()` — invalid-pubkey branch still pinned by T002.
 
 ### Step D2 — Assert the remaining golden baseline scenarios
 
