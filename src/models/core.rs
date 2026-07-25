@@ -1,5 +1,47 @@
 use nostr_sdk::prelude::*;
 
+/// PR 1 Step C: shared single-letter tag accessor, extracted from the repeated
+/// `event.tags.iter().find(...)` pattern duplicated across dedup, dev-fee, and order
+/// aggregation. Returns the tag's first value (index 1) as a borrowed `&str`.
+pub fn tag_value<'e>(event: &'e Event, name: &str) -> Option<&'e str> {
+    event
+        .tags
+        .iter()
+        .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some(name))
+        .and_then(|t| t.as_slice().get(1))
+        .map(|s| s.as_str())
+}
+
+/// `z` tag accessor (order/dev-fee-payment discriminator).
+pub fn z_tag(event: &Event) -> Option<&str> {
+    tag_value(event, "z")
+}
+
+/// `y` tag accessor (dev-fee event's `mostro` marker).
+pub fn y_tag(event: &Event) -> Option<&str> {
+    tag_value(event, "y")
+}
+
+/// `d` tag accessor (order id / replaceable-event identifier).
+pub fn d_tag(event: &Event) -> Option<&str> {
+    tag_value(event, "d")
+}
+
+/// `s` tag accessor (order status).
+pub fn s_tag(event: &Event) -> Option<&str> {
+    tag_value(event, "s")
+}
+
+/// `amt` tag accessor (trade amount, sats).
+pub fn amt_tag(event: &Event) -> Option<&str> {
+    tag_value(event, "amt")
+}
+
+// `f` (fiat currency), `pm` (payment method), `premium`, and `bond_enabled` accessors
+// are not extracted here: base `src/main.rs` never reads those tags, so adding them now
+// would be new behavior, not a mechanical move. They land in PR 3 (event scoping) and
+// PR 6 (descriptive context), each alongside the aggregation logic that first uses them.
+
 /// PR 1 Step B seam: partition fetched events into dev-fee events (z=dev-fee-payment,
 /// y=mostro) and order events (z=order). Extracted verbatim from the wrapped function
 /// body; pure signature, no network, no I/O.
@@ -8,21 +50,7 @@ pub fn partition_by_z_y_tag(events: Vec<Event>) -> (Vec<Event>, Vec<Event>) {
     let mut order_events: Vec<Event> = Vec::new();
 
     for event in events {
-        let z_tag = event
-            .tags
-            .iter()
-            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("z"))
-            .and_then(|t| t.as_slice().get(1))
-            .map(|s| s.as_str());
-
-        let y_tag = event
-            .tags
-            .iter()
-            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("y"))
-            .and_then(|t| t.as_slice().get(1))
-            .map(|s| s.as_str());
-
-        match (z_tag, y_tag) {
+        match (z_tag(&event), y_tag(&event)) {
             (Some("dev-fee-payment"), Some("mostro")) => dev_fee_events.push(event),
             (Some("order"), _) => order_events.push(event),
             _ => {}

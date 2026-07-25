@@ -1,3 +1,4 @@
+use crate::models::core::d_tag;
 use nostr_sdk::prelude::*;
 use std::collections::HashMap;
 
@@ -9,22 +10,16 @@ pub fn dedup_orders_by_d_tag(order_events: Vec<Event>) -> HashMap<String, Event>
 
     for event in order_events {
         // If it's an order, map it by 'd' tag (Order ID) to get the final state
-        if let Some(d_tag) = event
-            .tags
-            .iter()
-            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("d"))
-        {
-            if let Some(order_id) = d_tag.as_slice().get(1) {
-                // Logic: Keep the event with the latest created_at for this Order ID
-                match orders_map.get(order_id.as_str()) {
-                    Some(existing) => {
-                        if event.created_at > existing.created_at {
-                            orders_map.insert(order_id.to_string(), event.clone());
-                        }
-                    }
-                    None => {
+        if let Some(order_id) = d_tag(&event) {
+            // Logic: Keep the event with the latest created_at for this Order ID
+            match orders_map.get(order_id) {
+                Some(existing) => {
+                    if event.created_at > existing.created_at {
                         orders_map.insert(order_id.to_string(), event.clone());
                     }
+                }
+                None => {
+                    orders_map.insert(order_id.to_string(), event.clone());
                 }
             }
         }

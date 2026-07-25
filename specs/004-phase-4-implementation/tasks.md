@@ -90,9 +90,9 @@ PR 1 cannot be split further without breaking its own safety net: every step (wr
 - [x] T027 Create `src/fetch/mod.rs` and `src/fetch/client.rs`; move relay client setup and the two-filter query verbatim into the real `EventSource` implementation.
 - [x] T028 Move per-kind dev-fee aggregation verbatim into `src/models/dev_fee.rs`.
 - [x] T029 Move per-kind order aggregation (qualifying-order selection, `s=success` filter) verbatim into `src/models/order.rs`.
-- [ ] T030 Create empty scaffolding for `src/models/dispute.rs` (stub types only, no aggregation logic) — base `src/main.rs` has no dispute aggregation to move verbatim; the real dispute dedup-by-`d`-tag and resolved/active/unknown classification logic is implemented in PR 3 (T086-T087).
-- [ ] T031 Create empty scaffolding for `src/models/instance_status.rs` (stub types only, no aggregation logic) — base `src/main.rs` has no instance-status aggregation to move verbatim; the real instance-status selection logic is implemented in PR 3 (T088-T089).
-- [ ] T032 Extract shared tag accessors (`z`/`y`/`d`/`s`/`amt`/`f`/`pm`/`premium`/`bond_enabled`) into `src/models/core.rs`.
+- [x] T030 Create empty scaffolding for `src/models/dispute.rs` (stub types only, no aggregation logic) — base `src/main.rs` has no dispute aggregation to move verbatim; the real dispute dedup-by-`d`-tag and resolved/active/unknown classification logic is implemented in PR 3 (T086-T087).
+- [x] T031 Create empty scaffolding for `src/models/instance_status.rs` (stub types only, no aggregation logic) — base `src/main.rs` has no instance-status aggregation to move verbatim; the real instance-status selection logic is implemented in PR 3 (T088-T089).
+- [x] T032 Extract shared tag accessors (`z`/`y`/`d`/`s`/`amt`/`f`/`pm`/`premium`/`bond_enabled`) into `src/models/core.rs`.
 - [ ] T033 Move `compute_trade_stats` verbatim into `src/stats/trade_size.rs`.
 - [ ] T034 Move `compute_rolling_windows` and `compute_activity_consistency` verbatim into `src/stats/lifecycle.rs`.
 - [ ] T035 Move `format_relative_time` (plus its Step A characterization test, T015) verbatim into `src/report/format.rs` — rendering/presentation logic, not a stats computation, per the plan's module tree; must land before T037 moves the console formatting calls that consume it.

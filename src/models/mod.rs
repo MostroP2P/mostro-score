@@ -1,6 +1,8 @@
 pub mod core;
 pub mod dedup;
 pub mod dev_fee;
+pub mod dispute;
+pub mod instance_status;
 pub mod order;
 
 /// Shared test-only event-construction helper, used by every `models` submodule's

@@ -1,3 +1,4 @@
+use crate::models::core::{amt_tag, s_tag};
 use crate::models::dedup::dedup_orders_by_d_tag;
 use mostro_core::prelude::Status as OrderStatus;
 use nostr_sdk::prelude::*;
@@ -39,13 +40,7 @@ pub fn aggregate_order_events(order_events: Vec<Event>) -> OrderAggregate {
         }
 
         // Track status distribution for all fetched events (all are orders now)
-        let s_tag = event
-            .tags
-            .iter()
-            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("s"));
-        let s_value = s_tag
-            .and_then(|t| t.as_slice().get(1))
-            .map(|s| s.to_string());
+        let s_value = s_tag(&event).map(|s| s.to_string());
         match &s_value {
             Some(val) => {
                 *s_tag_distribution.entry(val.clone()).or_insert(0) += 1;
@@ -71,14 +66,7 @@ pub fn aggregate_order_events(order_events: Vec<Event>) -> OrderAggregate {
     // Process the final state of unique orders
     for (_order_id, event) in orders_map {
         // Check Status 's'
-        let s_tag = event
-            .tags
-            .iter()
-            .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("s"));
-        let status_str = s_tag
-            .and_then(|t| t.as_slice().get(1))
-            .map(|s| s.as_str())
-            .unwrap_or("unknown");
+        let status_str = s_tag(&event).unwrap_or("unknown");
 
         if OrderStatus::from_str(status_str) == Ok(OrderStatus::Success) {
             successful_orders += 1;
@@ -86,16 +74,10 @@ pub fn aggregate_order_events(order_events: Vec<Event>) -> OrderAggregate {
             successful_trade_timestamps.push(event_ts);
 
             // Get Amount 'amt' (sats)
-            if let Some(amt_tag) = event
-                .tags
-                .iter()
-                .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("amt"))
-            {
-                if let Some(amt_str) = amt_tag.as_slice().get(1) {
-                    if let Ok(amount) = amt_str.parse::<u64>() {
-                        total_volume_sats += amount;
-                        trade_amounts.push(amount);
-                    }
+            if let Some(amt_str) = amt_tag(&event) {
+                if let Ok(amount) = amt_str.parse::<u64>() {
+                    total_volume_sats += amount;
+                    trade_amounts.push(amount);
                 }
             }
         }
