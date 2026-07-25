@@ -44,6 +44,12 @@ pub enum AppError {
     Other(#[from] Box<dyn std::error::Error>),
 }
 
+impl From<std::io::Error> for AppError {
+    fn from(error: std::io::Error) -> Self {
+        AppError::Other(Box::new(error))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

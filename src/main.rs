@@ -26,7 +26,7 @@ async fn main() {
     // PR 1's preserved-verbatim deviation of printing and returning success).
     let public_key = match PublicKey::parse(&args.pubkey) {
         Ok(pk) => pk,
-        Err(_) => exit_with_error(AppError::InvalidPubkey.into()),
+        Err(_) => exit_with_error(AppError::InvalidPubkey),
     };
 
     let relays: Vec<String> = args.relays.split(',').map(|s| s.to_string()).collect();
@@ -43,25 +43,12 @@ async fn main() {
     }
 }
 
-/// Maps any error `run()` (or pubkey parsing) produces to its exit code (T062/T063) and
-/// prints a user-facing message, never a raw `Debug` dump (Principle VI) — Rust's default
+/// Maps `run()`'s (or pubkey parsing's) error to its exit code (T062/T063) and prints its
+/// `Display` message, never a raw `Debug` dump (Principle VI) — Rust's default
 /// `Result`-returning-`main` behavior does neither, so `main` handles this explicitly.
-fn exit_with_error(err: Box<dyn std::error::Error>) -> ! {
-    let code = match err.downcast::<AppError>() {
-        Ok(app_err) => {
-            eprintln!("Error: {app_err}");
-            exit_code_for(&app_err)
-        }
-        Err(err) => {
-            // Debug, not Display: matches the pristine binary's exact fixture text for
-            // this unclassified path (Rust's default `Result`-returning-`main` prints
-            // `Error: {:?}`). Not one of PR 2's named deviations to fix — preserved
-            // verbatim, per the "move code, don't improve it" mandate.
-            eprintln!("Error: {err:?}");
-            1
-        }
-    };
-    std::process::exit(code);
+fn exit_with_error(err: AppError) -> ! {
+    eprintln!("Error: {err}");
+    std::process::exit(exit_code_for(&err));
 }
 
 // PR 1 Step D (T042): the golden-baseline test that lived here as a same-crate unit test

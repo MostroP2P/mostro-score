@@ -36,8 +36,10 @@ struct MostroStats {
 
 /// PR 1 Step D: the module move — the wiring-only wrapped function relocated here as
 /// this crate's public entry point, keeping the clock call at the same logical point.
-/// Same `Result` alias as Step 0's wrap (`Result<T, Box<dyn std::error::Error>>` via
-/// `nostr_sdk::prelude::*`); PR 2's T061/T069 later swap it for `AppError`.
+/// PR 2 (T061/T069): returns `Result<(), AppError>` directly so every propagated error is
+/// already part of the typed taxonomy — `AppError::Other`'s `#[from] Box<dyn Error>` covers
+/// anything not already a more specific variant, so `main`'s error handling never needs to
+/// downcast or fall back to a raw `Debug` dump.
 #[allow(clippy::too_many_arguments)]
 pub async fn run<E: EventSource>(
     public_key: PublicKey,
@@ -45,7 +47,7 @@ pub async fn run<E: EventSource>(
     now: &dyn Fn() -> chrono::DateTime<chrono::Utc>,
     out: &mut impl std::io::Write,
     err: &mut impl std::io::Write,
-) -> Result<()> {
+) -> Result<(), AppError> {
     console::render_identity_header(out, public_key)?;
 
     // 2/3. Setup Client, add relays, connect — matches the original code's ordering:
@@ -54,7 +56,7 @@ pub async fn run<E: EventSource>(
     // relays that did connect is a warning to `err`, not a failure (Technical Context).
     let connection = event_source.connect().await?;
     if connection.connected_count == 0 {
-        return Err(AppError::RelaysUnreachable.into());
+        return Err(AppError::RelaysUnreachable);
     }
     if !connection.failed.is_empty() {
         for failure in &connection.failed {
