@@ -98,12 +98,24 @@ impl EventSource for RelayEventSource {
     async fn connect(&self) -> Result<RelayConnectionOutcome> {
         let client = Client::new(Keys::generate());
 
+        // A relay URL that fails to register (e.g. malformed) is a connection failure like
+        // any other, not a distinct error class: it must feed the same graceful-degradation
+        // classification as a relay that registers but fails to connect, so that "all relays
+        // failed, for whatever reason" still maps to `RelaysUnreachable`, not `Other`.
+        let mut registration_failures: Vec<RelayConnectFailure> = Vec::new();
         for relay in &self.relays {
-            client.add_relay(relay.as_str()).await?;
+            if let Err(error) = client.add_relay(relay.as_str()).await {
+                registration_failures.push(RelayConnectFailure {
+                    url: relay.clone(),
+                    error: error.to_string(),
+                });
+            }
         }
 
         let output = client.try_connect(RELAY_TIMEOUT).await;
-        let outcome = interpret_connect_output(&output);
+        let mut outcome = interpret_connect_output(&output);
+        outcome.failed.extend(registration_failures);
+        outcome.failed.sort_by(|a, b| a.url.cmp(&b.url));
 
         self.client
             .set(client)

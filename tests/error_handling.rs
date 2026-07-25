@@ -4,6 +4,8 @@
 //! behavior on purpose, so there is nothing to prove "stayed the same" — ordinary
 //! Red-Green-Refactor tests against a handful of hand-built events are what apply here.
 
+use mostro_score::error::exit_code::exit_code_for;
+use mostro_score::error::AppError;
 use mostro_score::fetch::client::{EventSource, RelayConnectFailure, RelayConnectionOutcome};
 use nostr_sdk::prelude::*;
 
@@ -77,7 +79,32 @@ async fn all_relays_unreachable_is_fatal() {
 
     let result = mostro_score::run(public_key, event_source, &now, &mut out, &mut err).await;
 
-    assert!(result.is_err(), "zero connected relays must be fatal");
+    let actual_err = result.expect_err("zero connected relays must be fatal");
+    assert!(
+        matches!(actual_err, AppError::RelaysUnreachable),
+        "must be the RelaysUnreachable variant specifically, not any error: {actual_err:?}"
+    );
+    assert_eq!(exit_code_for(&actual_err), 3);
+}
+
+/// Regression: `RelayEventSource::connect()` must classify a relay URL that fails to
+/// register (e.g. malformed) the same way as one that registers but fails to connect —
+/// not abort before a `RelayConnectionOutcome` even exists. Otherwise "every relay
+/// unreachable" collapses to exit `1` (`AppError::Other`) instead of `3` whenever the
+/// cause is a bad URL rather than a network failure.
+#[test]
+fn all_relay_urls_malformed_is_relays_unreachable_not_general_error() {
+    let output = assert_cmd::Command::cargo_bin("mostro-score")
+        .unwrap()
+        .args(["--pubkey", TEST_PUBKEY_HEX, "--relays", "not-a-url"])
+        .output()
+        .expect("binary runs");
+
+    assert_eq!(output.status.code(), Some(3));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        "Error: None of the configured relays could be reached."
+    );
 }
 
 /// T066/T067: one relay failing among several that connected is a warning on `err`, not a
@@ -145,6 +172,48 @@ async fn diagnostics_route_to_err_not_out() {
     assert!(!actual_out.contains("Fetched"));
     assert!(actual_err.contains("SAMPLE EVENTS"));
     assert!(actual_err.contains("Connected to relays"));
+    assert!(actual_err.contains("Fetched"));
+    assert!(actual_err.contains("DEBUG INFORMATION"));
+}
+
+/// T070/T071: the no-dev-fee-events branch is a diagnostic warning about data
+/// availability (`err`), not report content — distinct from `diagnostics_route_to_err_not_out`
+/// above, which only exercises the success (dev-fee-events-present) branch of the same
+/// function.
+#[tokio::test]
+async fn no_dev_fee_events_warns_on_err_and_falls_back_to_order_timestamps() {
+    let public_key = PublicKey::parse(TEST_PUBKEY_HEX).unwrap();
+    let events = vec![make_event(
+        38383,
+        1_700_000_000,
+        vec![
+            ("z", "order"),
+            ("y", "mostro"),
+            ("d", "order-1"),
+            ("s", "success"),
+        ],
+    )];
+    let event_source = FixtureEventSource {
+        connection: RelayConnectionOutcome {
+            connected_count: 1,
+            failed: vec![],
+        },
+        events,
+    };
+    let now = chrono::Utc::now;
+    let mut out: Vec<u8> = Vec::new();
+    let mut err: Vec<u8> = Vec::new();
+
+    mostro_score::run(public_key, event_source, &now, &mut out, &mut err)
+        .await
+        .expect("run succeeds");
+
+    let actual_out = String::from_utf8(out).unwrap();
+    let actual_err = String::from_utf8(err).unwrap();
+
+    assert!(!actual_out.contains("No dev fee events found"));
+    assert!(actual_err.contains("No dev fee events found (z=dev-fee-payment, y=mostro)"));
+    assert!(actual_err.contains("Falling back to order timestamps"));
 }
 
 /// T074/T075: the `s`-tag distribution block prints sorted by key, deterministic across
