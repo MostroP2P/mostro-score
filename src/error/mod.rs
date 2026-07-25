@@ -36,6 +36,16 @@ pub enum AppError {
     #[error("{0}")]
     UsageError(String),
 
+    /// 002 FR-019 exit code `4`: a relay fetch that returns zero usable events across
+    /// all four scoped kinds (dev-fee, order, dispute, instance-status) — nothing about
+    /// this node can be reported. Distinct from a fetch that returns events with, say,
+    /// zero successful orders: that is a valid, reportable state (FR-002/FR-003), not
+    /// this variant.
+    #[error(
+        "No usable dev-fee, order, dispute, or instance-status events were found for this node."
+    )]
+    NoUsableEvents,
+
     /// 002 FR-019 exit code `1`: the catch-all for any failure not covered by another
     /// variant. `#[from]` matches the `Box<dyn std::error::Error>` that every existing
     /// `nostr_sdk`/`std::io` call site already produces via `?`, so no call site needed
@@ -75,6 +85,14 @@ mod tests {
         assert_eq!(
             AppError::UsageError("--force requires --init-config".to_string()).to_string(),
             "--force requires --init-config"
+        );
+    }
+
+    #[test]
+    fn no_usable_events_message_matches_the_user_facing_text() {
+        assert_eq!(
+            AppError::NoUsableEvents.to_string(),
+            "No usable dev-fee, order, dispute, or instance-status events were found for this node."
         );
     }
 
