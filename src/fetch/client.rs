@@ -9,7 +9,10 @@ const DEV_FEE_EVENT_KIND: u16 = 8383;
 /// production code and tests can supply different implementations (real relays vs. a
 /// fixture replaying a captured event set). A generic bound, not `&dyn EventSource`,
 /// since only two implementations exist and stable async-fn-in-traits needs no boxing
-/// for static dispatch.
+/// for static dispatch. `async fn` in a public trait is a deliberate, documented choice
+/// (plan.md's Step 0 rationale): with only two call sites in this crate, the `Send`
+/// bound the lint suggests adds nothing.
+#[allow(async_fn_in_trait)]
 pub trait EventSource {
     async fn fetch(&self, public_key: PublicKey) -> Result<Vec<Event>>;
 }

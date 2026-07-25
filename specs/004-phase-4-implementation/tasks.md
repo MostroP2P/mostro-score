@@ -98,9 +98,9 @@ PR 1 cannot be split further without breaking its own safety net: every step (wr
 - [x] T035 Move `format_relative_time` (plus its Step A characterization test, T015) verbatim into `src/report/format.rs` — rendering/presentation logic, not a stats computation, per the plan's module tree; must land before T037 moves the console formatting calls that consume it.
 - [x] T036 Move `calculate_score` (plus its Step A characterization test, T016) verbatim into `src/stats/mod.rs` as a private function still called by the wrapped function — PR 1 is behavior-preserving, so it is relocated here rather than deleted; removed later in PR 7's T124 once the report model no longer needs it, per the plan's Complexity Tracking decision.
 - [x] T037 Move every remaining formatting/coloring `writeln!` call verbatim into `src/report/render/console.rs`; add minimal `src/report/mod.rs` and `src/report/render/mod.rs` wiring for the console-only path.
-- [ ] T038 Create empty scaffolding for `src/error/mod.rs` and `src/error/exit_code.rs` with stub types only, no behavior — at this point in history `main()` returns `Result<()>` and relies on the runtime's implicit termination on error, with no distinct exit-code mapping logic to move; the actual exit-code mapping is implemented in PR 2 (T062-T063).
-- [ ] T039 Create stub `src/cli/mod.rs` and `src/config/mod.rs` (empty modules, no logic yet); wire both into `src/lib.rs` so all seven constitution modules exist under `src/` by the end of this PR — `cli` is populated in PR 9, `config` in PR 12.
-- [ ] T040 Re-run T001's full baseline comparison after the Step C moves and module scaffolding; confirm the wrapped function now contains only calls into `fetch`, `models`, `stats`, and `report`.
+- [x] T038 Create empty scaffolding for `src/error/mod.rs` and `src/error/exit_code.rs` with stub types only, no behavior — at this point in history `main()` returns `Result<()>` and relies on the runtime's implicit termination on error, with no distinct exit-code mapping logic to move; the actual exit-code mapping is implemented in PR 2 (T062-T063).
+- [x] T039 Create stub `src/cli/mod.rs` and `src/config/mod.rs` (empty modules, no logic yet); wire both into `src/lib.rs` so all seven constitution modules exist under `src/` by the end of this PR — `cli` is populated in PR 9, `config` in PR 12.
+- [x] T040 Re-run T001's full baseline comparison after the Step C moves and module scaffolding; confirm the wrapped function now contains only calls into `fetch`, `models`, `stats`, and `report`.
 
 ### Step D — Final module move
 

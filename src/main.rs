@@ -1,17 +1,13 @@
-mod fetch;
-mod models;
-mod report;
-mod stats;
-
 use clap::Parser;
-use fetch::client::{EventSource, RelayEventSource};
-use models::core::partition_by_z_y_tag;
-use models::dev_fee::aggregate_dev_fee_events;
-use models::order::aggregate_order_events;
+use mostro_score::fetch::client::{EventSource, RelayEventSource};
+use mostro_score::models::core::partition_by_z_y_tag;
+use mostro_score::models::dev_fee::aggregate_dev_fee_events;
+use mostro_score::models::order::aggregate_order_events;
+use mostro_score::report::render::console;
+use mostro_score::stats;
+use mostro_score::stats::lifecycle::{compute_activity_consistency, compute_rolling_windows};
+use mostro_score::stats::trade_size::compute_trade_stats;
 use nostr_sdk::prelude::*;
-use report::render::console;
-use stats::lifecycle::{compute_activity_consistency, compute_rolling_windows};
-use stats::trade_size::compute_trade_stats;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -135,7 +131,11 @@ async fn run<E: EventSource>(
         mean_trade,
         median_trade,
     )?;
-    let score = stats::calculate_score(&stats, days_active);
+    let score = stats::calculate_score(
+        stats.successful_orders,
+        stats.total_volume_sats,
+        days_active,
+    );
     console::render_trust_score_section(out, score)?;
 
     Ok(())
