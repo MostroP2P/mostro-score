@@ -48,6 +48,10 @@ pub async fn run<E: EventSource>(
     let _ = &err; // no diagnostic routing to `err` yet — that is PR 2's job.
 
     console::render_identity_header(out, public_key)?;
+
+    // 2/3. Setup Client, add relays, connect — matches the original code's ordering:
+    // a malformed relay fails here, before "Connected to relays" ever prints.
+    event_source.connect().await?;
     console::render_connecting_message(out)?;
 
     // 4. Fetch Both Event Types

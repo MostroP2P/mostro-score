@@ -9,6 +9,10 @@ struct FixtureEventSource {
 }
 
 impl EventSource for FixtureEventSource {
+    async fn connect(&self) -> Result<()> {
+        Ok(())
+    }
+
     async fn fetch(&self, _public_key: PublicKey) -> Result<Vec<Event>> {
         Ok(self.events.clone())
     }

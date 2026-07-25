@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
     };
 
     let relays: Vec<String> = args.relays.split(',').map(|s| s.to_string()).collect();
-    let event_source = RelayEventSource { relays };
+    let event_source = RelayEventSource::new(relays);
     let now = chrono::Utc::now;
 
     let mut stdout = std::io::stdout();
