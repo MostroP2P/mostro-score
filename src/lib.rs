@@ -11,6 +11,7 @@ pub mod models;
 pub mod report;
 pub mod stats;
 
+use error::AppError;
 use fetch::client::EventSource;
 use models::core::partition_by_z_y_tag;
 use models::dev_fee::aggregate_dev_fee_events;
@@ -45,20 +46,32 @@ pub async fn run<E: EventSource>(
     out: &mut impl std::io::Write,
     err: &mut impl std::io::Write,
 ) -> Result<()> {
-    let _ = &err; // no diagnostic routing to `err` yet — that is PR 2's job.
-
     console::render_identity_header(out, public_key)?;
 
     // 2/3. Setup Client, add relays, connect — matches the original code's ordering:
-    // a malformed relay fails here, before "Connected to relays" ever prints.
-    event_source.connect().await?;
-    console::render_connecting_message(out)?;
+    // a malformed relay fails here, before "Connected to relays" ever prints. T067/T069:
+    // a total outage (every configured relay failed) is fatal; one or more failures among
+    // relays that did connect is a warning to `err`, not a failure (Technical Context).
+    let connection = event_source.connect().await?;
+    if connection.connected_count == 0 {
+        return Err(AppError::RelaysUnreachable.into());
+    }
+    if !connection.failed.is_empty() {
+        for failure in &connection.failed {
+            writeln!(
+                err,
+                "Warning: relay {} unreachable: {}",
+                failure.url, failure.error
+            )?;
+        }
+    }
+    console::render_connecting_message(err)?;
 
     // 4. Fetch Both Event Types
     let events: Vec<Event> = event_source.fetch(public_key).await?;
 
-    console::render_fetched_count(out, events.len())?;
-    console::render_sample_events(out, &events)?;
+    console::render_fetched_count(err, events.len())?;
+    console::render_sample_events(err, &events)?;
 
     // Separate dev fee events and order events
     let (dev_fee_events, order_events) = partition_by_z_y_tag(events);
@@ -69,11 +82,11 @@ pub async fn run<E: EventSource>(
 
     let dev_fee_aggregate = aggregate_dev_fee_events(dev_fee_events);
     stats.first_dev_fee_ts = dev_fee_aggregate.first_dev_fee_ts;
-    console::render_dev_fee_section(out, &dev_fee_aggregate)?;
+    console::render_dev_fee_section(out, err, &dev_fee_aggregate)?;
 
     // 5. Analyze orders
     let order_aggregate = aggregate_order_events(order_events);
-    console::render_order_debug_section(out, &order_aggregate)?;
+    console::render_order_debug_section(err, &order_aggregate)?;
     stats.first_order_ts = order_aggregate.first_order_ts;
     stats.last_order_ts = order_aggregate.last_order_ts;
     stats.successful_orders = order_aggregate.successful_orders;

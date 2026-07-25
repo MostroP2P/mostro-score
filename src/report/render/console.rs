@@ -54,8 +54,11 @@ pub fn render_partition_summary(
     Ok(())
 }
 
+/// PR 2 (T070/T071): the success case is report content (`out`); the "no dev fee events"
+/// branch is a diagnostic warning about data availability, not a report figure (`err`).
 pub fn render_dev_fee_section(
     out: &mut impl std::io::Write,
+    err: &mut impl std::io::Write,
     aggregate: &DevFeeAggregate,
 ) -> Result<()> {
     if let Some(first_dev_fee_ts) = aggregate.first_dev_fee_ts {
@@ -69,42 +72,47 @@ pub fn render_dev_fee_section(
         writeln!(out, "================================\n")?;
     } else {
         writeln!(
-            out,
+            err,
             "\n⚠ Warning: No dev fee events found (z=dev-fee-payment, y=mostro)."
         )?;
         writeln!(
-            out,
+            err,
             "Falling back to order timestamps for days_active calculation.\n"
         )?;
     }
     Ok(())
 }
 
+/// PR 2 (T070/T071): entirely diagnostic (`err`), never report content. T074/T075: the `s`
+/// tag distribution is sorted by key before printing, since it comes from `HashMap`
+/// iteration and would otherwise vary nondeterministically between runs.
 pub fn render_order_debug_section(
-    out: &mut impl std::io::Write,
+    err: &mut impl std::io::Write,
     aggregate: &OrderAggregate,
 ) -> Result<()> {
-    writeln!(out, "\n=== DEBUG INFORMATION ===")?;
+    writeln!(err, "\n=== DEBUG INFORMATION ===")?;
     writeln!(
-        out,
+        err,
         "Total order events fetched: {}",
         aggregate.total_order_count
     )?;
     writeln!(
-        out,
+        err,
         "Unique orders after deduplication: {}",
         aggregate.unique_order_count
     )?;
 
     if !aggregate.s_tag_distribution.is_empty() {
-        writeln!(out, "\nStatus distribution for order events (s tag):")?;
-        for (status, count) in aggregate.s_tag_distribution.iter() {
-            writeln!(out, "  s='{}': {} events", status, count)?;
+        writeln!(err, "\nStatus distribution for order events (s tag):")?;
+        let mut sorted: Vec<(&String, &usize)> = aggregate.s_tag_distribution.iter().collect();
+        sorted.sort_by(|a, b| a.0.cmp(b.0));
+        for (status, count) in sorted {
+            writeln!(err, "  s='{}': {} events", status, count)?;
         }
     } else {
-        writeln!(out, "\nNo order events found with s tags")?;
+        writeln!(err, "\nNo order events found with s tags")?;
     }
-    writeln!(out, "========================\n")?;
+    writeln!(err, "========================\n")?;
     Ok(())
 }
 
