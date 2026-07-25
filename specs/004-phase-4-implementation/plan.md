@@ -284,6 +284,21 @@ Scope: extract today's `src/main.rs` into the seven modules and the library targ
 improve it. Known deviations from specs 001-003 that exist in the current implementation are
 preserved verbatim here and corrected in the later pull request that owns the relevant requirement.
 
+**Amendment (PR 2): the fixture-commit methodology below is reversed, not just superseded.**
+PR 1 implemented the golden-baseline steps as originally written: real relay captures (event data,
+stdout/stderr/exit-status snapshots) serialized under `tests/fixtures/` and committed to the
+repository as the regression oracle for `tests/cli_behavior.rs`/`tests/metrics_end_to_end.rs`. This
+is not something SDD, TDD, or spec-kit require — it was this plan's own design choice (a
+characterization-testing pattern for legacy-code refactors), and 14+ review rounds approved the
+*comparison mechanism* without anyone questioning whether committing raw captured output to a shared
+repository made sense. It doesn't: PR 2 removes `tests/fixtures/` and the two fixture-only test files
+entirely, from this PR's own diff and from `development` (PR 1's modularization itself — the `src/`
+module split — is unaffected and stays). Behavior-preservation for PR 1's refactor, and for every
+following PR's claims against the plan, is verified instead by independent review of the diff
+(the same process already used for `plan.md` and `tasks.md`), not by a committed byte-for-byte
+oracle. The prose below is left intact as the historical record of what PR 1 actually did and why,
+not as instructions for future PRs.
+
 Tests: characterization tests only, pinning current behavior so the extraction is provably
 output-identical. The surface to pin is not uniformly testable as-is, so this pull request proceeds
 in five ordered steps: capture a golden baseline from the untouched binary, wrap, two rounds of
@@ -813,7 +828,9 @@ pull request above is built, not a later phase.
   Enforcing this floor as a CI gate is out of scope for this plan; it can be added once there is real
   coverage data to calibrate against.
 - **No network in tests.** `fetch` is the only module performing I/O, and nothing downstream depends
-  on it. Every metric and renderer test runs against fixture events loaded from `tests/fixtures/`.
+  on it. Every metric and renderer test runs against small, synthetic event data constructed inline
+  in the test itself — not against real relay captures committed to the repository (see PR 1's
+  Amendment above: that approach was tried and reversed).
 - **Priority test cases**, per the constitution's list plus the specs' edge cases: event parsing and
   tag extraction; order deduplication including the tie-break by greatest event id and the exclusion
   of future-dated events; every statistical calculation including its not-applicable branch; the

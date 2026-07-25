@@ -133,24 +133,31 @@ Only scenario 1 (T001) is proved by T042's integration test, which calls `run()`
 
 **Depends on**: 1. Requirements: 002 FR-011, FR-017; FR-019 except exit `4`; Principle VI.
 
-- [ ] T058 Retire the Step -1 golden assertion for scenario 2 (T002's capture, tested by T044/T045) — the capture pins invalid `--pubkey` printing to stderr and exiting `0`; since this PR fixes that to exit `5` per 002 FR-019, re-capture or amend T002's stdout/stderr/exit-status fixture to the corrected exit-`5` behavior before T044/T045 can pass without contradicting T064/T065.
-- [ ] T059 Retire the Step -1 golden assertions affected by this PR's diagnostic-routing fix — scenario 1 (T001, tested by T042), scenario 5 (T005, tested by T050/T051), scenario 6 (T006, tested by T052/T053), scenario 7 (T007, tested by T054/T055), and scenario 8 (T008, tested by T056/T057): each fixture captured the `SAMPLE EVENTS`/`DEBUG INFORMATION` blocks and, where applicable, the no-dev-fee-events warning on stdout; since this PR moves them to stderr (T070/T071), re-capture or amend the stdout/stderr split in each affected fixture — content unchanged, stream reassigned — before T070/T071's tests can pass without contradicting the original golden assertions.
-- [ ] T060 [RED] Failing tests for `AppError` variants in `src/error/mod.rs`.
-- [ ] T061 [GREEN] Implement `AppError` with `thiserror` in `src/error/mod.rs`.
-- [ ] T062 [RED] Failing tests for exit code mapping (`0`/`1`/`2`/`3`/`5`) in `src/error/exit_code.rs`.
-- [ ] T063 [GREEN] Implement exit code mapping in `src/error/exit_code.rs`.
-- [ ] T064 [RED] Failing test: invalid `--pubkey` exits `5` (fixes PR 1 deviation).
-- [ ] T065 [GREEN] Wire invalid-pubkey branch in `src/main.rs` to `AppError::InvalidPubkey`.
-- [ ] T066 [RED] Failing test: one relay failing among several succeeding still yields a successful report + warning.
-- [ ] T067 [GREEN] Implement graceful partial-relay-failure handling in `src/fetch/client.rs`.
-- [ ] T068 [RED] Failing test: all relays failing exits `3`.
-- [ ] T069 [GREEN] Wire all-relays-failed to `AppError::RelaysUnreachable` in `src/lib.rs`'s `run()`.
-- [ ] T070 [RED] Failing tests: debug/sample-event dumps and no-dev-fee warning route to `err`, not `out` (fixes PR 1 deviation).
-- [ ] T071 [GREEN] Rewrite those diagnostic `writeln!(out, ...)` calls to `writeln!(err, ...)` in `src/report/render/console.rs`.
-- [ ] T072 [RED] Failing tests: the two transient status lines (`"Connected to relays. Fetching history... (this might take a moment)"` and `"Fetched {N} events. Analyzing..."`) route to `err`, not `out` — PR 1 carried every original `println!`/`writeln!` call into `out` uniformly; these two are transient process narration, not report content, and were missed by T070's dump/warning-only scope.
-- [ ] T073 [GREEN] Rewrite those two transient-status `writeln!(out, ...)` calls to `writeln!(err, ...)` in `src/report/render/console.rs` — stderr is the correct interim destination since `ProgressReporter`'s concrete implementation is not wired in until PR 7's T138.
-- [ ] T074 [RED] Failing test: `s_tag_distribution` prints sorted by key, deterministic across runs.
-- [ ] T075 [GREEN] Sort `s_tag_distribution` by key in `src/report/render/console.rs`.
+**Amendment**: `tests/fixtures/` and the fixture-only test files (`tests/cli_behavior.rs`,
+`tests/metrics_end_to_end.rs`) are deleted in this PR, not retired — see `plan.md`'s PR 1 Amendment.
+Committing real relay captures to the repository is reversed; behavior-preservation is verified by
+independent review of the diff instead. T058/T059 below (originally "retire the golden assertion
+for scenario N") are superseded by this single deletion; the specific per-scenario fixture-amendment
+work they described no longer applies.
+
+- [x] T058 Delete `tests/fixtures/` and `tests/cli_behavior.rs`/`tests/metrics_end_to_end.rs` entirely (supersedes the original per-scenario fixture-retirement plan).
+- [x] T059 Confirm `cargo build --all-targets`, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo fmt --check` all pass with the fixture-dependent tests gone.
+- [x] T060 [RED] Failing tests for `AppError` variants in `src/error/mod.rs`.
+- [x] T061 [GREEN] Implement `AppError` with `thiserror` in `src/error/mod.rs`.
+- [x] T062 [RED] Failing tests for exit code mapping (`0`/`1`/`2`/`3`/`5`) in `src/error/exit_code.rs`.
+- [x] T063 [GREEN] Implement exit code mapping in `src/error/exit_code.rs`.
+- [x] T064 [RED] Failing test: invalid `--pubkey` exits `5` (fixes PR 1 deviation) — `tests/error_handling.rs::invalid_pubkey_exits_5`.
+- [x] T065 [GREEN] Wire invalid-pubkey branch in `src/main.rs` to `AppError::InvalidPubkey`.
+- [x] T066 [RED] Failing test: one relay failing among several succeeding still yields a successful report + warning — `tests/error_handling.rs::one_failed_relay_among_several_is_a_warning_not_a_failure`.
+- [x] T067 [GREEN] Implement graceful partial-relay-failure handling in `src/fetch/client.rs`.
+- [x] T068 [RED] Failing test: all relays failing exits `3` — `tests/error_handling.rs::all_relays_unreachable_is_fatal`.
+- [x] T069 [GREEN] Wire all-relays-failed to `AppError::RelaysUnreachable` in `src/lib.rs`'s `run()`.
+- [x] T070 [RED] Failing tests: debug/sample-event dumps and no-dev-fee warning route to `err`, not `out` (fixes PR 1 deviation) — `tests/error_handling.rs::diagnostics_route_to_err_not_out`.
+- [x] T071 [GREEN] Rewrite those diagnostic `writeln!(out, ...)` calls to `writeln!(err, ...)` in `src/report/render/console.rs`.
+- [x] T072 [RED] Failing tests: the two transient status lines (`"Connected to relays. Fetching history... (this might take a moment)"` and `"Fetched {N} events. Analyzing..."`) route to `err`, not `out` — same test as T070, both lines asserted.
+- [x] T073 [GREEN] Rewrite those two transient-status `writeln!(out, ...)` calls to `writeln!(err, ...)` in `src/report/render/console.rs` — stderr is the correct interim destination since `ProgressReporter`'s concrete implementation is not wired in until PR 7's T138.
+- [x] T074 [RED] Failing test: `s_tag_distribution` prints sorted by key, deterministic across runs — `tests/error_handling.rs::s_tag_distribution_prints_sorted_by_key`.
+- [x] T075 [GREEN] Sort `s_tag_distribution` by key in `src/report/render/console.rs`.
 
 ---
 
@@ -188,7 +195,7 @@ Only scenario 1 (T001) is proved by T042's integration test, which calls `run()`
 
 **Depends on**: 3. Requirements: 001 FR-001..FR-005, FR-010.
 
-- [ ] T099 Retire the Step -1 golden assertion for scenario 6 (T006's capture, tested by T052/T053) — the capture pins the `days_active` fallback spanning first order to *last* order (no qualifying dev-fee event); since this PR fixes the fallback to span first order to now per 001 FR-001, re-capture or amend T006's `Days Active` value in the fixture to the corrected computation before T052/T053 can pass without contradicting T100/T101.
+- [ ] T099 No golden fixture to retire (PR 2 removed `tests/fixtures/` and the golden/characterization test files — see `plan.md`'s PR 1 Amendment). Instead: failing test with 2-3 hand-built synthetic order events (no dev-fee event) asserting `days_active` spans first order to *now*, not first order to *last* order, per 001 FR-001.
 - [ ] T100 [RED] Failing tests for longevity, `days_active` spanning first order to **now** (fixes PR 1 deviation), in `src/stats/lifecycle.rs`.
 - [ ] T101 [GREEN] Implement longevity per 001 FR-001 in `src/stats/lifecycle.rs`.
 - [ ] T102 [RED] Failing tests for cumulative performance in `src/stats/lifecycle.rs`.
@@ -233,7 +240,7 @@ Only scenario 1 (T001) is proved by T042's integration test, which calls `run()`
 
 **Depends on**: 4, 5, 6. Requirements: 002 FR-001..FR-008b, FR-013..FR-018.
 
-- [ ] T123 Retire the Step -1 golden assertions affected by removing `calculate_score` — the `TRUST SCORE` line appears in every scenario capture that reaches the end of the report: scenario 1 (T001, tested by T042), scenario 6 (T006, tested by T052/T053), scenario 7 (T007, tested by T054/T055), and scenario 8 (T008, tested by T056/T057); scenario 5 (T005) never reaches this line, since it exits early at the zero-events short-circuit. Since this PR removes the score entirely per the plan's Complexity Tracking decision, re-capture or amend each affected fixture to drop the `TRUST SCORE` line before this PR's report-model tests (starting at T125) can pass without contradicting the original golden assertions.
+- [ ] T123 No golden fixture to retire (see T099's note). Instead: failing test with a hand-built synthetic event set asserting the report no longer contains a `TRUST SCORE` line, per the plan's Complexity Tracking decision to remove it entirely rather than migrate it.
 - [ ] T124 Remove `calculate_score` and its output entirely (no replacement; relocated to `src/stats/mod.rs` by PR 1's T036; see Complexity Tracking).
 - [ ] T125 [RED] Failing tests for the 5-section report model + `schema_version`, consuming PR 6's now-complete `NodeMetrics` as the `stats` section's source, in `src/report/model.rs`.
 - [ ] T126 [GREEN] Implement the report model per 002 FR-001/FR-002/FR-006 in `src/report/model.rs`, populating the `stats` section from PR 6's now-complete `NodeMetrics` (longevity, cumulative, trade_size, liveness, consistency, disputes, fiat_breakdown, payment_method_breakdown, premium, bond_policy).
@@ -294,7 +301,7 @@ Only scenario 1 (T001) is proved by T042's integration test, which calls `run()`
 
 - [ ] T168 [RED] Failing tests for `--pubkey`/`MOSTRO_SCORE_PUBKEY` and `--relays`/`MOSTRO_SCORE_RELAYS` precedence in `src/cli/options.rs`.
 - [ ] T169 [GREEN] Implement the precedence chain per 003 FR-001..FR-003 in `src/cli/options.rs`.
-- [ ] T170 [RED] Failing tests validating `--relays`/`MOSTRO_SCORE_RELAYS` well-formedness before any connection attempt, covering both the flag and the environment-variable path, expecting an actionable message naming the malformed relay string and exit code `2` (003's `--relays`/environment-variable Edge Case, FR-002/FR-003, FR-013a) — in `src/cli/options.rs`. This also retires the stale golden expectation from PR 1's scenario 3 (T003's capture, tested by T046/T047): the malformed-relay case's old generic `Client::add_relay` error is intentionally replaced here, so T046/T047's fixture must be re-captured or amended to the new usage-error/exit-`2` behavior.
+- [ ] T170 [RED] Failing tests validating `--relays`/`MOSTRO_SCORE_RELAYS` well-formedness before any connection attempt, covering both the flag and the environment-variable path, expecting an actionable message naming the malformed relay string and exit code `2` (003's `--relays`/environment-variable Edge Case, FR-002/FR-003, FR-013a) — in `src/cli/options.rs`. No golden fixture to retire (see T099's note); this intentionally replaces the malformed-relay case's current generic `Client::add_relay` error (exit `1`, per `src/main.rs`'s catch-all — see `error::AppError::Other`) with the actionable usage-error/exit-`2` behavior.
 - [ ] T171 [GREEN] Implement pre-connection well-formedness validation for `--relays`/`MOSTRO_SCORE_RELAYS` in `src/cli/options.rs`, rejecting a malformed value with an actionable message and exit code `2` before `Client::add_relay` is ever called.
 - [ ] T172 [RED] Failing tests for `--format`, `--color`/`--no-color` mutual exclusion, `--quiet` validation in `src/cli/options.rs`.
 - [ ] T173 [GREEN] Implement resolution/validation per 003 FR-010..FR-013a in `src/cli/options.rs`.
