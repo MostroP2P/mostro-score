@@ -6,6 +6,48 @@ use tokio::sync::OnceCell;
 /// Dev-fee payment event kind (not in mostro-core)
 const DEV_FEE_EVENT_KIND: u16 = 8383;
 
+/// Timeout for both the relay connection attempt and each fetch query.
+const RELAY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// PR 2 (T066-T069): the result of attempting to connect to every configured relay.
+/// Principle VI's graceful-degradation rule and the Technical Context constraint ("one
+/// failed relay among several that succeeded is a warning, not a failure; exit code 3
+/// requires all relays to fail") both read off this struct: `run()` treats
+/// `connected_count == 0` as fatal (`AppError::RelaysUnreachable`) and a non-empty
+/// `failed` with `connected_count > 0` as warnings to print before continuing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelayConnectionOutcome {
+    pub connected_count: usize,
+    pub failed: Vec<RelayConnectFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelayConnectFailure {
+    pub url: String,
+    pub error: String,
+}
+
+/// Pure interpretation of `Client::try_connect`'s per-relay `Output`, kept separate from
+/// the real network call so it stays unit-testable without a socket (Testing Strategy:
+/// "No network in tests"). Failures are sorted by URL so a multi-relay warning listing is
+/// deterministic, independent of the `HashMap` iteration order `Output::failed` uses.
+fn interpret_connect_output(output: &Output<()>) -> RelayConnectionOutcome {
+    let mut failed: Vec<RelayConnectFailure> = output
+        .failed
+        .iter()
+        .map(|(url, error)| RelayConnectFailure {
+            url: url.to_string(),
+            error: error.clone(),
+        })
+        .collect();
+    failed.sort_by(|a, b| a.url.cmp(&b.url));
+
+    RelayConnectionOutcome {
+        connected_count: output.success.len(),
+        failed,
+    }
+}
+
 /// Seam introduced by PR 1 Step 0: the event-fetching surface `run()` depends on, so
 /// production code and tests can supply different implementations (real relays vs. a
 /// fixture replaying a captured event set). A generic bound, not `&dyn EventSource`,
@@ -24,10 +66,11 @@ const DEV_FEE_EVENT_KIND: u16 = 8383;
 /// `fetch()` keeps issuing the two filters, unchanged from Step 0's wrap.
 #[allow(async_fn_in_trait)]
 pub trait EventSource {
-    /// Establishes whatever connection this source needs before any event is fetched.
-    /// A no-op for sources with no real connection (e.g. a fixture replaying canned
-    /// events for a test).
-    async fn connect(&self) -> Result<()>;
+    /// Establishes whatever connection this source needs before any event is fetched,
+    /// reporting per-relay success/failure (PR 2, T067) so `run()` can distinguish a
+    /// total outage from a partial one. A source with no real connection (e.g. a fixture
+    /// replaying canned events for a test) reports every configured relay as connected.
+    async fn connect(&self) -> Result<RelayConnectionOutcome>;
 
     async fn fetch(&self, public_key: PublicKey) -> Result<Vec<Event>>;
 }
@@ -52,27 +95,40 @@ impl RelayEventSource {
 }
 
 impl EventSource for RelayEventSource {
-    async fn connect(&self) -> Result<()> {
+    async fn connect(&self) -> Result<RelayConnectionOutcome> {
         let client = Client::new(Keys::generate());
 
+        // A relay URL that fails to register (e.g. malformed) is a connection failure like
+        // any other, not a distinct error class: it must feed the same graceful-degradation
+        // classification as a relay that registers but fails to connect, so that "all relays
+        // failed, for whatever reason" still maps to `RelaysUnreachable`, not `Other`.
+        let mut registration_failures: Vec<RelayConnectFailure> = Vec::new();
         for relay in &self.relays {
-            client.add_relay(relay.as_str()).await?;
+            if let Err(error) = client.add_relay(relay.as_str()).await {
+                registration_failures.push(RelayConnectFailure {
+                    url: relay.clone(),
+                    error: error.to_string(),
+                });
+            }
         }
 
-        client.connect().await;
+        let output = client.try_connect(RELAY_TIMEOUT).await;
+        let mut outcome = interpret_connect_output(&output);
+        outcome.failed.extend(registration_failures);
+        outcome.failed.sort_by(|a, b| a.url.cmp(&b.url));
 
         self.client
             .set(client)
             .map_err(|_| "RelayEventSource::connect called more than once")?;
 
-        Ok(())
+        Ok(outcome)
     }
 
     async fn fetch(&self, public_key: PublicKey) -> Result<Vec<Event>> {
         let client = self
             .client
             .get()
-            .expect("connect() must be called before fetch()");
+            .ok_or("RelayEventSource::fetch called before connect()")?;
 
         // Filter 1: Development Fee Events (z=dev-fee-payment, y=mostro)
         let dev_fee_filter = Filter::new()
@@ -98,5 +154,23 @@ impl EventSource for RelayEventSource {
             .into_iter()
             .chain(order_events_result.into_iter())
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The plan's constraint ("`unwrap`/`expect` are permitted only in tests") rules out
+    /// panicking when `fetch()` is called before `connect()` — an internal misuse that must
+    /// still surface as an ordinary `AppError`, not abort the process.
+    #[tokio::test]
+    async fn fetch_before_connect_returns_an_error_instead_of_panicking() {
+        let source = RelayEventSource::new(vec!["wss://relay.example".to_string()]);
+        let public_key = Keys::generate().public_key();
+
+        let result = source.fetch(public_key).await;
+
+        assert!(result.is_err());
     }
 }

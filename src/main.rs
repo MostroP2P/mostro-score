@@ -1,4 +1,6 @@
 use clap::Parser;
+use mostro_score::error::exit_code::exit_code_for;
+use mostro_score::error::AppError;
 use mostro_score::fetch::client::RelayEventSource;
 use nostr_sdk::prelude::*;
 
@@ -15,17 +17,16 @@ struct Args {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
     env_logger::init();
     let args = Args::parse();
 
-    // 1. Parse Pubkey
+    // 1. Parse Pubkey (T064/T065: exits `5` via AppError::InvalidPubkey, matching
+    // 002 FR-019 and the JSON fatal-error envelope's `invalid_pubkey` code, instead of
+    // PR 1's preserved-verbatim deviation of printing and returning success).
     let public_key = match PublicKey::parse(&args.pubkey) {
         Ok(pk) => pk,
-        Err(_) => {
-            eprintln!("Error: Invalid public key format.");
-            return Ok(());
-        }
+        Err(_) => exit_with_error(AppError::InvalidPubkey),
     };
 
     let relays: Vec<String> = args.relays.split(',').map(|s| s.to_string()).collect();
@@ -35,7 +36,22 @@ async fn main() -> Result<()> {
     let mut stdout = std::io::stdout();
     let mut stderr = std::io::stderr();
 
-    mostro_score::run(public_key, event_source, &now, &mut stdout, &mut stderr).await
+    if let Err(err) =
+        mostro_score::run(public_key, event_source, &now, &mut stdout, &mut stderr).await
+    {
+        exit_with_error(err);
+    }
+}
+
+/// Maps `run()`'s (or pubkey parsing's) error to its exit code (T062/T063) and prints its
+/// `Display` message, never a raw `Debug` dump (Principle VI) — Rust's default
+/// `Result`-returning-`main` behavior does neither, so `main` handles this explicitly. Uses
+/// `write!`, not `eprintln!`, since the latter panics on a write failure (e.g. a closed
+/// stderr) — the mapped exit code must still apply even if the message can't be printed.
+fn exit_with_error(err: AppError) -> ! {
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr(), "Error: {err}");
+    std::process::exit(exit_code_for(&err));
 }
 
 // PR 1 Step D (T042): the golden-baseline test that lived here as a same-crate unit test
