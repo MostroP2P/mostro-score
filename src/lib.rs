@@ -19,6 +19,7 @@ use fetch::filters_summary::{
 use models::core::exclude_future_events;
 use models::dedup::dedup_events_by_id;
 use models::dev_fee::aggregate_dev_fee_events;
+use models::dispute::aggregate_dispute_events;
 use models::order::aggregate_order_events;
 use nostr_sdk::prelude::*;
 use report::render::console;
@@ -87,12 +88,16 @@ pub async fn run<E: EventSource>(
     let dev_fee_event_count = dev_fee_events.len();
     let order_event_count = dedup_by_event_id_count(&partitioned.order_events);
     let order_aggregate = aggregate_order_events(partitioned.order_events);
+    // PR 5: computed once here and reused both for the exit-4 gate below and for this
+    // node's dispute stats (FR-006), rather than aggregated a second time from the
+    // same event set.
+    let dispute_aggregate = aggregate_dispute_events(partitioned.dispute_events);
     let fetch_outcome = compute_relay_fetch_outcome(
         dev_fee_event_count,
         order_event_count,
         &order_aggregate,
         partitioned.instance_status_events,
-        partitioned.dispute_events,
+        &dispute_aggregate,
         &public_key,
     );
     if fetch_outcome.has_no_usable_events() {
@@ -115,7 +120,7 @@ pub async fn run<E: EventSource>(
     // 6. Output Report
     let now = report_generated_at.timestamp();
 
-    // Every core reputation metric (001 FR-001 through FR-005, FR-010), including every
+    // Every core reputation metric (001 FR-001 through FR-006, FR-010), including every
     // not-applicable edge case (e.g. neither a dev-fee anchor nor a qualifying successful
     // order), is assembled here rather than short-circuited: a node whose only usable
     // data is a dispute or instance-status event (PR 3) must still receive a full report.
@@ -125,6 +130,10 @@ pub async fn run<E: EventSource>(
         order_aggregate.total_volume_sats,
         &order_aggregate.trade_amounts,
         &order_aggregate.successful_trade_timestamps,
+        dispute_aggregate.total_disputes,
+        dispute_aggregate.resolved,
+        dispute_aggregate.active,
+        dispute_aggregate.unknown,
         now,
     );
 

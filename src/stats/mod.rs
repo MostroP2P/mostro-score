@@ -1,6 +1,8 @@
+pub mod disputes;
 pub mod lifecycle;
 pub mod trade_size;
 
+use disputes::{compute_dispute_signals, DisputeSignals};
 use lifecycle::{
     compute_activity_consistency, compute_cumulative_performance, compute_liveness,
     compute_longevity, CumulativePerformance, Liveness, Longevity,
@@ -16,9 +18,10 @@ pub struct ActivityConsistency {
     pub max_consecutive_inactive_days_last_30d: usize,
 }
 
-/// Every core reputation metric this PR computes (001 FR-001 through FR-005, FR-010) for
-/// one node, assembled from `stats::lifecycle` and `stats::trade_size`'s independently
-/// tested computations. Pure struct assembly: no new business logic lives here.
+/// Every core reputation metric this PR computes (001 FR-001 through FR-006, FR-010)
+/// for one node, assembled from `stats::lifecycle`, `stats::trade_size`, and
+/// `stats::disputes`'s independently tested computations. Pure struct assembly: no new
+/// business logic lives here.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodeMetrics {
     pub longevity: Longevity,
@@ -26,15 +29,21 @@ pub struct NodeMetrics {
     pub trade_size: TradeSizeStats,
     pub liveness: Liveness,
     pub consistency: ActivityConsistency,
+    pub disputes: DisputeSignals,
 }
 
 impl NodeMetrics {
+    #[allow(clippy::too_many_arguments)]
     pub fn compute(
         first_dev_fee_ts: Option<i64>,
         successful_orders: usize,
         total_volume_sats: u64,
         trade_amounts: &[u64],
         successful_trade_timestamps: &[i64],
+        total_disputes: usize,
+        resolved_disputes: usize,
+        active_disputes: usize,
+        unknown_status_disputes: usize,
         now: i64,
     ) -> NodeMetrics {
         let (active_days_last_30d, max_consecutive_inactive_days_last_30d) =
@@ -49,6 +58,13 @@ impl NodeMetrics {
                 active_days_last_30d,
                 max_consecutive_inactive_days_last_30d,
             },
+            disputes: compute_dispute_signals(
+                total_disputes,
+                resolved_disputes,
+                active_disputes,
+                unknown_status_disputes,
+                successful_orders,
+            ),
         }
     }
 }
@@ -92,6 +108,10 @@ mod tests {
             400,
             &trade_amounts,
             &successful_trade_timestamps,
+            1,
+            0,
+            1,
+            0,
             now,
         );
 
@@ -101,6 +121,12 @@ mod tests {
         assert_eq!(metrics.trade_size.median_trade_sats, Some(200.0));
         assert_eq!(metrics.liveness.last_successful_trade_at, Some(90 * 86400));
         assert_eq!(metrics.consistency.active_days_last_30d, 1);
+        assert_eq!(metrics.disputes.total_disputes, 1);
+        assert_eq!(metrics.disputes.resolved_disputes, 0);
+        assert_eq!(metrics.disputes.active_disputes, 1);
+        assert_eq!(metrics.disputes.unknown_status_disputes, 0);
+        // 1 dispute / 2 successful trades * 100 = 50.0.
+        assert_eq!(metrics.disputes.disputes_per_100_trades, Some(50.0));
     }
 
     #[test]

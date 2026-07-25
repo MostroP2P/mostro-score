@@ -8,7 +8,7 @@
 //! selection.
 
 use crate::models::core::scope_events_to_node;
-use crate::models::dispute::aggregate_dispute_events;
+use crate::models::dispute::DisputeAggregate;
 use crate::models::instance_status::aggregate_instance_status;
 use crate::models::order::OrderAggregate;
 use nostr_sdk::prelude::*;
@@ -127,19 +127,19 @@ pub(crate) fn dedup_by_event_id_count(events: &[Event]) -> usize {
 }
 
 /// Computes a `RelayFetchOutcome` from a node's already-partitioned, already-scoped
-/// event buckets. Takes already-computed dev-fee/order counts and the `OrderAggregate`
-/// rather than raw event vectors for those two: `run()` needs the deduplicated dev-fee
-/// count and the full order aggregate for its own reporting regardless, so recomputing
-/// either here would rescan the same event set for no new information.
+/// event buckets. Takes already-computed dev-fee/order counts, the `OrderAggregate`,
+/// and the `DisputeAggregate` rather than raw event vectors for those: `run()` needs
+/// the deduplicated dev-fee count, the full order aggregate, and the full dispute
+/// aggregate for its own reporting regardless (stats included, PR 5), so recomputing
+/// any of them here would rescan the same event set for no new information.
 pub fn compute_relay_fetch_outcome(
     dev_fee_event_count: usize,
     order_event_count: usize,
     order_aggregate: &OrderAggregate,
     instance_status_events: Vec<Event>,
-    dispute_events: Vec<Event>,
+    dispute_aggregate: &DisputeAggregate,
     node_pubkey: &PublicKey,
 ) -> RelayFetchOutcome {
-    let dispute_aggregate = aggregate_dispute_events(dispute_events);
     let instance_status_aggregate = aggregate_instance_status(instance_status_events, node_pubkey);
 
     RelayFetchOutcome {
@@ -155,6 +155,7 @@ pub fn compute_relay_fetch_outcome(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::dispute::aggregate_dispute_events;
     use crate::models::order::aggregate_order_events;
     use std::collections::BTreeSet;
 
@@ -245,7 +246,7 @@ mod tests {
             order_event_count,
             &order_aggregate,
             vec![],
-            vec![],
+            &aggregate_dispute_events(vec![]),
             &node_pubkey,
         );
 
@@ -274,7 +275,7 @@ mod tests {
             order_event_count,
             &order_aggregate,
             vec![],
-            vec![],
+            &aggregate_dispute_events(vec![]),
             &node_pubkey,
         );
 
@@ -297,7 +298,7 @@ mod tests {
             order_event_count,
             &order_aggregate,
             vec![],
-            vec![],
+            &aggregate_dispute_events(vec![]),
             &node_pubkey,
         );
 
@@ -322,7 +323,7 @@ mod tests {
             order_event_count,
             &order_aggregate,
             vec![],
-            vec![],
+            &aggregate_dispute_events(vec![]),
             &node_pubkey,
         );
 
@@ -354,7 +355,7 @@ mod tests {
             order_event_count,
             &order_aggregate,
             vec![],
-            vec![older, newer],
+            &aggregate_dispute_events(vec![older, newer]),
             &node_pubkey,
         );
 
@@ -374,7 +375,7 @@ mod tests {
             order_event_count,
             &order_aggregate,
             vec![unrelated_d_tag],
-            vec![],
+            &aggregate_dispute_events(vec![]),
             &node_pubkey,
         );
         assert!(!outcome_without_match.instance_status_found);
@@ -387,7 +388,7 @@ mod tests {
             order_event_count,
             &order_aggregate,
             vec![matching],
-            vec![],
+            &aggregate_dispute_events(vec![]),
             &node_pubkey,
         );
         assert!(outcome_with_match.instance_status_found);

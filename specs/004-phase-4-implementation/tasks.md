@@ -214,9 +214,9 @@ work they described no longer applies.
 
 **Depends on**: 3, 4. Requirements: 001 FR-006.
 
-- [ ] T111 [RED] Failing tests for dispute counts and `disputes_per_100_trades` (denominator from PR 4, zero-trades not-applicable) in `src/stats/disputes.rs`.
-- [ ] T112 [GREEN] Implement dispute signals per 001 FR-006 in `src/stats/disputes.rs`, consuming PR 3's dispute dedup/classification.
-- [ ] T113 Extend `NodeMetrics` in `src/stats/mod.rs` with a `disputes` field, assembled from this PR's dispute signals in `src/stats/disputes.rs` (pure struct assembly, no new logic to characterize).
+- [x] T111 [RED] Failing tests for dispute counts and `disputes_per_100_trades` (denominator from PR 4, zero-trades not-applicable) in `src/stats/disputes.rs`.
+- [x] T112 [GREEN] Implement dispute signals per 001 FR-006 in `src/stats/disputes.rs`, consuming PR 3's dispute dedup/classification.
+- [x] T113 Extend `NodeMetrics` in `src/stats/mod.rs` with a `disputes` field, assembled from this PR's dispute signals in `src/stats/disputes.rs` (pure struct assembly, no new logic to characterize).
 
 ---
 
