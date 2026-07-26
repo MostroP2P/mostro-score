@@ -1,0 +1,70 @@
+---
+source: tests/report_snapshots.rs
+expression: rendered_plain(&empty_node_report())
+---
+NODE IDENTITY
+Pubkey (npub): npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqz
+Pubkey (hex):  0000000000000000000000000000000000000000000000000000000000aa
+
+RELAY FETCH SUMMARY
+Relay wss://relay.mostro.network Status: success
+Relay wss://relay.mostro.network Error: -
+Dev-fee events (backs Longevity):        0
+Order events (before dedup):             0
+Unique orders (after dedup):             0
+Dispute events (backs Dispute Signals):  0
+Instance status found (backs Bond Policy): no
+
+ACTIVITY GRID
+No order history to build an activity grid from.
+
+GENERAL STATISTICS
+Longevity (time since this node's first activity)
+First seen:  N/A
+Days active: N/A
+
+Cumulative Performance (lifetime trade history)
+Total successful trades: 0
+Total volume:            0 sats
+
+Trade Statistics (higher consistency, i.e. lower coefficient of variation, is favorable)
+Min trade:    N/A sats
+Max trade:    N/A sats
+Mean trade:   N/A sats
+Median trade: N/A sats
+Std dev:      N/A sats
+Coefficient of variation: N/A
+
+Liveness (most direct signal of current activity)
+Last successful trade: No successful trades recorded
+Days since last trade: N/A
+Trades last 7 days:   0
+Trades last 30 days:  0
+Trades last 90 days:  0
+
+Activity Consistency (fixed 30-day window)
+Active days:                    0/30
+Max consecutive inactive days:   30
+
+Dispute Signals (no cross-node baseline; raw counts only)
+Total disputes:          0
+Resolved disputes:       0
+Active disputes:         0
+Unknown-status disputes: 0
+Disputes per 100 trades: N/A
+
+Fiat Breakdown
+No fiat currency data available.
+
+Payment Method Breakdown
+No payment-method data available.
+
+Premium Signal (compared against this node's own history only)
+Baseline (median):    N/A
+Dispersion (std dev): N/A
+
+Bond Policy (whether this node requires a bond deposit from traders)
+Status: unknown
+
+RECOMMENDATIONS
+- This node has no completed trade history yet — there is no successful-trade track record to evaluate.

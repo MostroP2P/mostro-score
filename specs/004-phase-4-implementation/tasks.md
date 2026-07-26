@@ -278,20 +278,20 @@ work they described no longer applies.
 
 **Depends on**: 7. Requirements: 002 FR-009..FR-012a.
 
-- [ ] T154 [RED] Failing `insta` snapshot tests for the plain-text renderer in `tests/report_snapshots.rs`.
-- [ ] T155 [GREEN] Implement the plain-text renderer per 002 FR-009 in `src/report/render/plain.rs`.
-- [ ] T156 [RED] Failing tests for context-based format auto-selection (tty vs. piped) in `src/report/render/mod.rs`.
-- [ ] T157 [GREEN] Implement the `Renderer` trait + format auto-selection per 002 FR-010 in `src/report/render/mod.rs`.
-- [ ] T158 [RED] Failing tests for the JSON top-level shape (`schema_version`, `generated_at`, `node`, `fetch`, `activity`, `stats`, `recommendations`, `metric_definitions`, all keys always present) in `src/report/render/json.rs`.
-- [ ] T159 [GREEN] Implement the JSON top-level shape per the plan's contract in `src/report/render/json.rs`.
-- [ ] T160 [RED] Failing test: `metric_definitions`'s key set matches the plan's exhaustive list exactly — all `stats` sub-object fields, `activity.granularity`, `buckets[].median_trade_sats`, `fetch.relays[].status`, `fetch.relays[].error` — no more, no fewer.
-- [ ] T161 [GREEN] Author the static `metric_definitions` table (`label`/`meaning`/`unit_and_direction`) in `src/report/model.rs`.
-- [ ] T162 [RED] Failing tests for `MetricValue::Computed(T) | NotApplicable` `null` serialization, guarding against NaN/infinity, in `src/models/core.rs`.
-- [ ] T163 [GREEN] Ensure every `stats/` computation returns `NotApplicable` at its guard rather than a degenerate float.
-- [ ] T164 [RED] Failing test for the fatal-error envelope shape and the 5 `code`/exit-code pairs in `src/error/exit_code.rs`.
-- [ ] T165 [GREEN] Implement the fatal-error envelope in `src/report/render/json.rs`, `error.relays` populated only for `relays_unreachable`.
-- [ ] T166 [RED] Failing test: explicit `--format` overrides the context-based default.
-- [ ] T167 [GREEN] Wire explicit-format override ahead of the default in `src/cli/options.rs` (call-site skeleton; full flag wiring in PR 9).
+- [x] T154 [RED] Failing `insta` snapshot tests for the plain-text renderer in `tests/report_snapshots.rs`.
+- [x] T155 [GREEN] Implement the plain-text renderer per 002 FR-009 in `src/report/render/plain.rs`.
+- [x] T156 [RED] Failing tests for context-based format auto-selection (tty vs. piped) in `src/report/render/mod.rs`.
+- [x] T157 [GREEN] Implement the `Renderer` trait + format auto-selection per 002 FR-010 in `src/report/render/mod.rs`.
+- [x] T158 [RED] Failing tests for the JSON top-level shape (`schema_version`, `generated_at`, `node`, `fetch`, `activity`, `stats`, `recommendations`, `metric_definitions`, all keys always present) in `src/report/render/json.rs`.
+- [x] T159 [GREEN] Implement the JSON top-level shape per the plan's contract in `src/report/render/json.rs`.
+- [x] T160 [RED] Failing test: `metric_definitions`'s key set matches the plan's exhaustive list exactly — all `stats` sub-object fields, `activity.granularity`, `buckets[].median_trade_sats`, `fetch.relays[].status`, `fetch.relays[].error` — no more, no fewer.
+- [x] T161 [GREEN] Author the static `metric_definitions` table (`label`/`meaning`/`unit_and_direction`) in `src/report/model.rs`.
+- [x] T162 [RED] Failing tests for `MetricValue::Computed(T) | NotApplicable` `null` serialization, guarding against NaN/infinity, in `src/models/core.rs`.
+- [x] T163 [GREEN] Ensure every `stats/` computation returns `NotApplicable` at its guard rather than a degenerate float.
+- [x] T164 [RED] Failing test for the fatal-error envelope shape and the 5 `code`/exit-code pairs in `src/error/exit_code.rs`.
+- [x] T165 [GREEN] Implement the fatal-error envelope in `src/report/render/json.rs`, `error.relays` populated only for `relays_unreachable`.
+- [x] T166 [RED] Failing test: explicit `--format` overrides the context-based default.
+- [x] T167 [GREEN] Wire explicit-format override ahead of the default in `src/cli/options.rs` (call-site skeleton; full flag wiring in PR 9).
 
 ---
 

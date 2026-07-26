@@ -13,6 +13,7 @@ use mostro_score::report::model::{
     ReportLiveness, ReportLongevity, ReportNode, ReportStats,
 };
 use mostro_score::report::render::console::render;
+use mostro_score::report::render::plain;
 use mostro_score::stats::context::{
     FiatBreakdown, FiatCurrencyShare, PaymentMethodBreakdown, PaymentMethodShare, PremiumSignal,
 };
@@ -25,6 +26,12 @@ use mostro_score::stats::{ActivityConsistency, BondPolicy};
 fn rendered(report: &Report) -> String {
     let mut out: Vec<u8> = Vec::new();
     render(&mut out, report, Some(false)).expect("render succeeds");
+    String::from_utf8(out).expect("valid utf8")
+}
+
+fn rendered_plain(report: &Report) -> String {
+    let mut out: Vec<u8> = Vec::new();
+    plain::render(&mut out, report).expect("render succeeds");
     String::from_utf8(out).expect("valid utf8")
 }
 
@@ -287,4 +294,32 @@ fn console_renderer_snapshot_empty_node_with_every_not_applicable_field() {
 #[test]
 fn console_renderer_snapshot_nothing_notable_recommendations() {
     insta::assert_snapshot!(rendered(&nothing_notable_report()));
+}
+
+/// T154/T155 (002 FR-009): the plain-text renderer covers the same 3 fixtures as the
+/// console renderer above, so any wording/layout change to either shows up as an
+/// explicit, reviewable diff.
+#[test]
+fn plain_text_renderer_snapshot_rich_node_with_multiple_relays_and_a_multi_bucket_grid() {
+    insta::assert_snapshot!(rendered_plain(&rich_node_report()));
+}
+
+#[test]
+fn plain_text_renderer_snapshot_empty_node_with_every_not_applicable_field() {
+    insta::assert_snapshot!(rendered_plain(&empty_node_report()));
+}
+
+#[test]
+fn plain_text_renderer_snapshot_nothing_notable_recommendations() {
+    insta::assert_snapshot!(rendered_plain(&nothing_notable_report()));
+}
+
+/// 002 FR-009: plain-text output has no decoration at all — no ANSI color codes, no
+/// box-drawing table characters — unlike the console renderer.
+#[test]
+fn plain_text_renderer_never_emits_ansi_escape_codes_or_box_drawing_characters() {
+    let output = rendered_plain(&rich_node_report());
+    assert!(!output.contains('\u{1b}'));
+    assert!(!output.contains('│'));
+    assert!(!output.contains('┌'));
 }

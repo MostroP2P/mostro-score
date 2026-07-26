@@ -1,0 +1,85 @@
+---
+source: tests/report_snapshots.rs
+expression: rendered_plain(&rich_node_report())
+---
+NODE IDENTITY
+Pubkey (npub): npub1lrc70l7y62yxl9py2glc9k5w990fnl2sd50yxafsj0d9amlxk9xq44h60c
+Pubkey (hex):  f8f1e7ffc4d2886f9424523f82da8e295e99fd506d1e43753093da5eefe6b14
+
+RELAY FETCH SUMMARY
+Relay wss://relay-a.example Status: success
+Relay wss://relay-a.example Error: -
+Relay wss://relay-b.example Status: failed
+Relay wss://relay-b.example Error: connection refused
+Dev-fee events (backs Longevity):        1
+Order events (before dedup):             12
+Unique orders (after dedup):             10
+Dispute events (backs Dispute Signals):  2
+Instance status found (backs Bond Policy): yes
+
+ACTIVITY GRID
+Granularity: monthly
+Bucket 2026-01-01T00:00:00Z Trades: 3
+Bucket 2026-01-01T00:00:00Z Volume: 150,000 sats
+Bucket 2026-01-01T00:00:00Z Median Trade: 50,000.0 sats
+Bucket 2026-02-01T00:00:00Z Trades: 0
+Bucket 2026-02-01T00:00:00Z Volume: 0 sats
+Bucket 2026-02-01T00:00:00Z Median Trade: N/A sats
+Bucket 2026-03-01T00:00:00Z Trades: 7
+Bucket 2026-03-01T00:00:00Z Volume: 1,250,000 sats
+Bucket 2026-03-01T00:00:00Z Median Trade: 178,571.4 sats
+
+GENERAL STATISTICS
+Longevity (time since this node's first activity)
+First seen:  2023-11-14T22:13:20Z
+Days active: 984.3
+
+Cumulative Performance (lifetime trade history)
+Total successful trades: 10
+Total volume:            1,400,000 sats
+
+Trade Statistics (higher consistency, i.e. lower coefficient of variation, is favorable)
+Min trade:    10,000 sats
+Max trade:    200,000 sats
+Mean trade:   140,000.0 sats
+Median trade: 125,000.0 sats
+Std dev:      45,000.5 sats
+Coefficient of variation: 0.36
+
+Liveness (most direct signal of current activity)
+Last successful trade: 2026-07-01T00:00:00Z (3 weeks ago)
+Days since last trade: 23
+Trades last 7 days:   1
+Trades last 30 days:  4
+Trades last 90 days:  10
+
+Activity Consistency (fixed 30-day window)
+Active days:                    6/30
+Max consecutive inactive days:   9
+
+Dispute Signals (no cross-node baseline; raw counts only)
+Total disputes:          1
+Resolved disputes:       1
+Active disputes:         0
+Unknown-status disputes: 0
+Disputes per 100 trades: 10.0
+
+Fiat Breakdown
+Fiat USD Orders: 7
+Fiat USD Share: 70.0%
+Fiat EUR Orders: 3
+Fiat EUR Share: 30.0%
+
+Payment Method Breakdown
+Payment Method SEPA Mentions: 10
+Payment Method SEPA Share: 100.0%
+
+Premium Signal (compared against this node's own history only)
+Baseline (median):    2.5
+Dispersion (std dev): 0.8
+
+Bond Policy (whether this node requires a bond deposit from traders)
+Status: enabled
+
+RECOMMENDATIONS
+- This node has had 1 dispute(s) recorded, alongside 10 completed trade(s). Review its dispute history before trading with it.

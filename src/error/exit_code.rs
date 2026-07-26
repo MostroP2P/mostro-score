@@ -15,6 +15,19 @@ pub fn exit_code_for(error: &AppError) -> i32 {
     }
 }
 
+/// PR 8: the JSON fatal-error envelope's `code` string (002 FR-011, plan.md's JSON output
+/// contract), one per `AppError` variant, kept in this same file so a new variant cannot
+/// be added without naming its JSON code beside its exit code.
+pub fn json_error_code_for(error: &AppError) -> &'static str {
+    match error {
+        AppError::Other(_) => "general_error",
+        AppError::UsageError(_) => "usage_error",
+        AppError::RelaysUnreachable => "relays_unreachable",
+        AppError::NoUsableEvents => "no_usable_events",
+        AppError::InvalidPubkey => "invalid_pubkey",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -46,5 +59,28 @@ mod tests {
     fn other_maps_to_exit_code_1() {
         let source: Box<dyn std::error::Error> = "boom".into();
         assert_eq!(exit_code_for(&AppError::from(source)), 1);
+    }
+
+    /// plan.md's JSON output contract table: each of the 5 `AppError` variants pairs its
+    /// own exit code with its own JSON `code` string, one to one.
+    #[test]
+    fn json_error_code_and_exit_code_match_the_contract_table_for_every_variant() {
+        let source: Box<dyn std::error::Error> = "boom".into();
+        let cases: Vec<(AppError, i32, &str)> = vec![
+            (AppError::from(source), 1, "general_error"),
+            (
+                AppError::UsageError("bad flag combination".to_string()),
+                2,
+                "usage_error",
+            ),
+            (AppError::RelaysUnreachable, 3, "relays_unreachable"),
+            (AppError::NoUsableEvents, 4, "no_usable_events"),
+            (AppError::InvalidPubkey, 5, "invalid_pubkey"),
+        ];
+
+        for (error, expected_exit_code, expected_json_code) in cases {
+            assert_eq!(exit_code_for(&error), expected_exit_code);
+            assert_eq!(json_error_code_for(&error), expected_json_code);
+        }
     }
 }

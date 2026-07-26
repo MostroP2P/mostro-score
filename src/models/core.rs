@@ -1,4 +1,44 @@
 use nostr_sdk::prelude::*;
+use serde::{Serialize, Serializer};
+
+/// 002 FR-012 / plan.md's JSON output contract: the only type allowed to produce a JSON
+/// `null` for a not-applicable metric. `serde_json` serializes a bare `f64` NaN or
+/// infinity as `null` without erroring (see this module's own test proving that
+/// empirically) — indistinguishable from a deliberate not-applicable value if a
+/// degenerate float ever reached the serializer directly. Every `stats/` computation
+/// already returns `None` at its own guard condition rather than letting that happen (see
+/// PR 8's audit); `report::render::json` converts from those existing `Option<T>` fields
+/// into `MetricValue<T>` only at its own serialization boundary, so `Report`/`ReportStats`
+/// stay `Option<T>` for the console/plain-text renderers.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MetricValue<T> {
+    Computed(T),
+    NotApplicable,
+}
+
+impl<T> From<Option<T>> for MetricValue<T> {
+    fn from(value: Option<T>) -> Self {
+        match value {
+            Some(value) => MetricValue::Computed(value),
+            None => MetricValue::NotApplicable,
+        }
+    }
+}
+
+/// Custom, not derived: `Computed(value)` must serialize as the bare `value`, never as
+/// `{"Computed": value}` — the wrapped-object shape `serde`'s default enum representation
+/// would otherwise produce.
+impl<T: Serialize> Serialize for MetricValue<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            MetricValue::Computed(value) => value.serialize(serializer),
+            MetricValue::NotApplicable => serializer.serialize_none(),
+        }
+    }
+}
 
 /// 002 FR-014's progress-indicator port: a single method the fetch layer invokes once a
 /// relay fetch has run past FR-014's latency threshold. `fetch` and `report` both depend
@@ -363,5 +403,47 @@ mod tests {
     fn pm_tag_values_is_empty_when_missing() {
         let event = make_event(38383, 100, vec![]);
         assert!(pm_tag_values(&event).is_empty());
+    }
+
+    #[test]
+    fn metric_value_from_option_wraps_some_as_computed_and_none_as_not_applicable() {
+        assert_eq!(MetricValue::from(Some(5)), MetricValue::Computed(5));
+        assert_eq!(MetricValue::<i32>::from(None), MetricValue::NotApplicable);
+    }
+
+    /// The custom `Serialize` impl's whole point: `Computed(value)` must serialize as the
+    /// bare `value`, never as `{"Computed": value}` (`#[derive(Serialize)]`'s default
+    /// enum representation) — plan.md's JSON output contract fixes a computed metric's
+    /// JSON type as a bare number.
+    #[test]
+    fn metric_value_computed_serializes_as_the_bare_value_not_a_wrapped_object() {
+        assert_eq!(
+            serde_json::to_string(&MetricValue::Computed(5.2)).unwrap(),
+            "5.2"
+        );
+    }
+
+    #[test]
+    fn metric_value_not_applicable_serializes_as_null() {
+        assert_eq!(
+            serde_json::to_string(&MetricValue::<f64>::NotApplicable).unwrap(),
+            "null"
+        );
+    }
+
+    /// A real, surprising `serde_json` footgun (plan.md's JSON output contract):
+    /// serializing a bare `f64` NaN or infinity produces `null` without erroring, so a
+    /// degenerate float would be indistinguishable from a deliberate not-applicable
+    /// value if it ever reached the serializer directly instead of through
+    /// `MetricValue`. Confirmed here empirically, not just asserted from documentation.
+    #[test]
+    fn raw_f64_nan_serializes_as_null_a_surprising_serde_json_footgun() {
+        assert_eq!(serde_json::to_string(&f64::NAN).unwrap(), "null");
+    }
+
+    #[test]
+    fn raw_f64_infinity_serializes_as_null_a_surprising_serde_json_footgun() {
+        assert_eq!(serde_json::to_string(&f64::INFINITY).unwrap(), "null");
+        assert_eq!(serde_json::to_string(&f64::NEG_INFINITY).unwrap(), "null");
     }
 }
