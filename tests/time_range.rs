@@ -7,6 +7,7 @@
 //! reliable, machine-parseable assertions on the exact figures involved.
 
 use mostro_score::fetch::client::{EventSource, RelayConnectionOutcome};
+use mostro_score::report::content::SectionFilter;
 use mostro_score::report::render::{Format, RunOptions};
 use mostro_score::stats::grid::Granularity;
 use nostr_sdk::prelude::*;
@@ -60,6 +61,7 @@ fn base_options() -> RunOptions {
         since: None,
         until: None,
         view: None,
+        sections: SectionFilter::all(),
     }
 }
 

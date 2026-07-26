@@ -8,6 +8,7 @@
 
 use crate::cli::duration::{parse_date_bound, since_bound_seconds, until_bound_seconds};
 use crate::error::AppError;
+use crate::report::content::SectionFilter;
 use crate::report::render::Format;
 use crate::stats::grid::Granularity;
 use chrono::{DateTime, Datelike, Utc};
@@ -61,6 +62,23 @@ pub fn validate_color_flags(color: bool, no_color: bool) -> Result<(), AppError>
     Ok(())
 }
 
+/// 003 FR-008/FR-009: resolves the raw `--sections` flag value into a `SectionFilter`,
+/// rejecting any unrecognized token as a usage error naming every invalid token and
+/// listing the 4 valid names, before any relay is queried. Omitted input resolves to
+/// `SectionFilter::all()` (003 FR-008's unfiltered default).
+pub fn resolve_sections(raw: Option<&str>) -> Result<SectionFilter, AppError> {
+    match raw {
+        None => Ok(SectionFilter::all()),
+        Some(raw) => SectionFilter::parse(raw).map_err(|invalid_tokens| {
+            AppError::UsageError(format!(
+                "Unrecognized --sections value(s): {}. Valid section names are: fetch, \
+                 activity, stats, recommendations",
+                invalid_tokens.join(", ")
+            ))
+        }),
+    }
+}
+
 /// 003 FR-002/FR-003 Edge Case, FR-013a: rejects a malformed `--relays`/
 /// `MOSTRO_SCORE_RELAYS` entry with an actionable message naming the exact malformed
 /// string, before any connection attempt. Reuses `nostr_sdk::RelayUrl::parse` — the same
@@ -95,8 +113,11 @@ pub fn resolve_run_options(
     stdout_is_terminal: bool,
     time_range_inputs: TimeRangeInputs,
     now: DateTime<Utc>,
+    sections_raw: Option<String>,
 ) -> Result<crate::report::render::RunOptions, AppError> {
     validate_color_flags(color, no_color)?;
+
+    let sections = resolve_sections(sections_raw.as_deref())?;
 
     let context_default = crate::report::render::select_format_for_context(stdout_is_terminal);
     let format = resolve_format(
@@ -113,6 +134,7 @@ pub fn resolve_run_options(
         since: time_range.since,
         until: time_range.until,
         view: time_range.view,
+        sections,
     })
 }
 
@@ -425,6 +447,7 @@ mod tests {
             true,
             no_time_range_inputs(),
             fixed_now(),
+            None,
         );
         assert!(matches!(result, Err(AppError::UsageError(_))));
     }
@@ -441,6 +464,7 @@ mod tests {
             false,
             no_time_range_inputs(),
             fixed_now(),
+            None,
         )
         .expect("color alone is not contradictory");
 
@@ -453,6 +477,7 @@ mod tests {
                 since: None,
                 until: None,
                 view: None,
+                sections: SectionFilter::all(),
             }
         );
     }
@@ -470,6 +495,7 @@ mod tests {
             false,
             no_time_range_inputs(),
             fixed_now(),
+            None,
         )
         .expect("color alone is not contradictory");
 
@@ -486,6 +512,7 @@ mod tests {
             true,
             no_time_range_inputs(),
             fixed_now(),
+            None,
         )
         .expect("no validation failure");
         assert!(options.quiet);
@@ -498,8 +525,79 @@ mod tests {
             until_raw: Some("2026-01-01".to_string()),
             view: None,
         };
-        let result = resolve_run_options(None, false, false, false, true, inputs, fixed_now());
+        let result =
+            resolve_run_options(None, false, false, false, true, inputs, fixed_now(), None);
         assert!(matches!(result, Err(AppError::UsageError(_))));
+    }
+
+    // ---- 003 FR-008/FR-009: `resolve_sections` ----
+
+    #[test]
+    fn resolve_sections_defaults_to_all_sections_when_omitted() {
+        let sections = resolve_sections(None).expect("no validation failure");
+        assert_eq!(sections, SectionFilter::all());
+    }
+
+    #[test]
+    fn resolve_sections_parses_a_valid_subset() {
+        let sections = resolve_sections(Some("activity,stats")).expect("valid subset");
+        assert!(sections.activity);
+        assert!(sections.stats);
+        assert!(!sections.fetch);
+        assert!(!sections.recommendations);
+    }
+
+    /// 003 FR-009: an unrecognized `--sections` token is rejected as a usage error
+    /// naming the invalid token and listing the 4 valid names, before any relay is
+    /// queried.
+    #[test]
+    fn resolve_sections_rejects_an_unrecognized_token() {
+        let error = resolve_sections(Some("stats,bogus")).expect_err("unrecognized token");
+
+        assert!(matches!(error, AppError::UsageError(_)));
+        let message = error.to_string();
+        assert!(message.contains("bogus"));
+        assert!(message.contains("fetch"));
+        assert!(message.contains("activity"));
+        assert!(message.contains("stats"));
+        assert!(message.contains("recommendations"));
+    }
+
+    /// 003 FR-009: this validation must happen before any relay is queried —
+    /// `resolve_run_options` is itself the pre-relay validation entry point, so a
+    /// rejection here proves the check runs in the same place as the other pre-relay
+    /// validations (color contradiction, time range).
+    #[test]
+    fn resolve_run_options_rejects_an_unrecognized_sections_token_before_any_relay_is_queried() {
+        let result = resolve_run_options(
+            None,
+            false,
+            false,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            Some("bogus".to_string()),
+        );
+        assert!(matches!(result, Err(AppError::UsageError(_))));
+    }
+
+    #[test]
+    fn resolve_run_options_threads_a_valid_sections_value_through() {
+        let options = resolve_run_options(
+            None,
+            false,
+            false,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            Some("stats".to_string()),
+        )
+        .expect("valid sections value");
+
+        assert!(options.sections.stats);
+        assert!(!options.sections.fetch);
     }
 
     // ---- 003 FR-004/FR-005/FR-006: `resolve_time_range` ----

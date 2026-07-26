@@ -341,10 +341,10 @@ work they described no longer applies.
 
 **Depends on**: 9 (independent of PR 10). Requirements: 003 FR-008, FR-009.
 
-- [ ] T196 [RED] Failing tests for `--sections` token parsing/validation in `src/cli/options.rs`.
-- [ ] T197 [GREEN] Implement `--sections` per 003 FR-008/FR-009 in `src/cli/options.rs`.
-- [ ] T198 [RED] Failing tests: console/plain honor `--sections`, JSON always emits all 5 keys.
-- [ ] T199 [GREEN] Implement console/plain-only filtering in `src/report/content.rs`.
+- [x] T196 [RED] Failing tests for `--sections` token parsing/validation in `src/cli/options.rs`.
+- [x] T197 [GREEN] Implement `--sections` per 003 FR-008/FR-009 in `src/cli/options.rs`.
+- [x] T198 [RED] Failing tests: console/plain honor `--sections`, JSON always emits all 5 keys.
+- [x] T199 [GREEN] Implement console/plain-only filtering in `src/report/content.rs`.
 
 ---
 

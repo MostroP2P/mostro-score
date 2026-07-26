@@ -216,8 +216,10 @@ pub async fn run<E: EventSource>(
         }
     }
 
-    // 7. Assemble and render the complete 5-section report (002 FR-001), replacing PR
-    // 1's ad hoc per-section `console::render_*` pipeline entirely.
+    // 7. Assemble the complete 5-section report (002 FR-001), replacing PR 1's ad hoc
+    // per-section `console::render_*` pipeline entirely. Rendering it below may narrow
+    // the 4 filterable sections per `options.sections` (003 FR-008); the assembled
+    // `Report` itself is always complete.
     let report = assemble_report(
         public_key,
         &connection,
@@ -230,8 +232,10 @@ pub async fn run<E: EventSource>(
     // console — `options.color_override` only ever affects `Format::Console`; the plain
     // and JSON renderers never look at color at all.
     match options.format {
-        Format::Console => console::render(out, &report, options.color_override)?,
-        Format::Plain => plain::render(out, &report)?,
+        Format::Console => {
+            console::render(out, &report, options.color_override, &options.sections)?
+        }
+        Format::Plain => plain::render(out, &report, &options.sections)?,
         Format::Json => json::render(out, &report)?,
     }
 
