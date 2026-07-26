@@ -258,13 +258,13 @@ work they described no longer applies.
 - [x] T138 [GREEN] Bind the concrete `report/progress.rs` terminal `ProgressReporter` implementation into `fetch::client`'s real `EventSource` at construction in `main()`/`lib.rs`'s production wiring, per the plan's `models/core.rs` port design; confirm T137's integration test passes through the real `EventSource` with its injected delay seam.
 - [x] T139 [RED] Failing tests for the empty-activity-grid case (zero orders) in `src/stats/grid.rs`.
 - [x] T140 [GREEN] Implement the empty-grid case per 002 FR-005 Edge Cases.
-- [ ] T141 Compute `premium_dispersion_percent` and trade-size CV across T129's fixtures; pick each recommendation boundary from the observed distribution; record in the PR description.
-- [ ] T142 [RED] Failing tests for the 3 deterministic recommendation triggers (zero trades, disputes present, bond policy not enabled) in `src/report/content.rs`.
-- [ ] T143 [GREEN] Implement the 3 fixed triggers per the plan's table in `src/report/content.rs`.
-- [ ] T144 [RED] Failing tests for the 2 threshold-based triggers (premium dispersion, trade-size CV) at T141's boundaries, asserting FR-008a's comparative-language restriction.
-- [ ] T145 [GREEN] Implement the 2 threshold-based triggers in `src/report/content.rs`, using T141's boundaries.
-- [ ] T146 [RED] Failing test: `nothing_notable` true only when none of the 5 triggers fire.
-- [ ] T147 [GREEN] Implement `nothing_notable`/`items` assembly per 002 FR-008 in `src/report/content.rs`.
+- [ ] T141 **DEFERRED**: Compute `premium_dispersion_percent` and trade-size CV across T129's fixtures; pick each recommendation boundary from the observed distribution; record in the PR description. Deferred because a defensible boundary needs either real historical data from an active Mostro node or a carefully-justified constructed comparison; premium dispersion in particular has no unit-less statistical convention to lean on (it is a raw population standard deviation in percentage points, not a ratio, per spec 001's own clarification), unlike trade-size CV which can at least start from general coefficient-of-variation conventions. Pick this back up once real-node evidence is available, tracked separately from the rest of PR 7c.
+- [x] T142 [RED] Failing tests for the 3 deterministic recommendation triggers (zero trades, disputes present, bond policy not enabled) in `src/report/content.rs`.
+- [x] T143 [GREEN] Implement the 3 fixed triggers per the plan's table in `src/report/content.rs`.
+- [ ] T144 **DEFERRED** (depends on T141): Failing tests for the 2 threshold-based triggers (premium dispersion, trade-size CV) at T141's boundaries, asserting FR-008a's comparative-language restriction.
+- [ ] T145 **DEFERRED** (depends on T141): Implement the 2 threshold-based triggers in `src/report/content.rs`, using T141's boundaries.
+- [x] T146 [RED] Failing test: `nothing_notable` true only when none of the 3 currently-implemented triggers fire (zero trades, disputes present, bond policy not enabled); extending this to the 2 deferred threshold-based triggers is follow-up work once T141/T144/T145 land.
+- [x] T147 [GREEN] Implement `nothing_notable`/`items` assembly per 002 FR-008 in `src/report/content.rs`, scoped to the 3 implemented triggers.
 - [ ] T148 [RED] Failing `insta` snapshot tests for the console renderer's 5 sections in `tests/report_snapshots.rs`.
 - [ ] T149 [GREEN] Implement the width-adaptive, colored console renderer (`comfy-table`) per 002 FR-013 in `src/report/render/console.rs`.
 - [ ] T150 [RED] Failing test for the tty/`NO_COLOR`/`TERM=dumb` color policy in `src/report/format.rs`.

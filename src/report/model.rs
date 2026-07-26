@@ -5,6 +5,7 @@
 
 use crate::fetch::client::RelayConnectionOutcome;
 use crate::fetch::filters_summary::RelayFetchOutcome;
+use crate::report::content::{assemble_recommendations_section, ReportRecommendations};
 use crate::stats::context::{FiatBreakdown, PaymentMethodBreakdown, PremiumSignal};
 use crate::stats::disputes::DisputeSignals;
 use crate::stats::grid::{ActivityGrid, Granularity};
@@ -149,12 +150,6 @@ pub fn assemble_activity_section(grid: &ActivityGrid) -> ReportActivity {
     }
 }
 
-/// 002 FR-008/FR-008a: the recommendations block. Out of scope for this PR (implemented
-/// from T141 onward) — a minimal placeholder so `Report` compiles with its full
-/// 5-section shape now.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct ReportRecommendations {}
-
 /// `stats.longevity` (001 FR-001): `first_seen_at` re-typed as an RFC 3339 string per
 /// plan.md's JSON contract, instead of `stats::lifecycle::Longevity`'s bare epoch
 /// integer.
@@ -226,8 +221,7 @@ pub fn assemble_stats_section(metrics: &NodeMetrics) -> ReportStats {
 }
 
 /// 002 FR-001: the complete report — 5 ordered sections plus `schema_version` (FR-012a)
-/// and `generated_at`. `recommendations` is a placeholder in this PR; a later PR
-/// populates its real content.
+/// and `generated_at`.
 #[derive(Debug, Clone, Serialize)]
 pub struct Report {
     pub schema_version: String,
@@ -239,12 +233,12 @@ pub struct Report {
     pub recommendations: ReportRecommendations,
 }
 
-/// Assembles the complete `Report` from this PR's fully populated sections (`node`,
-/// `fetch`, `activity`, `stats`), leaving `recommendations` as its placeholder default.
-/// `activity_grid` is pre-computed by the caller (`stats::grid::compute_activity_grid`),
-/// not recomputed here — this function only assembles, matching every other
-/// `assemble_*_section` function's pattern. Not yet called by `run()` — a later PR wires
-/// this in once a renderer exists to consume it.
+/// Assembles the complete `Report` from every section, including `recommendations`
+/// (002 FR-008, scoped to `report::content`'s 3 currently-implemented triggers — see
+/// its module doc comment). `activity_grid` is pre-computed by the caller
+/// (`stats::grid::compute_activity_grid`), not recomputed here — this function only
+/// assembles, matching every other `assemble_*_section` function's pattern. Not yet
+/// called by `run()` — a later PR wires this in once a renderer exists to consume it.
 pub fn assemble_report(
     public_key: PublicKey,
     connection: &RelayConnectionOutcome,
@@ -260,7 +254,7 @@ pub fn assemble_report(
         fetch: assemble_fetch_section(connection, fetch_outcome),
         activity: assemble_activity_section(activity_grid),
         stats: assemble_stats_section(metrics),
-        recommendations: ReportRecommendations::default(),
+        recommendations: assemble_recommendations_section(metrics),
     })
 }
 
