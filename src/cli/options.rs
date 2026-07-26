@@ -7,6 +7,8 @@
 //! subprocess.
 
 use crate::cli::duration::{parse_date_bound, since_bound_seconds, until_bound_seconds};
+use crate::config::file::ConfigFile;
+use crate::config::paths_defaults::DEFAULT_RELAY;
 use crate::error::AppError;
 use crate::report::content::SectionFilter;
 use crate::report::render::Format;
@@ -22,10 +24,12 @@ pub fn resolve_format(explicit: Option<Format>, context_default: Format) -> Form
 
 /// 003 FR-011: `--color` implies console format only when format resolution reaches the
 /// fully automatic step — no explicit `--format` flag and no configuration-file value
-/// (there is no config file yet; PR 12's job, so today "no config value" is always
-/// true) — overriding an automatic *plain* default to *console* so piping into a
-/// color-aware pager works as intended. Has no effect when the automatic default is
-/// already `console`, and callers must not apply this when `--format` was explicit:
+/// (PR 12: `resolve_run_options` only falls back to this function when the persisted
+/// configuration file carries no `format` value of its own, so by the time this
+/// function runs, both of those higher-precedence sources are already known absent) —
+/// overriding an automatic *plain* default to *console* so piping into a color-aware
+/// pager works as intended. Has no effect when the automatic default is already
+/// `console`, and callers must not apply this when `--format` was explicit:
 /// `resolve_format` already gives an explicit choice full precedence regardless of what
 /// this function returns.
 pub fn apply_color_format_override(context_default: Format, color_flag: bool) -> Format {
@@ -97,13 +101,34 @@ pub fn validate_relay_urls(relays: &[String]) -> Result<(), AppError> {
     Ok(())
 }
 
-/// 003 FR-010..FR-013a, FR-004..FR-007: the top-level resolution/validation entry point
-/// `main.rs` calls once flags are parsed — composes every pure function above into the
-/// final `RunOptions` a report-generating invocation needs. Fails on `--color`/
-/// `--no-color` contradiction, or on any of `resolve_time_range`'s own validation
-/// failures (FR-005's since-later-than-until check, FR-006's explicit-`--view`
-/// alignment check); relay well-formedness (`validate_relay_urls`) is a separate,
-/// independent check `main.rs` runs on the parsed `--relays` list.
+/// 003 FR-002/FR-016: resolves `--relays`' full precedence chain — explicit CLI flag or
+/// `MOSTRO_SCORE_RELAYS` (both already collapsed into `explicit_raw` by clap's own
+/// `env` attribute, so this function only sees "explicit or not"), then the
+/// configuration file's `relays` value, then the compiled-in default
+/// `config::paths_defaults::DEFAULT_RELAY`.
+pub fn resolve_relays(explicit_raw: Option<&str>, config_relays: Option<&[String]>) -> Vec<String> {
+    if let Some(explicit_raw) = explicit_raw {
+        return explicit_raw.split(',').map(|s| s.to_string()).collect();
+    }
+    if let Some(config_relays) = config_relays {
+        return config_relays.to_vec();
+    }
+    vec![DEFAULT_RELAY.to_string()]
+}
+
+/// 003 FR-010..FR-013a, FR-004..FR-007, FR-016: the top-level resolution/validation
+/// entry point `main.rs` calls once flags are parsed — composes every pure function
+/// above into the final `RunOptions` a report-generating invocation needs. Fails on
+/// `--color`/`--no-color` contradiction, or on any of `resolve_time_range`'s own
+/// validation failures (FR-005's since-later-than-until check, FR-006's
+/// explicit-`--view` alignment check); relay well-formedness (`validate_relay_urls`) is
+/// a separate, independent check `main.rs` runs on the parsed `--relays` list.
+///
+/// `config` carries the persisted configuration file's already-validated values (003
+/// FR-016): a present `format`/`view`/`color` value slots in between the explicit CLI
+/// flag/environment variable and the automatic/compiled default at each of the three
+/// respective resolution points. `None` (no config file, or one that failed to load)
+/// behaves exactly as if PR 12 did not exist.
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_run_options(
     explicit_format: Option<Format>,
@@ -114,23 +139,38 @@ pub fn resolve_run_options(
     time_range_inputs: TimeRangeInputs,
     now: DateTime<Utc>,
     sections_raw: Option<String>,
+    config: Option<&ConfigFile>,
 ) -> Result<crate::report::render::RunOptions, AppError> {
     validate_color_flags(color, no_color)?;
 
     let sections = resolve_sections(sections_raw.as_deref())?;
 
-    let context_default = crate::report::render::select_format_for_context(stdout_is_terminal);
-    let format = resolve_format(
-        explicit_format,
-        apply_color_format_override(context_default, color),
-    );
+    let config_format = config.and_then(|config| config.format);
+    let config_view = config.and_then(|config| config.view);
+    let config_color_override = config.and_then(|config| config.color_override);
 
-    let time_range = resolve_time_range(time_range_inputs, now)?;
+    let context_default = crate::report::render::select_format_for_context(stdout_is_terminal);
+    // 003 FR-011: a configuration-sourced `format` value is a saved preference and
+    // takes precedence over the automatic color-format upgrade, same as an explicit
+    // `--format` flag would — so the upgrade only ever applies when there is neither
+    // an explicit format nor a config-sourced one.
+    let format_before_explicit = match config_format {
+        Some(config_format) => config_format,
+        None => apply_color_format_override(context_default, color),
+    };
+    let format = resolve_format(explicit_format, format_before_explicit);
+
+    let mut time_range = resolve_time_range(time_range_inputs, now)?;
+    if time_range.view.is_none() {
+        time_range.view = config_view;
+    }
+
+    let color_override = resolve_color_override(color, no_color).or(config_color_override);
 
     Ok(crate::report::render::RunOptions {
         format,
         quiet,
-        color_override: resolve_color_override(color, no_color),
+        color_override,
         since: time_range.since,
         until: time_range.until,
         view: time_range.view,
@@ -448,6 +488,7 @@ mod tests {
             no_time_range_inputs(),
             fixed_now(),
             None,
+            None,
         );
         assert!(matches!(result, Err(AppError::UsageError(_))));
     }
@@ -464,6 +505,7 @@ mod tests {
             false,
             no_time_range_inputs(),
             fixed_now(),
+            None,
             None,
         )
         .expect("color alone is not contradictory");
@@ -496,6 +538,7 @@ mod tests {
             no_time_range_inputs(),
             fixed_now(),
             None,
+            None,
         )
         .expect("color alone is not contradictory");
 
@@ -513,6 +556,7 @@ mod tests {
             no_time_range_inputs(),
             fixed_now(),
             None,
+            None,
         )
         .expect("no validation failure");
         assert!(options.quiet);
@@ -525,8 +569,17 @@ mod tests {
             until_raw: Some("2026-01-01".to_string()),
             view: None,
         };
-        let result =
-            resolve_run_options(None, false, false, false, true, inputs, fixed_now(), None);
+        let result = resolve_run_options(
+            None,
+            false,
+            false,
+            false,
+            true,
+            inputs,
+            fixed_now(),
+            None,
+            None,
+        );
         assert!(matches!(result, Err(AppError::UsageError(_))));
     }
 
@@ -578,6 +631,7 @@ mod tests {
             no_time_range_inputs(),
             fixed_now(),
             Some("bogus".to_string()),
+            None,
         );
         assert!(matches!(result, Err(AppError::UsageError(_))));
     }
@@ -593,6 +647,7 @@ mod tests {
             no_time_range_inputs(),
             fixed_now(),
             Some("stats".to_string()),
+            None,
         )
         .expect("valid sections value");
 
@@ -781,5 +836,179 @@ mod tests {
             .expect("an omitted --since is never checked for alignment");
         assert_eq!(resolved.since, None);
         assert_eq!(resolved.view, Some(Granularity::Monthly));
+    }
+
+    // ---- 003 FR-002/FR-016: `resolve_relays` ----
+
+    #[test]
+    fn resolve_relays_uses_the_explicit_value_when_present() {
+        let relays = resolve_relays(Some("wss://explicit.example"), None);
+        assert_eq!(relays, vec!["wss://explicit.example".to_string()]);
+    }
+
+    #[test]
+    fn resolve_relays_splits_a_comma_separated_explicit_value() {
+        let relays = resolve_relays(Some("wss://a.example,wss://b.example"), None);
+        assert_eq!(
+            relays,
+            vec!["wss://a.example".to_string(), "wss://b.example".to_string()]
+        );
+    }
+
+    #[test]
+    fn resolve_relays_falls_back_to_config_when_explicit_is_absent() {
+        let config_relays = vec!["wss://config.example".to_string()];
+        let relays = resolve_relays(None, Some(&config_relays));
+        assert_eq!(relays, config_relays);
+    }
+
+    #[test]
+    fn resolve_relays_falls_back_to_the_compiled_default_when_neither_is_present() {
+        let relays = resolve_relays(None, None);
+        assert_eq!(relays, vec![DEFAULT_RELAY.to_string()]);
+    }
+
+    #[test]
+    fn resolve_relays_prefers_explicit_over_config() {
+        let config_relays = vec!["wss://config.example".to_string()];
+        let relays = resolve_relays(Some("wss://explicit.example"), Some(&config_relays));
+        assert_eq!(relays, vec!["wss://explicit.example".to_string()]);
+    }
+
+    // ---- 003 FR-016: config-sourced values slot between explicit and automatic ----
+
+    fn config_with(
+        format: Option<Format>,
+        view: Option<Granularity>,
+        color_override: Option<bool>,
+    ) -> ConfigFile {
+        ConfigFile {
+            relays: None,
+            format,
+            view,
+            color_override,
+        }
+    }
+
+    /// T222/T223: a config-sourced `format` value is honored when there is no explicit
+    /// `--format` flag, sitting between explicit and automatic default.
+    #[test]
+    fn resolve_run_options_honors_a_config_sourced_format_over_the_automatic_default() {
+        let config = config_with(Some(Format::Json), None, None);
+        let options = resolve_run_options(
+            None,
+            false,
+            false,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            None,
+            Some(&config),
+        )
+        .expect("no validation failure");
+
+        assert_eq!(options.format, Format::Json);
+    }
+
+    /// An explicit `--format` flag still overrides a config-sourced value.
+    #[test]
+    fn resolve_run_options_explicit_format_overrides_a_config_sourced_value() {
+        let config = config_with(Some(Format::Json), None, None);
+        let options = resolve_run_options(
+            Some(Format::Plain),
+            false,
+            false,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            None,
+            Some(&config),
+        )
+        .expect("no validation failure");
+
+        assert_eq!(options.format, Format::Plain);
+    }
+
+    #[test]
+    fn resolve_run_options_honors_a_config_sourced_view_when_view_flag_is_absent() {
+        let config = config_with(None, Some(Granularity::Yearly), None);
+        let options = resolve_run_options(
+            None,
+            false,
+            false,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            None,
+            Some(&config),
+        )
+        .expect("no validation failure");
+
+        assert_eq!(options.view, Some(Granularity::Yearly));
+    }
+
+    #[test]
+    fn resolve_run_options_explicit_view_overrides_a_config_sourced_value() {
+        let config = config_with(None, Some(Granularity::Yearly), None);
+        let inputs = TimeRangeInputs {
+            since_raw: None,
+            until_raw: None,
+            view: Some(Granularity::Daily),
+        };
+        let options = resolve_run_options(
+            None,
+            false,
+            false,
+            false,
+            true,
+            inputs,
+            fixed_now(),
+            None,
+            Some(&config),
+        )
+        .expect("no validation failure");
+
+        assert_eq!(options.view, Some(Granularity::Daily));
+    }
+
+    #[test]
+    fn resolve_run_options_honors_a_config_sourced_color_override_when_flags_are_absent() {
+        let config = config_with(None, None, Some(true));
+        let options = resolve_run_options(
+            None,
+            false,
+            false,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            None,
+            Some(&config),
+        )
+        .expect("no validation failure");
+
+        assert_eq!(options.color_override, Some(true));
+    }
+
+    #[test]
+    fn resolve_run_options_explicit_no_color_overrides_a_config_sourced_color_value() {
+        let config = config_with(None, None, Some(true));
+        let options = resolve_run_options(
+            None,
+            false,
+            true,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            None,
+            Some(&config),
+        )
+        .expect("no validation failure");
+
+        assert_eq!(options.color_override, Some(false));
     }
 }

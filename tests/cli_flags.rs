@@ -11,6 +11,28 @@ use nostr_sdk::prelude::*;
 
 const TEST_PUBKEY_HEX: &str = "82fa8cb978b43c79b2156585bac2c011176a21d2aead6d9f7c575c005be88390";
 
+/// PR 12: every binary-level test constructs its `mostro-score` invocation through this
+/// helper rather than calling `assert_cmd::Command::cargo_bin` directly. Since PR 12,
+/// every invocation loads a real persisted configuration file (003 FR-015/FR-016) from
+/// the platform-standard location -- without isolation, a test's outcome would silently
+/// depend on whatever configuration file happens to exist on the machine or CI runner
+/// actually running the suite. `--config-dir` (rather than setting `XDG_CONFIG_HOME`)
+/// is the platform-independent way to force this: `config::paths_defaults::
+/// default_config_path` checks it first on every OS, unlike `XDG_CONFIG_HOME`, which
+/// this codebase's own path resolution only ever consults on Linux. Pointing it at a
+/// directory that does not exist reliably resolves to "no configuration file" (FR-015's
+/// silent, no-warning case), the same as a genuinely absent file, without needing to
+/// create and clean up a real temporary directory for tests that have nothing else to
+/// do with the filesystem.
+fn isolated_command() -> assert_cmd::Command {
+    let mut command = assert_cmd::Command::cargo_bin("mostro-score").unwrap();
+    command.args([
+        "--config-dir",
+        "/nonexistent-mostro-score-test-isolation-dir",
+    ]);
+    command
+}
+
 struct FixtureEventSource {
     connection: RelayConnectionOutcome,
     events: Vec<Event>,
@@ -30,8 +52,7 @@ impl EventSource for FixtureEventSource {
 /// flag itself is omitted.
 #[test]
 fn pubkey_falls_back_to_its_environment_variable_when_the_flag_is_omitted() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
+    let output = isolated_command()
         .env("MOSTRO_SCORE_PUBKEY", "not-a-valid-pubkey")
         .env_remove("MOSTRO_SCORE_RELAYS")
         .output()
@@ -46,8 +67,7 @@ fn pubkey_falls_back_to_its_environment_variable_when_the_flag_is_omitted() {
 /// environment variable.
 #[test]
 fn an_explicit_pubkey_flag_takes_precedence_over_its_environment_variable() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
+    let output = isolated_command()
         .env("MOSTRO_SCORE_PUBKEY", "also-not-a-valid-pubkey")
         .args(["--pubkey", TEST_PUBKEY_HEX])
         .env_remove("MOSTRO_SCORE_RELAYS")
@@ -64,8 +84,7 @@ fn an_explicit_pubkey_flag_takes_precedence_over_its_environment_variable() {
 /// clap's own native missing-required-argument usage error, exit code `2`.
 #[test]
 fn missing_pubkey_and_its_environment_variable_is_a_usage_error() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
+    let output = isolated_command()
         .env_remove("MOSTRO_SCORE_PUBKEY")
         .env_remove("MOSTRO_SCORE_RELAYS")
         .output()
@@ -78,8 +97,7 @@ fn missing_pubkey_and_its_environment_variable_is_a_usage_error() {
 /// flag itself is omitted.
 #[test]
 fn relays_falls_back_to_its_environment_variable_when_the_flag_is_omitted() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
+    let output = isolated_command()
         .args(["--pubkey", TEST_PUBKEY_HEX])
         .env("MOSTRO_SCORE_RELAYS", "not-a-url")
         .output()
@@ -96,8 +114,7 @@ fn relays_falls_back_to_its_environment_variable_when_the_flag_is_omitted() {
 /// environment variable.
 #[test]
 fn an_explicit_relays_flag_takes_precedence_over_its_environment_variable() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
+    let output = isolated_command()
         .args(["--pubkey", TEST_PUBKEY_HEX, "--relays", "not-a-flag-url"])
         .env("MOSTRO_SCORE_RELAYS", "not-an-env-url")
         .output()
@@ -117,8 +134,7 @@ fn an_explicit_relays_flag_takes_precedence_over_its_environment_variable() {
 /// caught earlier with an actionable message.
 #[test]
 fn a_malformed_relays_flag_value_is_a_usage_error_naming_the_relay() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
+    let output = isolated_command()
         .args(["--pubkey", TEST_PUBKEY_HEX, "--relays", "not-a-url"])
         .output()
         .expect("binary runs");
@@ -135,8 +151,7 @@ fn a_malformed_relays_flag_value_is_a_usage_error_naming_the_relay() {
 /// validation pattern (e.g. the malformed-`--relays` test above).
 #[test]
 fn an_unrecognized_sections_token_is_a_usage_error_naming_it_before_any_relay_is_queried() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
+    let output = isolated_command()
         .args([
             "--pubkey",
             TEST_PUBKEY_HEX,
@@ -159,8 +174,7 @@ fn an_unrecognized_sections_token_is_a_usage_error_naming_it_before_any_relay_is
 /// contradictory usage error, exit code `2`.
 #[test]
 fn color_and_no_color_together_is_a_usage_error() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
+    let output = isolated_command()
         .args(["--pubkey", TEST_PUBKEY_HEX, "--color", "--no-color"])
         .output()
         .expect("binary runs");
@@ -171,8 +185,7 @@ fn color_and_no_color_together_is_a_usage_error() {
 /// 003 FR-010: `--format` accepts exactly the 3 documented values.
 #[test]
 fn an_unrecognized_format_value_is_claps_own_usage_error() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
+    let output = isolated_command()
         .args(["--pubkey", TEST_PUBKEY_HEX, "--format", "xml"])
         .output()
         .expect("binary runs");
@@ -183,8 +196,7 @@ fn an_unrecognized_format_value_is_claps_own_usage_error() {
 /// T176: `--help` prints usage information and exits `0`.
 #[test]
 fn help_flag_exits_0() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
+    let output = isolated_command()
         .arg("--help")
         .output()
         .expect("binary runs");
@@ -196,8 +208,7 @@ fn help_flag_exits_0() {
 /// T176: `--version` prints the tool's version and exits `0`.
 #[test]
 fn version_flag_exits_0() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
+    let output = isolated_command()
         .arg("--version")
         .output()
         .expect("binary runs");

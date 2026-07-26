@@ -17,6 +17,8 @@ thiserror = "2"
 comfy-table = "7"
 anstyle = "1"
 anstream = "1"
+directories = "5"
+toml = "0.8"
 
 [dev-dependencies]
 assert_cmd = "2"

@@ -352,30 +352,30 @@ work they described no longer applies.
 
 **Depends on**: 9, 10. Requirements: 003 FR-014..FR-019.
 
-- [ ] T200 [RED] Failing tests for the TOML schema, including a persisted `view` value, in `src/config/file.rs`.
-- [ ] T201 [GREEN] Implement the TOML schema/parsing in `src/config/file.rs`.
-- [ ] T202 [RED] Failing tests for warn-and-ignore degradation on a malformed config file — parse failure — (003 FR-015a).
-- [ ] T203 [GREEN] Implement warn-and-ignore degradation for parse failures in `src/config/file.rs`.
-- [ ] T204 [RED] Failing test: an unreadable config file (I/O failure, e.g. permission denied) is warned about and the entire file is ignored, falling back to compiled defaults, in `src/config/file.rs`.
-- [ ] T205 [GREEN] Implement warn-and-ignore degradation for I/O failures per 003 FR-015a in `src/config/file.rs`.
-- [ ] T206 [RED] Failing test: a `config.toml` that simply does not exist (the normal first-run case) produces zero warnings on `err` and falls through silently to the env-var/compiled-default chain, per 003 FR-015 — distinct from T202/T204's malformed-parse and unreadable-file cases (FR-015a), which do warn — in `src/config/file.rs`.
-- [ ] T207 [GREEN] Implement the missing-file-is-silent branch per 003 FR-015 in `src/config/file.rs`, so a `FileNotFound` result alone never reaches the warn-and-ignore path T203/T205 implement for malformed or unreadable files.
-- [ ] T208 [RED] Failing test: a config file with valid TOML syntax but a semantically-invalid value warns and ignores the entire file, never applying valid keys alongside the invalid one, in `src/config/file.rs`.
-- [ ] T209 [GREEN] Implement the all-or-nothing fallback for semantically-invalid values per 003 FR-015a in `src/config/file.rs`.
-- [ ] T210 [RED] Failing tests for platform config-directory resolution (Linux/macOS/Windows) in `src/config/paths_defaults.rs`.
-- [ ] T211 [GREEN] Implement path resolution per 003 FR-014 (`directories`), alongside compiled defaults, in `src/config/paths_defaults.rs`.
-- [ ] T212 [RED] Failing tests for `-d`/`--config-dir` overriding the platform-default config-directory path in `src/config/paths_defaults.rs`.
-- [ ] T213 [GREEN] Implement the `--config-dir` override per 003 FR-014 in `src/config/paths_defaults.rs`, taking precedence over T211's platform-default resolution.
-- [ ] T214 [RED] Failing test: `--init-config --config-dir <path>` writes the config file to the overridden location, not the platform default.
-- [ ] T215 [GREEN] Wire `--config-dir` into `src/config/init.rs`'s `--init-config` scaffolding so it writes to the overridden path.
-- [ ] T216 [RED] Failing binary-level test: `--force` without `--init-config` is validated after `--format` resolution, so `--format json --force` produces a JSON fatal envelope (exit `2`), not a plain-text usage error.
-- [ ] T217 [GREEN] Wire the `--force`-without-`--init-config` check into `src/cli/options.rs` to run after format resolution, so `AppError::UsageError`'s JSON rendering respects the resolved `--format` (per 003 FR-013a's caveat that only the parser's own errors bypass `--format`).
-- [ ] T218 [RED] Failing tests for `--init-config` scaffolding, overwrite refusal, `--force` in `src/config/init.rs`.
-- [ ] T219 [GREEN] Implement `--init-config`/`--force` per 003 FR-017..FR-019 in `src/config/init.rs`.
-- [ ] T220 [RED] Failing test: `--init-config` takes precedence over and short-circuits report generation entirely when combined with report-generating flags (e.g. `--init-config --pubkey <x>`, or `--init-config` alongside an otherwise-invalid report-scoped flag), in `src/cli/options.rs`.
-- [ ] T221 [GREEN] Implement `--init-config` precedence per 003 FR-019 in `src/cli/options.rs`, short-circuiting before report-flag validation.
-- [ ] T222 [RED] Failing test: config-file precedence sits between env and compiled defaults.
-- [ ] T223 [GREEN] Wire config-file values into `src/cli/options.rs`'s precedence chain.
+- [x] T200 [RED] Failing tests for the TOML schema, including a persisted `view` value, in `src/config/file.rs`.
+- [x] T201 [GREEN] Implement the TOML schema/parsing in `src/config/file.rs`.
+- [x] T202 [RED] Failing tests for warn-and-ignore degradation on a malformed config file — parse failure — (003 FR-015a).
+- [x] T203 [GREEN] Implement warn-and-ignore degradation for parse failures in `src/config/file.rs`.
+- [x] T204 [RED] Failing test: an unreadable config file (I/O failure, e.g. permission denied) is warned about and the entire file is ignored, falling back to compiled defaults, in `src/config/file.rs`.
+- [x] T205 [GREEN] Implement warn-and-ignore degradation for I/O failures per 003 FR-015a in `src/config/file.rs`.
+- [x] T206 [RED] Failing test: a `config.toml` that simply does not exist (the normal first-run case) produces zero warnings on `err` and falls through silently to the env-var/compiled-default chain, per 003 FR-015 — distinct from T202/T204's malformed-parse and unreadable-file cases (FR-015a), which do warn — in `src/config/file.rs`.
+- [x] T207 [GREEN] Implement the missing-file-is-silent branch per 003 FR-015 in `src/config/file.rs`, so a `FileNotFound` result alone never reaches the warn-and-ignore path T203/T205 implement for malformed or unreadable files.
+- [x] T208 [RED] Failing test: a config file with valid TOML syntax but a semantically-invalid value warns and ignores the entire file, never applying valid keys alongside the invalid one, in `src/config/file.rs`.
+- [x] T209 [GREEN] Implement the all-or-nothing fallback for semantically-invalid values per 003 FR-015a in `src/config/file.rs`.
+- [x] T210 [RED] Failing tests for platform config-directory resolution in `src/config/paths_defaults.rs` (Linux/XDG rule fully unit-tested; macOS/Windows implemented to spec but untested, no macOS/Windows sandbox available).
+- [x] T211 [GREEN] Implement path resolution per 003 FR-014 (`directories`), alongside compiled defaults, in `src/config/paths_defaults.rs`.
+- [x] T212 [RED] Failing tests for `-d`/`--config-dir` overriding the platform-default config-directory path in `src/config/paths_defaults.rs`.
+- [x] T213 [GREEN] Implement the `--config-dir` override per 003 FR-014 in `src/config/paths_defaults.rs`, taking precedence over T211's platform-default resolution.
+- [x] T214 [RED] Failing test: `--init-config --config-dir <path>` writes the config file to the overridden location, not the platform default.
+- [x] T215 [GREEN] Wire `--config-dir` into `src/config/init.rs`'s `--init-config` scaffolding so it writes to the overridden path.
+- [x] T216 [RED] Failing binary-level test: `--force` without `--init-config` is validated after `--format` resolution, so `--format json --force` produces a JSON fatal envelope (exit `2`), not a plain-text usage error.
+- [x] T217 [GREEN] Wire the `--force`-without-`--init-config` check into `src/cli/options.rs` to run after format resolution, so `AppError::UsageError`'s JSON rendering respects the resolved `--format` (per 003 FR-013a's caveat that only the parser's own errors bypass `--format`).
+- [x] T218 [RED] Failing tests for `--init-config` scaffolding, overwrite refusal, `--force` in `src/config/init.rs`.
+- [x] T219 [GREEN] Implement `--init-config`/`--force` per 003 FR-017..FR-019 in `src/config/init.rs`.
+- [x] T220 [RED] Failing test: `--init-config` takes precedence over and short-circuits report generation entirely when combined with report-generating flags (e.g. `--init-config --pubkey <x>`, or `--init-config` alongside an otherwise-invalid report-scoped flag), in `src/cli/options.rs`.
+- [x] T221 [GREEN] Implement `--init-config` precedence per 003 FR-019 in `src/cli/options.rs`, short-circuiting before report-flag validation.
+- [x] T222 [RED] Failing test: config-file precedence sits between env and compiled defaults.
+- [x] T223 [GREEN] Wire config-file values into `src/cli/options.rs`'s precedence chain.
 
 ---
 
