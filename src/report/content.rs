@@ -71,8 +71,8 @@ fn disputes_recommendation(metrics: &NodeMetrics) -> Option<RecommendationItem> 
         id: "disputes_present".to_string(),
         metric: Some("stats.disputes.disputes_per_100_trades".to_string()),
         message: format!(
-            "This node has had {} dispute(s) out of {} completed trade(s). \
-             Review its dispute history before trading with it.",
+            "This node has had {} dispute(s) recorded, alongside {} completed \
+             trade(s). Review its dispute history before trading with it.",
             metrics.disputes.total_disputes, metrics.cumulative.total_successful_trades
         ),
     })
