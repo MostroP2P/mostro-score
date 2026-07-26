@@ -1,10 +1,19 @@
 use crate::fetch::filters_summary::build_scoped_filters;
+use crate::models::core::{NoOpProgressReporter, ProgressReporter};
 use nostr_sdk::prelude::*;
 use std::time::Duration;
 use tokio::sync::OnceCell;
 
 /// Timeout for both the relay connection attempt and each fetch query.
 const RELAY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// 002 FR-014's "more than a couple of seconds" progress-indicator trigger (T130
+/// evidence): measured against the real default relay `wss://relay.mostro.network` with
+/// a known real pubkey, 3 runs of a full connect+fetch cycle timed at 2.06s/1.96s/1.69s
+/// wall time — normal single-relay operation sits right around 2 seconds. 3 seconds is
+/// comfortably above that normal variance while still low enough to catch a genuinely
+/// slow fetch.
+pub const PROGRESS_INDICATOR_THRESHOLD: Duration = Duration::from_secs(3);
 
 /// PR 2 (T066-T069): the result of attempting to connect to every configured relay.
 /// Principle VI's graceful-degradation rule and the Technical Context constraint ("one
@@ -143,21 +152,114 @@ pub trait EventSource {
 /// one `Vec<Event>`. The connected `Client` is cached in `connect()` and reused by
 /// `fetch()`, since the original code builds the client and relay connection once, then
 /// queries against that same connection.
-pub struct RelayEventSource {
+///
+/// Generic over `R: ProgressReporter` (defaulting to `NoOpProgressReporter`) rather than
+/// depending on `report::progress::TerminalProgressReporter` directly: `fetch` depends
+/// only on `models` and `error` per the constitution's dependency direction, so the
+/// concrete terminal reporter is bound here only from the library/binary wiring root
+/// (`main.rs`), never from within this module.
+pub struct RelayEventSource<R = NoOpProgressReporter> {
     pub relays: Vec<String>,
     client: OnceCell<Client>,
+    progress_reporter: R,
+    /// T137's test-only seam: when set, `fetch()` substitutes this controllable async
+    /// delay for the real relay-client call entirely, so `tests/metrics_end_to_end.rs`
+    /// can drive the real `fetch()` method's progress-reporter-racing logic under
+    /// `tokio::time::pause`/`advance` without a real relay connection or any real sleep.
+    /// Not `#[cfg(test)]`-gated: `cfg(test)` only applies when this crate itself is
+    /// compiled in test mode, which does not cover `tests/`'s separate compilation of
+    /// this crate as an ordinary dependency, so a literal `#[cfg(test)]` field would be
+    /// invisible there. No production call site (`main.rs`) ever sets this, so real runs
+    /// are structurally unaffected.
+    test_fetch_delay: Option<Duration>,
 }
 
-impl RelayEventSource {
+impl RelayEventSource<NoOpProgressReporter> {
     pub fn new(relays: Vec<String>) -> Self {
-        Self {
-            relays,
-            client: OnceCell::new(),
-        }
+        Self::with_progress_reporter(relays, NoOpProgressReporter)
     }
 }
 
-impl EventSource for RelayEventSource {
+impl<R> RelayEventSource<R> {
+    pub fn with_progress_reporter(relays: Vec<String>, progress_reporter: R) -> Self {
+        Self {
+            relays,
+            client: OnceCell::new(),
+            progress_reporter,
+            test_fetch_delay: None,
+        }
+    }
+
+    /// Test-only builder: see `test_fetch_delay`'s field doc for why this cannot be
+    /// `#[cfg(test)]`-gated instead.
+    pub fn with_test_fetch_delay(mut self, delay: Duration) -> Self {
+        self.test_fetch_delay = Some(delay);
+        self
+    }
+}
+
+impl<R: ProgressReporter> RelayEventSource<R> {
+    /// Races `task` against `PROGRESS_INDICATOR_THRESHOLD`, invoking the bound
+    /// `ProgressReporter` at most once if the threshold elapses before `task` resolves,
+    /// then continuing to await `task` itself. Shared by both the real relay-client path
+    /// and the test-only simulated-delay path, so the exact same racing logic is what
+    /// `tests/metrics_end_to_end.rs` exercises against the real `EventSource`.
+    async fn await_with_progress<T, E>(
+        &self,
+        mut task: tokio::task::JoinHandle<std::result::Result<T, E>>,
+    ) -> Result<T>
+    where
+        E: std::error::Error + 'static,
+    {
+        let mut reported = false;
+        loop {
+            // `biased` removes one source of nondeterminism: without it, `select!`
+            // polls ready branches in a pseudo-random order, so a task and the threshold
+            // timer becoming ready in the same poll could non-reproducibly report
+            // progress for a fetch that has, in that same instant, already finished.
+            tokio::select! {
+                biased;
+                result = &mut task => {
+                    return Ok(result.map_err(|_| "relay fetch task panicked")??);
+                }
+                _ = tokio::time::sleep(PROGRESS_INDICATOR_THRESHOLD), if !reported => {
+                    self.progress_reporter.report_slow_fetch();
+                    reported = true;
+                }
+            }
+        }
+    }
+
+    async fn fetch_one_real(&self, filter: Filter) -> Result<Vec<Event>> {
+        let client = self
+            .client
+            .get()
+            .ok_or("RelayEventSource::fetch called before connect()")?
+            .clone();
+
+        // Spawned in its own task, same as before this PR: `nostr-relay-pool` 0.43.1's
+        // `fetch_events` constructs an internal `mpsc::channel` that Tokio panics on when
+        // every targeted relay's stream setup fails, and `tokio::spawn` isolates that
+        // panic into a catchable `JoinError` instead of unwinding past it.
+        let task = tokio::spawn(async move { client.fetch_events(filter, RELAY_TIMEOUT).await });
+        let fetched = self.await_with_progress(task).await?;
+        Ok(fetched.into_iter().collect())
+    }
+
+    /// T137's simulated path: substitutes `tokio::time::sleep(delay)` for the real
+    /// `client.fetch_events(...)` call entirely, so the test needs no `Client` at all
+    /// (and therefore no `connect()`, no real network) while still exercising the real
+    /// `await_with_progress` racing logic above.
+    async fn fetch_one_simulated(&self, delay: Duration) -> Result<Vec<Event>> {
+        let task = tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            Ok::<Vec<Event>, nostr_sdk::client::Error>(Vec::new())
+        });
+        self.await_with_progress(task).await
+    }
+}
+
+impl<R: ProgressReporter> EventSource for RelayEventSource<R> {
     async fn connect(&self) -> Result<RelayConnectionOutcome> {
         let client = Client::new(Keys::generate());
 
@@ -209,29 +311,20 @@ impl EventSource for RelayEventSource {
     }
 
     async fn fetch(&self, public_key: PublicKey) -> Result<Vec<Event>> {
-        let client = self
-            .client
-            .get()
-            .ok_or("RelayEventSource::fetch called before connect()")?;
-
         // PR 3 (T097/T098): the four kind-scoped filters per 001 FR-015 — dev-fee
         // (8383), order (38383), instance-status (38385), and dispute (38386) —
-        // replacing PR 1's original two-filter query.
-        //
-        // Each fetch runs in its own spawned task: `nostr-relay-pool` 0.43.1's
-        // `fetch_events` constructs an internal `mpsc::channel(streams.len() * 512)`,
-        // which Tokio panics on when every targeted relay's stream setup fails (e.g. a
-        // relay disconnects between `connect()` succeeding and this call) — a real
-        // transient-failure path, not a hypothetical one, that would otherwise abort the
-        // whole process outside the `AppError` taxonomy (Principle VI). `tokio::spawn`
-        // isolates a panic into a catchable `JoinError` instead of unwinding past it.
+        // replacing PR 1's original two-filter query. T135-138 (002 FR-014): each
+        // filter's fetch races against `PROGRESS_INDICATOR_THRESHOLD` in
+        // `await_with_progress`, invoking the bound `ProgressReporter` at most once if a
+        // fetch runs past it. `test_fetch_delay`, when set, substitutes a controllable
+        // delay for the real relay-client call entirely (see its field doc).
         let mut events: Vec<Event> = Vec::new();
         for filter in build_scoped_filters(public_key) {
-            let client = client.clone();
-            let fetched =
-                tokio::spawn(async move { client.fetch_events(filter, RELAY_TIMEOUT).await })
-                    .await
-                    .map_err(|_| "relay fetch task panicked")??;
+            let fetched = if let Some(delay) = self.test_fetch_delay {
+                self.fetch_one_simulated(delay).await?
+            } else {
+                self.fetch_one_real(filter).await?
+            };
             events.extend(fetched);
         }
 

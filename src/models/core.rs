@@ -1,5 +1,25 @@
 use nostr_sdk::prelude::*;
 
+/// 002 FR-014's progress-indicator port: a single method the fetch layer invokes once a
+/// relay fetch has run past FR-014's latency threshold. `fetch` and `report` both depend
+/// on this trait through their shared dependency on `models`, rather than `fetch`
+/// depending on `report` directly — the concrete terminal implementation
+/// (`report::progress::TerminalProgressReporter`) is bound into
+/// `fetch::client::RelayEventSource` only at construction time, in the library/binary
+/// wiring root, so `fetch` itself never depends on `report`.
+pub trait ProgressReporter {
+    fn report_slow_fetch(&self);
+}
+
+/// The default reporter for any `RelayEventSource` that has nothing to report progress
+/// to (e.g. a caller that never bound a terminal implementation). Does nothing.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoOpProgressReporter;
+
+impl ProgressReporter for NoOpProgressReporter {
+    fn report_slow_fetch(&self) {}
+}
+
 /// PR 1 Step C: shared single-letter tag accessor, extracted from the repeated
 /// `event.tags.iter().find(...)` pattern duplicated across dedup, dev-fee, and order
 /// aggregation. Returns the tag's first value (index 1) as a borrowed `&str`.
@@ -133,6 +153,11 @@ pub fn exclude_future_events(events: Vec<Event>, report_generated_at: Timestamp)
 mod tests {
     use super::*;
     use crate::models::test_support::{make_event, make_event_with_keys};
+
+    #[test]
+    fn no_op_progress_reporter_does_nothing_without_panicking() {
+        NoOpProgressReporter.report_slow_fetch();
+    }
 
     #[test]
     fn is_scoped_event_accepts_matching_author_z_and_y() {

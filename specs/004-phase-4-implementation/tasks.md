@@ -246,18 +246,18 @@ work they described no longer applies.
 - [x] T126 [GREEN] Implement the report model per 002 FR-001/FR-002/FR-006 in `src/report/model.rs`, populating the `stats` section from PR 6's now-complete `NodeMetrics` (longevity, cumulative, trade_size, liveness, consistency, disputes, fiat_breakdown, payment_method_breakdown, premium, bond_policy).
 - [x] T127 [RED] Failing tests for the `fetch` section fields (`relays[]` outcomes, `dev_fee_events`, `order_events`, `unique_orders`, `dispute_events`, `instance_status_found`) in `src/report/model.rs`.
 - [x] T128 [GREEN] Assemble the `fetch` summary section per 002 FR-003 in `src/report/model.rs`, sourced from PR 3's `src/fetch/filters_summary.rs::RelayFetchOutcome`.
-- [ ] T129 Construct fixture event sets spanning weeks/months/years; record observed grid row counts and granularity choices per range in the PR description (evidence for FR-005a, FR-014, 003 FR-006).
-- [ ] T130 Measure actual relay round-trip latency against the default relay set; record in the PR description (evidence for FR-014).
-- [ ] T131 [RED] Failing tests for grid bucketing and daily/monthly/yearly auto-granularity at the boundary chosen from T129, in `src/stats/grid.rs`.
-- [ ] T132 [GREEN] Implement grid bucketing + granularity selection per 002 FR-004/FR-005, 003 FR-006 in `src/stats/grid.rs`, using T129's chosen boundaries.
-- [ ] T133 [RED] Failing test: FR-005a wide-range warning fires at the chosen boundary.
-- [ ] T134 [GREEN] Implement the FR-005a warning (stderr only, no JSON field) using the chosen boundary.
-- [ ] T135 [RED] Failing test: progress indicator appears past the chosen latency threshold, suppressed off-tty/`--quiet`.
-- [ ] T136 [GREEN] Implement `models/core.rs`'s `ProgressReporter` trait and `report/progress.rs`'s terminal impl per 002 FR-014, using T130's threshold.
-- [ ] T137 [RED] Failing integration test asserting the bound `ProgressReporter` is invoked when a fetch exceeds T130's threshold, exercising the REAL `fetch::client::EventSource` (not a fake replacing it) with a test-only injectable delay seam beneath its relay-client call (e.g. a `#[cfg(test)]` constructor parameter wrapping the underlying fetch future with a controllable async delay), advanced via `tokio::time::pause`/`advance` (simulated virtual time, no real sleep, no network) — this tests the actual production `EventSource` and its real `ProgressReporter` binding, not a substitute's own reporting behavior, in `tests/metrics_end_to_end.rs`.
-- [ ] T138 [GREEN] Bind the concrete `report/progress.rs` terminal `ProgressReporter` implementation into `fetch::client`'s real `EventSource` at construction in `main()`/`lib.rs`'s production wiring, per the plan's `models/core.rs` port design; confirm T137's integration test passes through the real `EventSource` with its injected delay seam.
-- [ ] T139 [RED] Failing tests for the empty-activity-grid case (zero orders) in `src/stats/grid.rs`.
-- [ ] T140 [GREEN] Implement the empty-grid case per 002 FR-005 Edge Cases.
+- [x] T129 Construct fixture event sets spanning weeks/months/years; record observed grid row counts and granularity choices per range in the PR description (evidence for FR-005a, FR-014, 003 FR-006).
+- [x] T130 Measure actual relay round-trip latency against the default relay set; record in the PR description (evidence for FR-014).
+- [x] T131 [RED] Failing tests for grid bucketing and daily/monthly/yearly auto-granularity at the boundary chosen from T129, in `src/stats/grid.rs`.
+- [x] T132 [GREEN] Implement grid bucketing + granularity selection per 002 FR-004/FR-005, 003 FR-006 in `src/stats/grid.rs`, using T129's chosen boundaries.
+- [x] T133 [RED] Failing test: FR-005a wide-range warning fires at the chosen boundary.
+- [x] T134 [GREEN] Implement the FR-005a warning (stderr only, no JSON field) using the chosen boundary.
+- [x] T135 [RED] Failing test: progress indicator appears past the chosen latency threshold, suppressed off-tty/`--quiet`.
+- [x] T136 [GREEN] Implement `models/core.rs`'s `ProgressReporter` trait and `report/progress.rs`'s terminal impl per 002 FR-014, using T130's threshold.
+- [x] T137 [RED] Failing integration test asserting the bound `ProgressReporter` is invoked when a fetch exceeds T130's threshold, exercising the REAL `fetch::client::EventSource` (not a fake replacing it) with a test-only injectable delay seam beneath its relay-client call (e.g. a `#[cfg(test)]` constructor parameter wrapping the underlying fetch future with a controllable async delay), advanced via `tokio::time::pause`/`advance` (simulated virtual time, no real sleep, no network) — this tests the actual production `EventSource` and its real `ProgressReporter` binding, not a substitute's own reporting behavior, in `tests/metrics_end_to_end.rs`.
+- [x] T138 [GREEN] Bind the concrete `report/progress.rs` terminal `ProgressReporter` implementation into `fetch::client`'s real `EventSource` at construction in `main()`/`lib.rs`'s production wiring, per the plan's `models/core.rs` port design; confirm T137's integration test passes through the real `EventSource` with its injected delay seam.
+- [x] T139 [RED] Failing tests for the empty-activity-grid case (zero orders) in `src/stats/grid.rs`.
+- [x] T140 [GREEN] Implement the empty-grid case per 002 FR-005 Edge Cases.
 - [ ] T141 Compute `premium_dispersion_percent` and trade-size CV across T129's fixtures; pick each recommendation boundary from the observed distribution; record in the PR description.
 - [ ] T142 [RED] Failing tests for the 3 deterministic recommendation triggers (zero trades, disputes present, bond policy not enabled) in `src/report/content.rs`.
 - [ ] T143 [GREEN] Implement the 3 fixed triggers per the plan's table in `src/report/content.rs`.
