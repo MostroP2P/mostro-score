@@ -265,12 +265,12 @@ work they described no longer applies.
 - [ ] T145 **DEFERRED** (depends on T141): Implement the 2 threshold-based triggers in `src/report/content.rs`, using T141's boundaries.
 - [x] T146 [RED] Failing test: `nothing_notable` true only when none of the 3 currently-implemented triggers fire (zero trades, disputes present, bond policy not enabled); extending this to the 2 deferred threshold-based triggers is follow-up work once T141/T144/T145 land.
 - [x] T147 [GREEN] Implement `nothing_notable`/`items` assembly per 002 FR-008 in `src/report/content.rs`, scoped to the 3 implemented triggers.
-- [ ] T148 [RED] Failing `insta` snapshot tests for the console renderer's 5 sections in `tests/report_snapshots.rs`.
-- [ ] T149 [GREEN] Implement the width-adaptive, colored console renderer (`comfy-table`) per 002 FR-013 in `src/report/render/console.rs`.
-- [ ] T150 [RED] Failing test for the tty/`NO_COLOR`/`TERM=dumb` color policy in `src/report/format.rs`.
-- [ ] T151 [GREEN] Implement the color policy per 002 FR-015 (`anstream`/`anstyle`) in `src/report/format.rs`; remove `colored` from `Cargo.toml`.
-- [ ] T152 [RED] Failing test for thousands separators and relative-time/not-applicable rendering in `src/report/format.rs`.
-- [ ] T153 [GREEN] Implement formatting helpers per 002 FR-018 in `src/report/format.rs`.
+- [x] T148 [RED] Failing `insta` snapshot tests for the console renderer's 5 sections in `tests/report_snapshots.rs`.
+- [x] T149 [GREEN] Implement the width-adaptive, colored console renderer (`comfy-table`) per 002 FR-013 in `src/report/render/console.rs`.
+- [x] T150 [RED] Failing test for the tty/`NO_COLOR`/`TERM=dumb` color policy in `src/report/format.rs`.
+- [x] T151 [GREEN] Implement the color policy per 002 FR-015 (`anstream`/`anstyle`) in `src/report/format.rs`; remove `colored` from `Cargo.toml`.
+- [x] T152 [RED] Failing test for thousands separators and relative-time/not-applicable rendering in `src/report/format.rs`.
+- [x] T153 [GREEN] Implement formatting helpers per 002 FR-018 in `src/report/format.rs`.
 
 ---
 

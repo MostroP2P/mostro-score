@@ -149,9 +149,10 @@ async fn one_failed_relay_among_several_is_a_warning_not_a_failure() {
     assert!(actual_err.contains("connection refused"));
 }
 
-/// T070-T073: diagnostic/transient-status content (the sample-event dump, the debug
-/// block, the connecting/fetched-count lines) writes to `err`, never `out` — `out` carries
-/// only report content.
+/// T070-T073 (superseded by PR 7d): the transient connecting/fetched-count status lines
+/// write to `err`, never `out` — `out` carries only the rendered `Report`. PR 1's
+/// "SAMPLE EVENTS"/"DEBUG INFORMATION" debug dumps are gone entirely (PR 7d): they were
+/// PR1-era debugging aids, superseded by the report's own fetch section (002 FR-003).
 #[tokio::test]
 async fn diagnostics_route_to_err_not_out() {
     let node_keys = Keys::generate();
@@ -182,20 +183,18 @@ async fn diagnostics_route_to_err_not_out() {
     let actual_out = String::from_utf8(out).unwrap();
     let actual_err = String::from_utf8(err).unwrap();
 
-    assert!(!actual_out.contains("SAMPLE EVENTS"));
-    assert!(!actual_out.contains("DEBUG INFORMATION"));
     assert!(!actual_out.contains("Connected to relays"));
     assert!(!actual_out.contains("Fetched"));
-    assert!(actual_err.contains("SAMPLE EVENTS"));
     assert!(actual_err.contains("Connected to relays"));
     assert!(actual_err.contains("Fetched"));
-    assert!(actual_err.contains("DEBUG INFORMATION"));
+    assert!(actual_out.contains("=== NODE IDENTITY ==="));
+    assert!(actual_out.contains("=== RELAY FETCH SUMMARY ==="));
 }
 
-/// T070/T071: the no-dev-fee-events branch is a diagnostic warning about data
-/// availability (`err`), not report content — distinct from `diagnostics_route_to_err_not_out`
-/// above, which only exercises the success (dev-fee-events-present) branch of the same
-/// function.
+/// T070/T071 (superseded by PR 7d): the no-dev-fee-anchor fallback is a diagnostic
+/// warning about data availability (`err`), not report content — distinct from
+/// `diagnostics_route_to_err_not_out` above, which only exercises the
+/// dev-fee-event-present branch.
 #[tokio::test]
 async fn no_dev_fee_events_warns_on_err_and_falls_back_to_order_timestamps() {
     let node_keys = Keys::generate();
@@ -231,78 +230,10 @@ async fn no_dev_fee_events_warns_on_err_and_falls_back_to_order_timestamps() {
     let actual_out = String::from_utf8(out).unwrap();
     let actual_err = String::from_utf8(err).unwrap();
 
-    assert!(!actual_out.contains("No dev fee events found"));
-    assert!(actual_err.contains("No dev fee events found (z=dev-fee-payment, y=mostro)"));
-    assert!(actual_err.contains("Falling back to order timestamps"));
-}
-
-/// T074/T075: the `s`-tag distribution block prints sorted by key, deterministic across
-/// runs, instead of following `HashMap` iteration order.
-#[tokio::test]
-async fn s_tag_distribution_prints_sorted_by_key() {
-    let node_keys = Keys::generate();
-    let public_key = node_keys.public_key();
-    let events = vec![
-        make_event_with_keys(
-            &node_keys,
-            38383,
-            1_700_000_001,
-            vec![
-                ("z", "order"),
-                ("y", "mostro"),
-                ("d", "order-1"),
-                ("s", "success"),
-            ],
-        ),
-        make_event_with_keys(
-            &node_keys,
-            38383,
-            1_700_000_002,
-            vec![
-                ("z", "order"),
-                ("y", "mostro"),
-                ("d", "order-2"),
-                ("s", "canceled"),
-            ],
-        ),
-        make_event_with_keys(
-            &node_keys,
-            38383,
-            1_700_000_003,
-            vec![
-                ("z", "order"),
-                ("y", "mostro"),
-                ("d", "order-3"),
-                ("s", "pending"),
-            ],
-        ),
-    ];
-    let event_source = FixtureEventSource {
-        connection: RelayConnectionOutcome {
-            connected_count: 1,
-            ordered: vec![],
-            connected_urls: vec!["wss://connected.example".to_string()],
-            failed: vec![],
-        },
-        events,
-    };
-    let now = chrono::Utc::now;
-    let mut out: Vec<u8> = Vec::new();
-    let mut err: Vec<u8> = Vec::new();
-
-    mostro_score::run(public_key, event_source, &now, &mut out, &mut err)
-        .await
-        .expect("run succeeds");
-
-    let actual_err = String::from_utf8(err).unwrap();
-    let canceled_pos = actual_err.find("s='canceled'").expect("canceled present");
-    let pending_pos = actual_err.find("s='pending'").expect("pending present");
-    let success_pos = actual_err.find("s='success'").expect("success present");
-
-    assert!(
-        canceled_pos < pending_pos && pending_pos < success_pos,
-        "status lines must be alphabetically sorted: canceled, pending, success"
-    );
+    assert!(!actual_out.contains("no dev-fee anchor found"));
+    assert!(actual_err.contains(
+        "Warning: no dev-fee anchor found; falling back to order timestamps for days_active."
+    ));
 }
 
 /// T095/T096: zero usable events across all four scoped kinds (dev-fee, order, dispute,
@@ -374,10 +305,9 @@ async fn a_node_with_only_a_dispute_event_does_not_trigger_no_usable_events() {
     // truncated: the removed early-return branch also returned Ok, so asserting only
     // success cannot prove the rest of the report actually rendered.
     let actual_out = String::from_utf8(out).unwrap();
-    assert!(actual_out.contains("LONGEVITY"));
-    assert!(actual_out.contains("LIVENESS"));
+    assert!(actual_out.contains("-- Longevity"));
+    assert!(actual_out.contains("-- Liveness"));
     assert!(actual_out.contains("N/A"));
-    assert!(!actual_out.contains("No dev fee or order history found"));
 }
 
 /// T097: same as above, using an instance-status event as the node's only usable data.
@@ -414,10 +344,9 @@ async fn a_node_with_only_an_instance_status_event_does_not_trigger_no_usable_ev
         .expect("a node with an instance-status event but no dev-fee/order events must not exit 4");
 
     let actual_out = String::from_utf8(out).unwrap();
-    assert!(actual_out.contains("LONGEVITY"));
-    assert!(actual_out.contains("LIVENESS"));
+    assert!(actual_out.contains("-- Longevity"));
+    assert!(actual_out.contains("-- Liveness"));
     assert!(actual_out.contains("N/A"));
-    assert!(!actual_out.contains("No dev fee or order history found"));
 }
 
 /// FR-014 regression: an event whose `created_at` is later than report-generation time
@@ -533,7 +462,7 @@ async fn duplicate_dev_fee_event_from_multiple_relays_is_counted_once_in_the_rep
 
     let actual_out = String::from_utf8(out).unwrap();
     assert!(
-        actual_out.contains("Found 1 dev fee events"),
+        actual_out.contains("Dev-fee events (backs Longevity):        1"),
         "duplicate delivery of the same event must not inflate the displayed count: {actual_out}"
     );
 }

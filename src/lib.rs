@@ -23,7 +23,9 @@ use models::dispute::aggregate_dispute_events;
 use models::instance_status::aggregate_instance_status;
 use models::order::aggregate_order_events;
 use nostr_sdk::prelude::*;
+use report::model::assemble_report;
 use report::render::console;
+use stats::grid::{compute_activity_grid, GridOrder};
 use stats::NodeMetrics;
 
 /// PR 1 Step D: the module move — the wiring-only wrapped function relocated here as
@@ -40,8 +42,6 @@ pub async fn run<E: EventSource>(
     out: &mut impl std::io::Write,
     err: &mut impl std::io::Write,
 ) -> Result<(), AppError> {
-    console::render_identity_header(out, public_key)?;
-
     // 2/3. Setup Client, add relays, connect — matches the original code's ordering:
     // a malformed relay fails here, before "Connected to relays" ever prints. T067/T069:
     // a total outage (every configured relay failed) is fatal; one or more failures among
@@ -59,13 +59,19 @@ pub async fn run<E: EventSource>(
             )?;
         }
     }
-    console::render_connecting_message(err)?;
+    // PR 7d: transient status, not report content (002 FR-017) — written directly as a
+    // plain `writeln!` to `err`, matching the relay-warning loop above, now that the
+    // ad hoc `console::render_connecting_message` wrapper it used to go through is
+    // removed along with the rest of PR 1's pre-`Report` renderer. `--quiet` suppresses
+    // this line later (PR 9's T174/T175).
+    writeln!(
+        err,
+        "Connected to relays. Fetching history... (this might take a moment)"
+    )?;
 
-    // 4. Fetch Both Event Types
+    // 4. Fetch every scoped event kind
     let events: Vec<Event> = event_source.fetch(public_key).await?;
-
-    console::render_fetched_count(err, events.len())?;
-    console::render_sample_events(err, &events)?;
+    writeln!(err, "Fetched {} events. Analyzing...", events.len())?;
 
     // Captured once, here, and reused for both FR-014's future-event exclusion below
     // and the report's own "now" (Section 6): a single consistent instant for the
@@ -109,26 +115,25 @@ pub async fn run<E: EventSource>(
         return Err(AppError::NoUsableEvents);
     }
 
-    console::render_partition_summary(out, dev_fee_event_count, order_event_count)?;
-
     let dev_fee_aggregate = aggregate_dev_fee_events(dev_fee_events);
-    console::render_dev_fee_section(
-        out,
-        err,
-        &dev_fee_aggregate,
-        order_aggregate.successful_orders > 0,
-    )?;
+    // PR 7d: the no-dev-fee-anchor fallback is a diagnostic fact not otherwise visible
+    // in the report's plain `days_active` figure (it explains *why* that figure is an
+    // estimate rather than the primary dev-fee-anchored value), so it stays a stderr
+    // warning even though the ad hoc "Found N dev fee events"/"MOSTRO TRADING ACTIVITY"
+    // console output it used to accompany is removed entirely — that information is now
+    // covered by the report's own fetch and longevity sections.
+    if dev_fee_aggregate.first_dev_fee_ts.is_none() && order_aggregate.successful_orders > 0 {
+        writeln!(
+            err,
+            "Warning: no dev-fee anchor found; falling back to order timestamps for days_active."
+        )?;
+    }
 
-    // 5. Analyze orders (already aggregated above, for the exit-4 gate)
-    console::render_order_debug_section(err, &order_aggregate)?;
-
-    // 6. Output Report
+    // 6. Compute every core reputation metric (001 FR-001 through FR-006, FR-010),
+    // including every not-applicable edge case (e.g. neither a dev-fee anchor nor a
+    // qualifying successful order) — a node whose only usable data is a dispute or
+    // instance-status event (PR 3) must still receive a full report.
     let now = report_generated_at.timestamp();
-
-    // Every core reputation metric (001 FR-001 through FR-006, FR-010), including every
-    // not-applicable edge case (e.g. neither a dev-fee anchor nor a qualifying successful
-    // order), is assembled here rather than short-circuited: a node whose only usable
-    // data is a dispute or instance-status event (PR 3) must still receive a full report.
     let metrics = NodeMetrics::compute(
         dev_fee_aggregate.first_dev_fee_ts,
         order_aggregate.successful_orders,
@@ -148,41 +153,31 @@ pub async fn run<E: EventSource>(
         now,
     );
 
-    console::render_report_header(out, public_key)?;
-    console::render_longevity_section(
-        out,
-        metrics.longevity.days_active,
-        metrics.longevity.first_seen_at,
+    // PR 7d (002 FR-004): the activity grid's own input shape, built from the same
+    // qualifying successful orders `NodeMetrics::compute` above already consumed — no
+    // second scan over the fetched events, since `OrderAggregate::qualifying_orders`
+    // was populated in the same aggregation loop as every other `order_aggregate` field.
+    let grid_orders: Vec<GridOrder> = order_aggregate
+        .qualifying_orders
+        .iter()
+        .map(|&(created_at, amount_sats)| GridOrder {
+            created_at,
+            amount_sats,
+        })
+        .collect();
+    let activity_grid = compute_activity_grid(&grid_orders);
+
+    // 7. Assemble and render the complete 5-section report (002 FR-001), replacing PR
+    // 1's ad hoc per-section `console::render_*` pipeline entirely.
+    let report = assemble_report(
+        public_key,
+        &connection,
+        &fetch_outcome,
+        &metrics,
+        &activity_grid,
+        report_generated_at,
     )?;
-    console::render_liveness_section(
-        out,
-        metrics.liveness.last_successful_trade_at,
-        now,
-        metrics.liveness.days_since_last_trade,
-    )?;
-    console::render_recent_activity_section(
-        out,
-        metrics.liveness.trades_last_7d,
-        metrics.liveness.trades_last_30d,
-        metrics.liveness.trades_last_90d,
-    )?;
-    console::render_activity_consistency_section(
-        out,
-        metrics.consistency.active_days_last_30d,
-        metrics.consistency.max_consecutive_inactive_days_last_30d,
-    )?;
-    console::render_cumulative_performance_section(
-        out,
-        metrics.cumulative.total_successful_trades,
-        metrics.cumulative.total_volume_sats,
-    )?;
-    console::render_trade_statistics_section(
-        out,
-        metrics.trade_size.min_trade_sats,
-        metrics.trade_size.max_trade_sats,
-        metrics.trade_size.mean_trade_sats,
-        metrics.trade_size.median_trade_sats,
-    )?;
+    console::render(out, &report, None)?;
 
     Ok(())
 }
