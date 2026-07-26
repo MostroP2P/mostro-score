@@ -1,0 +1,301 @@
+//! The recommendations block's content assembly (002 FR-008, FR-008a, FR-008b).
+//!
+//! Scope note (see the PR7c decision in project history): only the 3 deterministic,
+//! existence-based triggers from plan.md's "Recommendation trigger rules" table are
+//! implemented here — zero successful trades, disputes present, bond policy not
+//! enabled. The 2 threshold-based triggers (premium dispersion, trade-size
+//! coefficient of variation) are deferred until real-node evidence picks their
+//! boundaries; `nothing_notable` is therefore scoped to these 3 triggers only, not the
+//! full set plan.md eventually calls for.
+//!
+//! Every trigger here reads data already computed and independently reviewed in
+//! earlier PRs (`NodeMetrics::cumulative`, `NodeMetrics::disputes`,
+//! `NodeMetrics::bond_policy`) — no new statistics are computed in this module, only
+//! plain-language messages assembled from them, per FR-008b's requirement that a
+//! trader understand each signal without leaving the tool.
+
+use crate::stats::NodeMetrics;
+use serde::Serialize;
+
+/// One recommendation the block surfaces (002 FR-008/FR-008a schema).
+///
+/// `metric` is the dotted path (matching `stats`'s own JSON structure) of the field
+/// the guidance refers to, or `None` for guidance that synthesizes several — every
+/// trigger implemented here points at exactly one field, so `metric` is always
+/// `Some` in this PR's output.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RecommendationItem {
+    pub id: String,
+    pub metric: Option<String>,
+    pub message: String,
+}
+
+/// 002 FR-008: the recommendations block. `nothing_notable` is `true` only when none
+/// of the currently implemented triggers fire; `items` is empty in that case. FR-008
+/// requires this block to explicitly state there is nothing notable to flag rather
+/// than omitting itself — the console/plain-text renderers turn this boolean into
+/// that sentence for human readers.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ReportRecommendations {
+    pub nothing_notable: bool,
+    pub items: Vec<RecommendationItem>,
+}
+
+/// Zero completed trades (plan.md's deterministic trigger table, row 1): states
+/// plainly there is no completed-trade track record yet, no comparison implied since
+/// Cumulative Performance has no cross-node baseline (FR-008a).
+fn zero_trades_recommendation(metrics: &NodeMetrics) -> Option<RecommendationItem> {
+    if metrics.cumulative.total_successful_trades != 0 {
+        return None;
+    }
+
+    Some(RecommendationItem {
+        id: "no_completed_trades".to_string(),
+        metric: Some("stats.cumulative.total_successful_trades".to_string()),
+        message: "This node has no completed trade history yet — there is no \
+                  successful-trade track record to evaluate."
+            .to_string(),
+    })
+}
+
+/// Disputes present (plan.md's deterministic trigger table, row 2): states the raw
+/// dispute and trade counts, deliberately without "high"/"many" or any other
+/// comparative language, since Dispute Signals has no cross-node baseline (FR-008a
+/// explicitly forbids that comparison here).
+fn disputes_recommendation(metrics: &NodeMetrics) -> Option<RecommendationItem> {
+    if metrics.disputes.total_disputes == 0 {
+        return None;
+    }
+
+    Some(RecommendationItem {
+        id: "disputes_present".to_string(),
+        metric: Some("stats.disputes.disputes_per_100_trades".to_string()),
+        message: format!(
+            "This node has had {} dispute(s) out of {} completed trade(s). \
+             Review its dispute history before trading with it.",
+            metrics.disputes.total_disputes, metrics.cumulative.total_successful_trades
+        ),
+    })
+}
+
+/// Bond policy not enabled (plan.md's deterministic trigger table, row 3): states the
+/// exact status (`disabled` or `unknown`) neutrally, per 001 FR-012's requirement that
+/// Bond Policy never be reported as if unknown were equivalent to disabled, or as
+/// implying which status is safer (plan.md's recommendation-trigger table is explicit:
+/// "never implying which is safer"). The wording below states only the raw fact —
+/// whether a bond deposit is required, or whether that could be determined at all —
+/// with no claim about how protective or risky either status is.
+fn bond_policy_recommendation(metrics: &NodeMetrics) -> Option<RecommendationItem> {
+    let message = match metrics.bond_policy.status {
+        "enabled" => return None,
+        "disabled" => "This node's bond policy is disabled: it does not require a bond \
+                       deposit from traders."
+            .to_string(),
+        _ => "This node's bond policy could not be determined from its published data \
+              — it is unclear whether a bond deposit is required."
+            .to_string(),
+    };
+
+    Some(RecommendationItem {
+        id: "bond_policy_not_enabled".to_string(),
+        metric: Some("stats.bond_policy.status".to_string()),
+        message,
+    })
+}
+
+/// 002 FR-008/FR-008a: assembles the recommendations block from `NodeMetrics`,
+/// scoped to this PR's 3 deterministic triggers (see this module's doc comment).
+/// Pure assembly over already-computed metrics, matching every other
+/// `assemble_*_section` function's pattern — no new statistics are computed here.
+pub fn assemble_recommendations_section(metrics: &NodeMetrics) -> ReportRecommendations {
+    let items: Vec<RecommendationItem> = [
+        zero_trades_recommendation(metrics),
+        disputes_recommendation(metrics),
+        bond_policy_recommendation(metrics),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    ReportRecommendations {
+        nothing_notable: items.is_empty(),
+        items,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[allow(clippy::too_many_arguments)]
+    fn metrics_with(
+        successful_orders: usize,
+        total_disputes: usize,
+        bond_policy_status: &'static str,
+    ) -> NodeMetrics {
+        NodeMetrics::compute(
+            None,
+            successful_orders,
+            0,
+            &[],
+            &[],
+            total_disputes,
+            0,
+            total_disputes,
+            0,
+            &[],
+            &[],
+            &[],
+            bond_policy_status,
+            100 * 86400,
+        )
+    }
+
+    #[test]
+    fn zero_successful_trades_triggers_a_recommendation() {
+        let metrics = metrics_with(0, 0, "enabled");
+
+        let item = zero_trades_recommendation(&metrics).expect("recommendation fires");
+
+        assert_eq!(item.id, "no_completed_trades");
+        assert_eq!(
+            item.metric,
+            Some("stats.cumulative.total_successful_trades".to_string())
+        );
+        assert!(item.message.contains("no completed trade history"));
+    }
+
+    #[test]
+    fn nonzero_successful_trades_does_not_trigger_the_zero_trades_recommendation() {
+        let metrics = metrics_with(3, 0, "enabled");
+
+        assert_eq!(zero_trades_recommendation(&metrics), None);
+    }
+
+    #[test]
+    fn disputes_present_triggers_a_recommendation_with_the_raw_counts() {
+        let metrics = metrics_with(10, 2, "enabled");
+
+        let item = disputes_recommendation(&metrics).expect("recommendation fires");
+
+        assert_eq!(item.id, "disputes_present");
+        assert_eq!(
+            item.metric,
+            Some("stats.disputes.disputes_per_100_trades".to_string())
+        );
+        assert!(item.message.contains('2'));
+        assert!(item.message.contains("10"));
+    }
+
+    /// FR-008a forbids comparative language ("high"/"many"/"elevated") for Dispute
+    /// Signals, since it has no cross-node baseline.
+    #[test]
+    fn disputes_recommendation_never_uses_comparative_language() {
+        let metrics = metrics_with(1, 50, "enabled");
+
+        let item = disputes_recommendation(&metrics).expect("recommendation fires");
+
+        let lowercase_message = item.message.to_lowercase();
+        assert!(!lowercase_message.contains("high"));
+        assert!(!lowercase_message.contains("many"));
+        assert!(!lowercase_message.contains("elevated"));
+    }
+
+    #[test]
+    fn zero_disputes_does_not_trigger_the_disputes_recommendation() {
+        let metrics = metrics_with(10, 0, "enabled");
+
+        assert_eq!(disputes_recommendation(&metrics), None);
+    }
+
+    #[test]
+    fn bond_policy_disabled_triggers_a_recommendation() {
+        let metrics = metrics_with(1, 0, "disabled");
+
+        let item = bond_policy_recommendation(&metrics).expect("recommendation fires");
+
+        assert_eq!(item.id, "bond_policy_not_enabled");
+        assert_eq!(item.metric, Some("stats.bond_policy.status".to_string()));
+        assert!(item.message.contains("does not require a bond deposit"));
+    }
+
+    #[test]
+    fn bond_policy_unknown_triggers_a_recommendation_distinct_from_disabled() {
+        let metrics = metrics_with(1, 0, "unknown");
+
+        let item = bond_policy_recommendation(&metrics).expect("recommendation fires");
+
+        assert_eq!(item.id, "bond_policy_not_enabled");
+        assert!(item.message.contains("could not be determined"));
+        assert!(!item.message.contains("does not require a bond deposit"));
+    }
+
+    #[test]
+    fn bond_policy_enabled_does_not_trigger_a_recommendation() {
+        let metrics = metrics_with(1, 0, "enabled");
+
+        assert_eq!(bond_policy_recommendation(&metrics), None);
+    }
+
+    /// Plan.md's recommendation-trigger table requires bond policy to be reported
+    /// neutrally, never implying which status is safer (per 001 FR-012 and FR-008a's
+    /// ban on comparative language without a cross-node baseline).
+    #[test]
+    fn bond_policy_recommendation_never_implies_which_status_is_safer() {
+        for status in ["disabled", "unknown"] {
+            let metrics = metrics_with(1, 0, status);
+            let item = bond_policy_recommendation(&metrics).expect("recommendation fires");
+            let lowercase_message = item.message.to_lowercase();
+
+            assert!(!lowercase_message.contains("protection"));
+            assert!(!lowercase_message.contains("risk"));
+            assert!(!lowercase_message.contains("less safe"));
+            assert!(!lowercase_message.contains("more safe"));
+            assert!(!lowercase_message.contains("safer"));
+        }
+    }
+
+    #[test]
+    fn nothing_notable_is_true_when_none_of_the_three_triggers_fire() {
+        let metrics = metrics_with(5, 0, "enabled");
+
+        let recommendations = assemble_recommendations_section(&metrics);
+
+        assert!(recommendations.nothing_notable);
+        assert!(recommendations.items.is_empty());
+    }
+
+    #[test]
+    fn nothing_notable_is_false_when_any_single_trigger_fires() {
+        let metrics = metrics_with(0, 0, "enabled");
+
+        let recommendations = assemble_recommendations_section(&metrics);
+
+        assert!(!recommendations.nothing_notable);
+        assert_eq!(recommendations.items.len(), 1);
+        assert_eq!(recommendations.items[0].id, "no_completed_trades");
+    }
+
+    #[test]
+    fn all_three_triggers_can_fire_together_and_each_produces_its_own_item() {
+        let metrics = metrics_with(0, 3, "unknown");
+
+        let recommendations = assemble_recommendations_section(&metrics);
+
+        assert!(!recommendations.nothing_notable);
+        assert_eq!(recommendations.items.len(), 3);
+        let ids: Vec<&str> = recommendations
+            .items
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                "no_completed_trades",
+                "disputes_present",
+                "bond_policy_not_enabled",
+            ]
+        );
+    }
+}
