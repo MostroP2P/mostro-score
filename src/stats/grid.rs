@@ -250,6 +250,24 @@ pub fn wide_range_warning_message(
 mod tests {
     use super::*;
 
+    /// `report::model::ReportActivity` depends on this exact lowercase representation,
+    /// mirroring `RelayStatus`'s equivalent coverage in `report::model`.
+    #[test]
+    fn granularity_serializes_as_a_lowercase_json_string() {
+        assert_eq!(
+            serde_json::to_string(&Granularity::Daily).unwrap(),
+            "\"daily\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Granularity::Monthly).unwrap(),
+            "\"monthly\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Granularity::Yearly).unwrap(),
+            "\"yearly\""
+        );
+    }
+
     #[test]
     fn compute_activity_grid_with_zero_orders_reports_null_range_and_empty_buckets() {
         let grid = compute_activity_grid(&[]);
