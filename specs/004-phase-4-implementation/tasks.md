@@ -224,15 +224,15 @@ work they described no longer applies.
 
 **Depends on**: 3, 4. Requirements: 001 FR-008, FR-009, FR-011, FR-012.
 
-- [ ] T114 [RED] Failing tests for fiat breakdown (byte-for-byte comparison, ranking, zero-denominator) in `src/stats/context.rs`.
-- [ ] T115 [GREEN] Implement fiat breakdown per 001 FR-008 in `src/stats/context.rs`.
-- [ ] T116 [RED] Failing tests for payment-method breakdown in `src/stats/context.rs`.
-- [ ] T117 [GREEN] Implement payment-method breakdown per 001 FR-009 in `src/stats/context.rs`.
-- [ ] T118 [RED] Failing tests for premium baseline/dispersion (fewer-than-two-tags not-applicable) in `src/stats/context.rs`.
-- [ ] T119 [GREEN] Implement premium signal per 001 FR-011 in `src/stats/context.rs`.
-- [ ] T120 [RED] Failing tests for tri-state bond policy status in `src/models/instance_status.rs`.
-- [ ] T121 [GREEN] Implement bond policy per 001 FR-012, 002 FR-007 in `src/models/instance_status.rs`, consuming PR 3's instance-status selection.
-- [ ] T122 Extend `NodeMetrics` in `src/stats/mod.rs` with `fiat_breakdown`, `payment_method_breakdown`, `premium`, and `bond_policy` fields, assembled from this PR's computations in `src/stats/context.rs` and `src/models/instance_status.rs` (pure struct assembly, no new logic to characterize).
+- [x] T114 [RED] Failing tests for fiat breakdown (byte-for-byte comparison, ranking, zero-denominator) in `src/stats/context.rs`.
+- [x] T115 [GREEN] Implement fiat breakdown per 001 FR-008 in `src/stats/context.rs`.
+- [x] T116 [RED] Failing tests for payment-method breakdown in `src/stats/context.rs`.
+- [x] T117 [GREEN] Implement payment-method breakdown per 001 FR-009 in `src/stats/context.rs`.
+- [x] T118 [RED] Failing tests for premium baseline/dispersion (fewer-than-two-tags not-applicable) in `src/stats/context.rs`.
+- [x] T119 [GREEN] Implement premium signal per 001 FR-011 in `src/stats/context.rs`.
+- [x] T120 [RED] Failing tests for tri-state bond policy status in `src/models/instance_status.rs`.
+- [x] T121 [GREEN] Implement bond policy per 001 FR-012, 002 FR-007 in `src/models/instance_status.rs`, consuming PR 3's instance-status selection.
+- [x] T122 Extend `NodeMetrics` in `src/stats/mod.rs` with `fiat_breakdown`, `payment_method_breakdown`, `premium`, and `bond_policy` fields, assembled from this PR's computations in `src/stats/context.rs` and `src/models/instance_status.rs` (pure struct assembly, no new logic to characterize).
 
 ---
 

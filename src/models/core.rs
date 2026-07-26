@@ -37,10 +37,44 @@ pub fn amt_tag(event: &Event) -> Option<&str> {
     tag_value(event, "amt")
 }
 
-// `f` (fiat currency), `pm` (payment method), `premium`, and `bond_enabled` accessors
-// are not extracted here: base `src/main.rs` never reads those tags, so adding them now
-// would be new behavior, not a mechanical move. They land in PR 3 (event scoping) and
-// PR 6 (descriptive context), each alongside the aggregation logic that first uses them.
+/// `f` tag accessor (fiat currency, 001 FR-008). An order always carries exactly one
+/// `f` value, so this is a single-value accessor, matching `amt_tag`/`s_tag`'s pattern.
+pub fn f_tag(event: &Event) -> Option<&str> {
+    tag_value(event, "f")
+}
+
+/// `premium` tag accessor (001 FR-011). The raw string value; parsing it as a signed
+/// integer is the caller's job (`models::order::aggregate_order_events`), since an empty
+/// or unparseable value is excluded per FR-013 rather than treated as an error here.
+pub fn premium_tag(event: &Event) -> Option<&str> {
+    tag_value(event, "premium")
+}
+
+/// `pm` tag accessor (payment method, 001 FR-009). Unlike every other single-value tag
+/// accessor in this module, `pm` is a multi-value Nostr tag: `order.payment_method` is
+/// split on commas server-side (`mostro/src/nip33.rs`'s `order_to_tags`), but the
+/// resulting `Vec<String>` is passed directly as the tag's content, so each split token
+/// becomes its own array element on the wire (`["pm", "SEPA", "Cash"]`), not one
+/// comma-joined value — reading only index 1 (`tag_value`'s single-value convention)
+/// would silently drop every method after the first. This returns every value from
+/// index 1 onward, filtering empty ones defensively since relay data is untrusted
+/// (FR-013), even though `order_to_tags` already filters them before publishing. Values
+/// are never trimmed, re-split, or case-normalized: FR-009 requires byte-for-byte
+/// comparison of method labels exactly as published.
+pub fn pm_tag_values(event: &Event) -> Vec<String> {
+    event
+        .tags
+        .iter()
+        .find(|t| t.as_slice().first().map(|s| s.as_str()) == Some("pm"))
+        .map(|t| {
+            t.as_slice()[1..]
+                .iter()
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 /// PR 1 Step B seam: partition fetched events into dev-fee events (z=dev-fee-payment,
 /// y=mostro) and order events (z=order). Extracted verbatim from the wrapped function
@@ -236,5 +270,73 @@ mod tests {
         let (dev_fee_events, order_events) = partition_by_z_y_tag(vec![wrong_y]);
         assert!(dev_fee_events.is_empty());
         assert!(order_events.is_empty());
+    }
+
+    #[test]
+    fn f_tag_returns_the_single_fiat_currency_value() {
+        let event = make_event(38383, 100, vec![("f", "USD")]);
+        assert_eq!(f_tag(&event), Some("USD"));
+    }
+
+    #[test]
+    fn f_tag_is_none_when_missing() {
+        let event = make_event(38383, 100, vec![]);
+        assert_eq!(f_tag(&event), None);
+    }
+
+    #[test]
+    fn premium_tag_returns_the_raw_string_value() {
+        let event = make_event(38383, 100, vec![("premium", "-5")]);
+        assert_eq!(premium_tag(&event), Some("-5"));
+    }
+
+    /// Builds an event with a multi-value tag, e.g. `["pm", "SEPA", "Cash"]` — matching
+    /// the actual Nostr wire format for `pm` (`mostro/src/nip33.rs` passes the
+    /// already-comma-split `Vec<String>` directly as the tag's content, so each method
+    /// is its own array element, not a single comma-joined string). The shared
+    /// `test_support::make_event` helper only builds single-value `(name, value)` tags,
+    /// which cannot represent this.
+    fn make_event_with_multi_value_tag(kind: u16, created_at: u64, values: Vec<&str>) -> Event {
+        let keys = Keys::generate();
+        EventBuilder::new(Kind::Custom(kind), "")
+            .tags(vec![Tag::parse(values).expect("valid tag")])
+            .custom_created_at(Timestamp::from(created_at))
+            .sign_with_keys(&keys)
+            .expect("event signs")
+    }
+
+    #[test]
+    fn pm_tag_values_reads_every_value_not_just_the_first() {
+        let event = make_event_with_multi_value_tag(38383, 100, vec!["pm", "SEPA", "Cash"]);
+        assert_eq!(
+            pm_tag_values(&event),
+            vec!["SEPA".to_string(), "Cash".to_string()]
+        );
+    }
+
+    /// Defensive only: `order_to_tags` never publishes an empty value, but this is
+    /// untrusted relay data (FR-013), so an empty array element must still be excluded.
+    #[test]
+    fn pm_tag_values_defensively_filters_empty_values() {
+        let event = make_event_with_multi_value_tag(38383, 100, vec!["pm", "SEPA", "", "Cash"]);
+        assert_eq!(
+            pm_tag_values(&event),
+            vec!["SEPA".to_string(), "Cash".to_string()]
+        );
+    }
+
+    #[test]
+    fn pm_tag_values_never_trims_or_normalizes_case() {
+        let event = make_event_with_multi_value_tag(38383, 100, vec!["pm", "SEPA", " Cash"]);
+        assert_eq!(
+            pm_tag_values(&event),
+            vec!["SEPA".to_string(), " Cash".to_string()]
+        );
+    }
+
+    #[test]
+    fn pm_tag_values_is_empty_when_missing() {
+        let event = make_event(38383, 100, vec![]);
+        assert!(pm_tag_values(&event).is_empty());
     }
 }

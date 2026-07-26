@@ -16,6 +16,20 @@ pub enum BondEnabled {
     Unknown,
 }
 
+impl BondEnabled {
+    /// 001 FR-012, 002 FR-007: the report schema's three-valued bond-policy status
+    /// string, distinct from `NodeMetrics`'s trade-history fields (002 FR-007 requires
+    /// Bond Policy to be its own, distinctly named sub-object). A thin mapping of this
+    /// existing tri-state; no new selection or parsing logic.
+    pub fn as_bond_policy_status(&self) -> &'static str {
+        match self {
+            BondEnabled::True => "enabled",
+            BondEnabled::False => "disabled",
+            BondEnabled::Unknown => "unknown",
+        }
+    }
+}
+
 fn parse_bond_enabled(event: &Event) -> BondEnabled {
     match tag_value(event, "bond_enabled") {
         Some("true") => BondEnabled::True,
@@ -231,5 +245,15 @@ mod tests {
         let selected = select_instance_status_event(vec![tagless], &node_pubkey);
 
         assert!(selected.is_none());
+    }
+
+    /// 001 FR-012, 002 FR-007: the report schema's three-valued bond-policy status
+    /// string, a thin mapping of the existing `BondEnabled` tri-state — never a
+    /// re-implementation of its selection or parsing logic.
+    #[test]
+    fn bond_enabled_maps_to_the_report_schemas_three_valued_status_string() {
+        assert_eq!(BondEnabled::True.as_bond_policy_status(), "enabled");
+        assert_eq!(BondEnabled::False.as_bond_policy_status(), "disabled");
+        assert_eq!(BondEnabled::Unknown.as_bond_policy_status(), "unknown");
     }
 }
