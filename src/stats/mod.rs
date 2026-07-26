@@ -1,7 +1,12 @@
+pub mod context;
 pub mod disputes;
 pub mod lifecycle;
 pub mod trade_size;
 
+use context::{
+    compute_fiat_breakdown, compute_payment_method_breakdown, compute_premium_signal,
+    FiatBreakdown, PaymentMethodBreakdown, PremiumSignal,
+};
 use disputes::{compute_dispute_signals, DisputeSignals};
 use lifecycle::{
     compute_activity_consistency, compute_cumulative_performance, compute_liveness,
@@ -18,10 +23,20 @@ pub struct ActivityConsistency {
     pub max_consecutive_inactive_days_last_30d: usize,
 }
 
-/// Every core reputation metric this PR computes (001 FR-001 through FR-006, FR-010)
-/// for one node, assembled from `stats::lifecycle`, `stats::trade_size`, and
-/// `stats::disputes`'s independently tested computations. Pure struct assembly: no new
-/// business logic lives here.
+/// Bond Policy (001 FR-012, 002 FR-007): the node's tri-state anti-abuse-bond
+/// enforcement, mapped to the report schema's three-valued string by
+/// `models::instance_status::BondEnabled::as_bond_policy_status`. Its own, distinctly
+/// named sub-object per 002 FR-007 — never merged into the trade-history metrics above.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BondPolicy {
+    pub status: &'static str,
+}
+
+/// Every core reputation metric this PR computes (001 FR-001 through FR-006, FR-008,
+/// FR-009, FR-010, FR-011, FR-012) for one node, assembled from `stats::lifecycle`,
+/// `stats::trade_size`, `stats::disputes`, and `stats::context`'s independently tested
+/// computations, plus `models::instance_status`'s bond-policy mapping. Pure struct
+/// assembly: no new business logic lives here.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodeMetrics {
     pub longevity: Longevity,
@@ -30,6 +45,10 @@ pub struct NodeMetrics {
     pub liveness: Liveness,
     pub consistency: ActivityConsistency,
     pub disputes: DisputeSignals,
+    pub fiat_breakdown: FiatBreakdown,
+    pub payment_method_breakdown: PaymentMethodBreakdown,
+    pub premium: PremiumSignal,
+    pub bond_policy: BondPolicy,
 }
 
 impl NodeMetrics {
@@ -44,6 +63,10 @@ impl NodeMetrics {
         resolved_disputes: usize,
         active_disputes: usize,
         unknown_status_disputes: usize,
+        fiat_values: &[String],
+        payment_method_mentions: &[String],
+        premium_values: &[i64],
+        bond_policy_status: &'static str,
         now: i64,
     ) -> NodeMetrics {
         let (active_days_last_30d, max_consecutive_inactive_days_last_30d) =
@@ -65,6 +88,12 @@ impl NodeMetrics {
                 unknown_status_disputes,
                 successful_orders,
             ),
+            fiat_breakdown: compute_fiat_breakdown(fiat_values),
+            payment_method_breakdown: compute_payment_method_breakdown(payment_method_mentions),
+            premium: compute_premium_signal(premium_values),
+            bond_policy: BondPolicy {
+                status: bond_policy_status,
+            },
         }
     }
 }
@@ -102,6 +131,10 @@ mod tests {
         let successful_trade_timestamps = vec![10 * 86400, 90 * 86400];
         let trade_amounts = vec![100u64, 300u64];
 
+        let fiat_values = vec!["USD".to_string(), "USD".to_string()];
+        let payment_method_mentions = vec!["SEPA".to_string()];
+        let premium_values = vec![10i64, 20i64];
+
         let metrics = NodeMetrics::compute(
             Some(5 * 86400),
             2,
@@ -112,6 +145,10 @@ mod tests {
             0,
             1,
             0,
+            &fiat_values,
+            &payment_method_mentions,
+            &premium_values,
+            "enabled",
             now,
         );
 
@@ -127,6 +164,10 @@ mod tests {
         assert_eq!(metrics.disputes.unknown_status_disputes, 0);
         // 1 dispute / 2 successful trades * 100 = 50.0.
         assert_eq!(metrics.disputes.disputes_per_100_trades, Some(50.0));
+        assert_eq!(metrics.fiat_breakdown.orders_considered, 2);
+        assert_eq!(metrics.payment_method_breakdown.total_mentions, 1);
+        assert_eq!(metrics.premium.premium_baseline_percent, Some(15.0));
+        assert_eq!(metrics.bond_policy.status, "enabled");
     }
 
     #[test]

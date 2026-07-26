@@ -20,6 +20,7 @@ use models::core::exclude_future_events;
 use models::dedup::dedup_events_by_id;
 use models::dev_fee::aggregate_dev_fee_events;
 use models::dispute::aggregate_dispute_events;
+use models::instance_status::aggregate_instance_status;
 use models::order::aggregate_order_events;
 use nostr_sdk::prelude::*;
 use report::render::console;
@@ -92,13 +93,17 @@ pub async fn run<E: EventSource>(
     // node's dispute stats (FR-006), rather than aggregated a second time from the
     // same event set.
     let dispute_aggregate = aggregate_dispute_events(partitioned.dispute_events);
+    // PR 6: computed once here and reused both for the exit-4 gate below and for this
+    // node's bond-policy signal (FR-012), rather than aggregated a second time from the
+    // same event set.
+    let instance_status_aggregate =
+        aggregate_instance_status(partitioned.instance_status_events, &public_key);
     let fetch_outcome = compute_relay_fetch_outcome(
         dev_fee_event_count,
         order_event_count,
         &order_aggregate,
-        partitioned.instance_status_events,
+        &instance_status_aggregate,
         &dispute_aggregate,
-        &public_key,
     );
     if fetch_outcome.has_no_usable_events() {
         return Err(AppError::NoUsableEvents);
@@ -134,6 +139,12 @@ pub async fn run<E: EventSource>(
         dispute_aggregate.resolved,
         dispute_aggregate.active,
         dispute_aggregate.unknown,
+        &order_aggregate.fiat_values,
+        &order_aggregate.payment_method_mentions,
+        &order_aggregate.premium_values,
+        instance_status_aggregate
+            .bond_enabled
+            .as_bond_policy_status(),
         now,
     );
 

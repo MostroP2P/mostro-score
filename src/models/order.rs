@@ -1,4 +1,4 @@
-use crate::models::core::{amt_tag, s_tag};
+use crate::models::core::{amt_tag, f_tag, pm_tag_values, premium_tag, s_tag};
 use crate::models::dedup::dedup_events_by_d_tag;
 use mostro_core::prelude::Status as OrderStatus;
 use nostr_sdk::prelude::*;
@@ -27,6 +27,19 @@ pub struct OrderAggregate {
     pub total_volume_sats: u64,
     pub trade_amounts: Vec<u64>,
     pub successful_trade_timestamps: Vec<i64>,
+    /// PR 6 (001 FR-008): the `f` tag's value for each qualifying successful order,
+    /// omitting any order whose `f` value is empty. Excluded entirely (from both the
+    /// fiat breakdown's numerator and denominator), not counted as an "(empty)" bucket.
+    pub fiat_values: Vec<String>,
+    /// PR 6 (001 FR-009): every `pm` tag mention across qualifying successful orders,
+    /// flattened — one entry per tag value (`pm` is a multi-value Nostr tag, e.g.
+    /// `["pm", "SEPA", "Cash"]`, not a single comma-joined string), so a single order
+    /// can contribute zero, one, or many entries.
+    pub payment_method_mentions: Vec<String>,
+    /// PR 6 (001 FR-011): the `premium` tag parsed as `i64` for each qualifying
+    /// successful order, only when it parses successfully. A missing, empty, or
+    /// unparseable value is excluded rather than treated as `0`.
+    pub premium_values: Vec<i64>,
 }
 
 /// PR 3 (T084/T085): FR-002's full qualifying-order procedure — dedup by `d` tag to the
@@ -72,6 +85,9 @@ pub fn aggregate_order_events(order_events: Vec<Event>) -> OrderAggregate {
     let mut total_volume_sats = 0u64;
     let mut trade_amounts: Vec<u64> = Vec::new();
     let mut successful_trade_timestamps: Vec<i64> = Vec::new();
+    let mut fiat_values: Vec<String> = Vec::new();
+    let mut payment_method_mentions: Vec<String> = Vec::new();
+    let mut premium_values: Vec<i64> = Vec::new();
 
     // Process the final state of unique orders
     for (_order_id, event) in orders_map {
@@ -100,6 +116,23 @@ pub fn aggregate_order_events(order_events: Vec<Event>) -> OrderAggregate {
                     trade_amounts.push(amount);
                 }
             }
+
+            // Get fiat currency 'f' (FR-008): excluded entirely when empty.
+            if let Some(fiat) = f_tag(&event) {
+                if !fiat.is_empty() {
+                    fiat_values.push(fiat.to_string());
+                }
+            }
+
+            // Get payment methods 'pm' (FR-009): flattened, one entry per mention.
+            payment_method_mentions.extend(pm_tag_values(&event));
+
+            // Get premium 'premium' (FR-011): excluded when missing or unparseable.
+            if let Some(premium_str) = premium_tag(&event) {
+                if let Ok(premium) = premium_str.parse::<i64>() {
+                    premium_values.push(premium);
+                }
+            }
         }
     }
 
@@ -114,6 +147,9 @@ pub fn aggregate_order_events(order_events: Vec<Event>) -> OrderAggregate {
         total_volume_sats,
         trade_amounts,
         successful_trade_timestamps,
+        fiat_values,
+        payment_method_mentions,
+        premium_values,
     }
 }
 
@@ -175,5 +211,130 @@ mod tests {
 
         assert_eq!(aggregate.unique_order_count, 0);
         assert_eq!(aggregate.successful_orders, 0);
+    }
+
+    /// FR-008: only successful orders carrying a non-empty `f` value contribute to
+    /// `fiat_values`; an empty value is excluded entirely.
+    #[test]
+    fn aggregate_order_events_collects_fiat_values_from_successful_orders_excluding_empty() {
+        let usd = make_event(
+            38383,
+            100,
+            vec![("d", "order-1"), ("s", "success"), ("f", "USD")],
+        );
+        let empty_f = make_event(
+            38383,
+            200,
+            vec![("d", "order-2"), ("s", "success"), ("f", "")],
+        );
+        let not_successful = make_event(
+            38383,
+            300,
+            vec![("d", "order-3"), ("s", "pending"), ("f", "EUR")],
+        );
+
+        let aggregate = aggregate_order_events(vec![usd, empty_f, not_successful]);
+
+        assert_eq!(aggregate.fiat_values, vec!["USD".to_string()]);
+    }
+
+    /// Builds an order event with a multi-value `pm` tag alongside ordinary
+    /// single-value tags — matching the actual Nostr wire format (`mostro/src/nip33.rs`
+    /// passes the already-comma-split `Vec<String>` directly as the tag's content, so
+    /// each method is its own array element, e.g. `["pm", "SEPA", "Cash"]`, not one
+    /// comma-joined string). The shared `test_support::make_event` helper only builds
+    /// single-value `(name, value)` tags, which cannot represent this.
+    fn make_order_event_with_pm_values(
+        created_at: u64,
+        d: &str,
+        s: &str,
+        pm_values: Vec<&str>,
+    ) -> Event {
+        let keys = Keys::generate();
+        let mut tags = vec![
+            Tag::parse(["d", d]).expect("valid tag"),
+            Tag::parse(["s", s]).expect("valid tag"),
+        ];
+        let mut pm_tag = vec!["pm"];
+        pm_tag.extend(pm_values);
+        tags.push(Tag::parse(pm_tag).expect("valid tag"));
+
+        EventBuilder::new(Kind::Custom(38383), "")
+            .tags(tags)
+            .custom_created_at(Timestamp::from(created_at))
+            .sign_with_keys(&keys)
+            .expect("event signs")
+    }
+
+    /// FR-009: `pm` mentions are flattened across every successful order, one entry per
+    /// tag value. Different orders are keyed by distinct `d` tags and processed from a
+    /// `HashMap` with no guaranteed iteration order, so this compares the flattened
+    /// mentions as a sorted multiset rather than asserting a specific cross-order
+    /// sequence; the within-order value order is exercised separately below.
+    #[test]
+    fn aggregate_order_events_flattens_payment_method_mentions_across_successful_orders() {
+        let multi = make_order_event_with_pm_values(
+            100,
+            "order-1",
+            "success",
+            vec!["SEPA", "Bank transfer"],
+        );
+        let single = make_order_event_with_pm_values(200, "order-2", "success", vec!["Cash"]);
+
+        let aggregate = aggregate_order_events(vec![multi, single]);
+
+        let mut mentions = aggregate.payment_method_mentions.clone();
+        mentions.sort();
+        assert_eq!(
+            mentions,
+            vec![
+                "Bank transfer".to_string(),
+                "Cash".to_string(),
+                "SEPA".to_string()
+            ]
+        );
+    }
+
+    /// FR-009: within a single order, `pm` mentions preserve the tag's value order.
+    #[test]
+    fn aggregate_order_events_preserves_the_tag_value_order_within_one_order() {
+        let multi = make_order_event_with_pm_values(
+            100,
+            "order-1",
+            "success",
+            vec!["SEPA", "Bank transfer"],
+        );
+
+        let aggregate = aggregate_order_events(vec![multi]);
+
+        assert_eq!(
+            aggregate.payment_method_mentions,
+            vec!["SEPA".to_string(), "Bank transfer".to_string()]
+        );
+    }
+
+    /// FR-011: a `premium` tag that fails to parse as `i64`, or is missing, is excluded
+    /// from `premium_values` without panicking.
+    #[test]
+    fn aggregate_order_events_excludes_a_malformed_premium_but_keeps_a_valid_one() {
+        let valid = make_event(
+            38383,
+            100,
+            vec![("d", "order-1"), ("s", "success"), ("premium", "-3")],
+        );
+        let malformed = make_event(
+            38383,
+            200,
+            vec![
+                ("d", "order-2"),
+                ("s", "success"),
+                ("premium", "not-a-number"),
+            ],
+        );
+        let missing = make_event(38383, 300, vec![("d", "order-3"), ("s", "success")]);
+
+        let aggregate = aggregate_order_events(vec![valid, malformed, missing]);
+
+        assert_eq!(aggregate.premium_values, vec![-3i64]);
     }
 }
