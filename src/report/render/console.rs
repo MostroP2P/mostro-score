@@ -334,24 +334,6 @@ pub fn render_trade_statistics_section(
     Ok(())
 }
 
-pub fn render_trust_score_section(out: &mut impl std::io::Write, score: u64) -> Result<()> {
-    writeln!(
-        out,
-        "{}",
-        "----------------------------------------".dimmed()
-    )?;
-    let score_display = format!("TRUST SCORE:       {}/100", score);
-    if score >= 70 {
-        writeln!(out, "{}", score_display.green().bold())?;
-    } else if score >= 40 {
-        writeln!(out, "{}", score_display.yellow().bold())?;
-    } else {
-        writeln!(out, "{}", score_display.red().bold())?;
-    }
-    writeln!(out, "{}", "========================================".cyan())?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

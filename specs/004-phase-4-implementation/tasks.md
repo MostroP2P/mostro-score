@@ -240,12 +240,12 @@ work they described no longer applies.
 
 **Depends on**: 4, 5, 6. Requirements: 002 FR-001..FR-008b, FR-013..FR-018.
 
-- [ ] T123 No golden fixture to retire (see T099's note). Instead: failing test that renders a hand-built synthetic event set through the console renderer (`src/report/render/console.rs`) and asserts its actual output no longer contains a `TRUST SCORE` line — not just that the report model has no score field, since the model could drop the field while the renderer still prints the old line — per the plan's Complexity Tracking decision to remove it entirely rather than migrate it.
-- [ ] T124 Remove `calculate_score` and its output entirely (no replacement; relocated to `src/stats/mod.rs` by PR 1's T036; see Complexity Tracking).
-- [ ] T125 [RED] Failing tests for the 5-section report model + `schema_version`, consuming PR 6's now-complete `NodeMetrics` as the `stats` section's source, in `src/report/model.rs`.
-- [ ] T126 [GREEN] Implement the report model per 002 FR-001/FR-002/FR-006 in `src/report/model.rs`, populating the `stats` section from PR 6's now-complete `NodeMetrics` (longevity, cumulative, trade_size, liveness, consistency, disputes, fiat_breakdown, payment_method_breakdown, premium, bond_policy).
-- [ ] T127 [RED] Failing tests for the `fetch` section fields (`relays[]` outcomes, `dev_fee_events`, `order_events`, `unique_orders`, `dispute_events`, `instance_status_found`) in `src/report/model.rs`.
-- [ ] T128 [GREEN] Assemble the `fetch` summary section per 002 FR-003 in `src/report/model.rs`, sourced from PR 3's `src/fetch/filters_summary.rs::RelayFetchOutcome`.
+- [x] T123 No golden fixture to retire (see T099's note). Instead: failing test that renders a hand-built synthetic event set through the console renderer (`src/report/render/console.rs`) and asserts its actual output no longer contains a `TRUST SCORE` line — not just that the report model has no score field, since the model could drop the field while the renderer still prints the old line — per the plan's Complexity Tracking decision to remove it entirely rather than migrate it.
+- [x] T124 Remove `calculate_score` and its output entirely (no replacement; relocated to `src/stats/mod.rs` by PR 1's T036; see Complexity Tracking).
+- [x] T125 [RED] Failing tests for the 5-section report model + `schema_version`, consuming PR 6's now-complete `NodeMetrics` as the `stats` section's source, in `src/report/model.rs`.
+- [x] T126 [GREEN] Implement the report model per 002 FR-001/FR-002/FR-006 in `src/report/model.rs`, populating the `stats` section from PR 6's now-complete `NodeMetrics` (longevity, cumulative, trade_size, liveness, consistency, disputes, fiat_breakdown, payment_method_breakdown, premium, bond_policy).
+- [x] T127 [RED] Failing tests for the `fetch` section fields (`relays[]` outcomes, `dev_fee_events`, `order_events`, `unique_orders`, `dispute_events`, `instance_status_found`) in `src/report/model.rs`.
+- [x] T128 [GREEN] Assemble the `fetch` summary section per 002 FR-003 in `src/report/model.rs`, sourced from PR 3's `src/fetch/filters_summary.rs::RelayFetchOutcome`.
 - [ ] T129 Construct fixture event sets spanning weeks/months/years; record observed grid row counts and granularity choices per range in the PR description (evidence for FR-005a, FR-014, 003 FR-006).
 - [ ] T130 Measure actual relay round-trip latency against the default relay set; record in the PR description (evidence for FR-014).
 - [ ] T131 [RED] Failing tests for grid bucketing and daily/monthly/yearly auto-granularity at the boundary chosen from T129, in `src/stats/grid.rs`.

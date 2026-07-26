@@ -1,3 +1,4 @@
+use serde::Serialize;
 use std::collections::HashSet;
 
 /// Longevity (001 FR-001): `first_seen_at` is `Some` only via the primary dev-fee anchor
@@ -43,7 +44,7 @@ pub fn compute_longevity(
 
 /// Cumulative performance (Section 4.1.2, 001 FR-002). Pure exposure of values already
 /// computed by `models::order::aggregate_order_events` — no new aggregation logic.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct CumulativePerformance {
     pub total_successful_trades: usize,
     pub total_volume_sats: u64,

@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 /// One currency's share of the fiat-currency distribution (001 FR-008).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct FiatCurrencyShare {
     pub currency: String,
     pub orders: usize,
@@ -20,14 +20,14 @@ pub struct FiatCurrencyShare {
 /// count of qualifying successful orders carrying a non-empty `f` value. `distribution`
 /// is `None` only when that denominator is zero (every qualifying order had an empty
 /// `f` value, or there were no qualifying orders at all).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct FiatBreakdown {
     pub orders_considered: usize,
     pub distribution: Option<Vec<FiatCurrencyShare>>,
 }
 
 /// One payment method's share of the usage ranking (001 FR-009).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct PaymentMethodShare {
     pub method: String,
     pub mentions: usize,
@@ -37,7 +37,7 @@ pub struct PaymentMethodShare {
 /// FR-009's payment-method usage ranking. `total_mentions` is the denominator: the
 /// count of `pm` mentions across every qualifying successful order (not a per-order
 /// count). `distribution` is `None` only when that denominator is zero.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct PaymentMethodBreakdown {
     pub total_mentions: usize,
     pub distribution: Option<Vec<PaymentMethodShare>>,
@@ -45,7 +45,7 @@ pub struct PaymentMethodBreakdown {
 
 /// FR-011's premium consistency signal. Both fields are `None` only when fewer than 2
 /// orders carry a valid `premium` tag.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct PremiumSignal {
     pub premium_baseline_percent: Option<f64>,
     pub premium_dispersion_percent: Option<f64>,

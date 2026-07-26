@@ -15,7 +15,16 @@ const RELAY_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RelayConnectionOutcome {
     pub connected_count: usize,
+    pub connected_urls: Vec<String>,
     pub failed: Vec<RelayConnectFailure>,
+    /// PR 7a (002 FR-003): one entry per configured relay, in the user's originally
+    /// configured `--relays` order — `connected_urls` and `failed` alone cannot
+    /// reconstruct this once combined, since each is independently populated from
+    /// `Output`'s unordered success/failure sets and merging two separately-sorted
+    /// lists still groups every success before every failure regardless of where each
+    /// relay actually sat in `--relays`. `report::model`'s `fetch` section maps this
+    /// field directly into `RelaySummary`, one to one, with no merge logic of its own.
+    pub ordered: Vec<RelayOutcome>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,11 +33,25 @@ pub struct RelayConnectFailure {
     pub error: String,
 }
 
+/// One configured relay's outcome, preserving its position in `--relays`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelayOutcome {
+    pub url: String,
+    pub succeeded: bool,
+    pub error: Option<String>,
+}
+
 /// Pure interpretation of `Client::try_connect`'s per-relay `Output`, kept separate from
 /// the real network call so it stays unit-testable without a socket (Testing Strategy:
-/// "No network in tests"). Failures are sorted by URL so a multi-relay warning listing is
-/// deterministic, independent of the `HashMap` iteration order `Output::failed` uses.
+/// "No network in tests"). `connected_urls`/`failed` are alphabetical here (`Output`'s
+/// own sets/maps have no meaningful order of their own); `RelayEventSource::connect()`
+/// separately builds `ordered` in the user's configured order once it has the original
+/// `--relays` list to consult.
 fn interpret_connect_output(output: &Output<()>) -> RelayConnectionOutcome {
+    let mut connected_urls: Vec<String> =
+        output.success.iter().map(|url| url.to_string()).collect();
+    connected_urls.sort();
+
     let mut failed: Vec<RelayConnectFailure> = output
         .failed
         .iter()
@@ -41,8 +64,50 @@ fn interpret_connect_output(output: &Output<()>) -> RelayConnectionOutcome {
 
     RelayConnectionOutcome {
         connected_count: output.success.len(),
+        connected_urls,
         failed,
+        ordered: Vec::new(),
     }
+}
+
+/// 002 FR-003: builds `RelayConnectionOutcome::ordered` — one `RelayOutcome` per entry
+/// in `configured`, in that exact order. Every configured relay ends up in exactly one
+/// of `connected_urls` or `failed` (registration failures are added to `failed` for
+/// every configured relay that never even reached `try_connect`), so the `None` arm
+/// below is unreachable in practice; it reports an unknown-outcome relay rather than
+/// panicking or silently dropping it, per Principle VI, in case that invariant is ever
+/// violated by a future change.
+fn build_ordered_outcomes(
+    configured: &[String],
+    connected_urls: &[String],
+    failed: &[RelayConnectFailure],
+) -> Vec<RelayOutcome> {
+    configured
+        .iter()
+        .map(|url| {
+            if connected_urls.iter().any(|connected| connected == url) {
+                RelayOutcome {
+                    url: url.clone(),
+                    succeeded: true,
+                    error: None,
+                }
+            } else if let Some(failure) = failed.iter().find(|failure| &failure.url == url) {
+                RelayOutcome {
+                    url: url.clone(),
+                    succeeded: false,
+                    error: Some(failure.error.clone()),
+                }
+            } else {
+                RelayOutcome {
+                    url: url.clone(),
+                    succeeded: false,
+                    error: Some(
+                        "unknown outcome: relay was neither connected nor failed".to_string(),
+                    ),
+                }
+            }
+        })
+        .collect()
 }
 
 /// Seam introduced by PR 1 Step 0: the event-fetching surface `run()` depends on, so
@@ -96,12 +161,32 @@ impl EventSource for RelayEventSource {
     async fn connect(&self) -> Result<RelayConnectionOutcome> {
         let client = Client::new(Keys::generate());
 
+        // `add_relay` parses its argument into a canonical `RelayUrl` internally (via
+        // `TryIntoUrl`) before ever touching the pool, so `output.success`/`output.failed`
+        // (and therefore `connected_urls`/`failed`) always report relays in that
+        // canonical form (e.g. normalized trailing slash), not the user's raw `--relays`
+        // string. Canonicalizing here too, once, up front, keeps every later string
+        // comparison against `connected_urls`/`failed` correct even when a relay's raw
+        // and canonical forms differ syntactically but name the same relay — a URL that
+        // fails to parse at all (and so can never appear in the pool's output either)
+        // falls back to its raw string, which is exactly what `add_relay` itself would
+        // have failed on too.
+        let configured_relays: Vec<String> = self
+            .relays
+            .iter()
+            .map(|relay| {
+                RelayUrl::parse(relay)
+                    .map(|parsed| parsed.to_string())
+                    .unwrap_or_else(|_| relay.clone())
+            })
+            .collect();
+
         // A relay URL that fails to register (e.g. malformed) is a connection failure like
         // any other, not a distinct error class: it must feed the same graceful-degradation
         // classification as a relay that registers but fails to connect, so that "all relays
         // failed, for whatever reason" still maps to `RelaysUnreachable`, not `Other`.
         let mut registration_failures: Vec<RelayConnectFailure> = Vec::new();
-        for relay in &self.relays {
+        for relay in &configured_relays {
             if let Err(error) = client.add_relay(relay.as_str()).await {
                 registration_failures.push(RelayConnectFailure {
                     url: relay.clone(),
@@ -113,7 +198,8 @@ impl EventSource for RelayEventSource {
         let output = client.try_connect(RELAY_TIMEOUT).await;
         let mut outcome = interpret_connect_output(&output);
         outcome.failed.extend(registration_failures);
-        outcome.failed.sort_by(|a, b| a.url.cmp(&b.url));
+        outcome.ordered =
+            build_ordered_outcomes(&configured_relays, &outcome.connected_urls, &outcome.failed);
 
         self.client
             .set(client)
@@ -156,6 +242,60 @@ impl EventSource for RelayEventSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Documents the exact canonicalization `RelayEventSource::connect()` relies on to
+    /// avoid falsely reporting a successfully-connected relay as failed: `RelayUrl`
+    /// wraps the standard `url` crate, which lowercases the scheme and host per the
+    /// WHATWG URL spec. A raw `--relays` string differing only in case from the pool's
+    /// canonical form must still match `build_ordered_outcomes`'s lookup.
+    #[test]
+    fn relay_url_canonicalizes_scheme_and_host_case() {
+        let canonical = RelayUrl::parse("WSS://Relay.Example").unwrap().to_string();
+        assert_eq!(canonical, "wss://relay.example");
+    }
+
+    /// 002 FR-003: `fetch.relays[]` preserves the user's originally configured
+    /// `--relays` order, not an alphabetical one — success and failure entries are
+    /// interleaved in this test specifically to prove the reorder doesn't just group by
+    /// outcome first.
+    #[test]
+    fn build_ordered_outcomes_matches_the_configured_relays_order_across_success_and_failure() {
+        // Interleaved on purpose: success, failure, success — proves the merge follows
+        // `configured`'s true order rather than grouping every success before every
+        // failure (which independently-sorted `connected_urls`/`failed` lists cannot
+        // avoid on their own).
+        let configured = vec![
+            "wss://z-relay.example".to_string(),
+            "wss://m-relay.example".to_string(),
+            "wss://a-relay.example".to_string(),
+        ];
+        let connected_urls = vec![
+            "wss://a-relay.example".to_string(),
+            "wss://z-relay.example".to_string(),
+        ];
+        let failed = vec![RelayConnectFailure {
+            url: "wss://m-relay.example".to_string(),
+            error: "connection refused".to_string(),
+        }];
+
+        let ordered = build_ordered_outcomes(&configured, &connected_urls, &failed);
+
+        assert_eq!(
+            ordered
+                .iter()
+                .map(|outcome| outcome.url.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "wss://z-relay.example",
+                "wss://m-relay.example",
+                "wss://a-relay.example",
+            ]
+        );
+        assert!(ordered[0].succeeded);
+        assert!(!ordered[1].succeeded);
+        assert_eq!(ordered[1].error, Some("connection refused".to_string()));
+        assert!(ordered[2].succeeded);
+    }
 
     /// The plan's constraint ("`unwrap`/`expect` are permitted only in tests") rules out
     /// panicking when `fetch()` is called before `connect()` — an internal misuse that must

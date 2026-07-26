@@ -183,12 +183,6 @@ pub async fn run<E: EventSource>(
         metrics.trade_size.mean_trade_sats,
         metrics.trade_size.median_trade_sats,
     )?;
-    let score = stats::calculate_score(
-        metrics.cumulative.total_successful_trades,
-        metrics.cumulative.total_volume_sats,
-        metrics.longevity.days_active.unwrap_or(0.0),
-    );
-    console::render_trust_score_section(out, score)?;
 
     Ok(())
 }

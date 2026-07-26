@@ -65,6 +65,8 @@ async fn all_relays_unreachable_is_fatal() {
     let event_source = FixtureEventSource {
         connection: RelayConnectionOutcome {
             connected_count: 0,
+            ordered: vec![],
+            connected_urls: vec![],
             failed: vec![RelayConnectFailure {
                 url: "wss://unreachable.example".to_string(),
                 error: "connection refused".to_string(),
@@ -123,6 +125,8 @@ async fn one_failed_relay_among_several_is_a_warning_not_a_failure() {
     let event_source = FixtureEventSource {
         connection: RelayConnectionOutcome {
             connected_count: 1,
+            ordered: vec![],
+            connected_urls: vec!["wss://connected.example".to_string()],
             failed: vec![RelayConnectFailure {
                 url: "wss://unreachable.example".to_string(),
                 error: "connection refused".to_string(),
@@ -161,6 +165,8 @@ async fn diagnostics_route_to_err_not_out() {
     let event_source = FixtureEventSource {
         connection: RelayConnectionOutcome {
             connected_count: 1,
+            ordered: vec![],
+            connected_urls: vec!["wss://connected.example".to_string()],
             failed: vec![],
         },
         events,
@@ -208,6 +214,8 @@ async fn no_dev_fee_events_warns_on_err_and_falls_back_to_order_timestamps() {
     let event_source = FixtureEventSource {
         connection: RelayConnectionOutcome {
             connected_count: 1,
+            ordered: vec![],
+            connected_urls: vec!["wss://connected.example".to_string()],
             failed: vec![],
         },
         events,
@@ -272,6 +280,8 @@ async fn s_tag_distribution_prints_sorted_by_key() {
     let event_source = FixtureEventSource {
         connection: RelayConnectionOutcome {
             connected_count: 1,
+            ordered: vec![],
+            connected_urls: vec!["wss://connected.example".to_string()],
             failed: vec![],
         },
         events,
@@ -305,6 +315,8 @@ async fn zero_usable_events_across_all_four_kinds_exits_4() {
     let event_source = FixtureEventSource {
         connection: RelayConnectionOutcome {
             connected_count: 1,
+            ordered: vec![],
+            connected_urls: vec!["wss://connected.example".to_string()],
             failed: vec![],
         },
         events: vec![],
@@ -344,6 +356,8 @@ async fn a_node_with_only_a_dispute_event_does_not_trigger_no_usable_events() {
     let event_source = FixtureEventSource {
         connection: RelayConnectionOutcome {
             connected_count: 1,
+            ordered: vec![],
+            connected_urls: vec!["wss://connected.example".to_string()],
             failed: vec![],
         },
         events: vec![dispute_event],
@@ -385,6 +399,8 @@ async fn a_node_with_only_an_instance_status_event_does_not_trigger_no_usable_ev
     let event_source = FixtureEventSource {
         connection: RelayConnectionOutcome {
             connected_count: 1,
+            ordered: vec![],
+            connected_urls: vec!["wss://connected.example".to_string()],
             failed: vec![],
         },
         events: vec![instance_status_event],
@@ -429,6 +445,8 @@ async fn a_future_dated_event_is_excluded_and_does_not_count_as_usable() {
     let event_source = FixtureEventSource {
         connection: RelayConnectionOutcome {
             connected_count: 1,
+            ordered: vec![],
+            connected_urls: vec!["wss://connected.example".to_string()],
             failed: vec![],
         },
         events: vec![far_future_dispute],
@@ -447,6 +465,41 @@ async fn a_future_dated_event_is_excluded_and_does_not_count_as_usable() {
     );
 }
 
+/// T123/T124: the legacy trust-score line is removed entirely (no replacement, per the
+/// plan's Complexity Tracking decision). Asserted through `run()`'s real console-render
+/// call path, not merely that `NodeMetrics` carries no score field: a renderer could
+/// still print stale text even after the underlying model dropped it.
+#[tokio::test]
+async fn console_report_never_prints_a_trust_score_line() {
+    let node_keys = Keys::generate();
+    let public_key = node_keys.public_key();
+    let events = vec![make_event_with_keys(
+        &node_keys,
+        8383,
+        1_700_000_000,
+        vec![("z", "dev-fee-payment"), ("y", "mostro")],
+    )];
+    let event_source = FixtureEventSource {
+        connection: RelayConnectionOutcome {
+            connected_count: 1,
+            ordered: vec![],
+            connected_urls: vec!["wss://connected.example".to_string()],
+            failed: vec![],
+        },
+        events,
+    };
+    let now = chrono::Utc::now;
+    let mut out: Vec<u8> = Vec::new();
+    let mut err: Vec<u8> = Vec::new();
+
+    mostro_score::run(public_key, event_source, &now, &mut out, &mut err)
+        .await
+        .expect("run succeeds");
+
+    let actual_out = String::from_utf8(out).unwrap();
+    assert!(!actual_out.contains("TRUST SCORE"));
+}
+
 /// 002 FR-003 regression: the same dev-fee event independently delivered by more than
 /// one relay must be counted once in the displayed "Found N dev fee events" line, not
 /// once per relay that happened to return it.
@@ -463,6 +516,8 @@ async fn duplicate_dev_fee_event_from_multiple_relays_is_counted_once_in_the_rep
     let event_source = FixtureEventSource {
         connection: RelayConnectionOutcome {
             connected_count: 1,
+            ordered: vec![],
+            connected_urls: vec!["wss://connected.example".to_string()],
             failed: vec![],
         },
         // The same event, as if two relays independently returned it.

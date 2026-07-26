@@ -9,7 +9,7 @@
 /// of zero disputes is a real, computable value, not a not-applicable case.
 /// `disputes_per_100_trades` is `None` only when `successful_trades` is zero — there is
 /// no denominator to divide by — regardless of how many disputes exist.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct DisputeSignals {
     pub total_disputes: usize,
     pub resolved_disputes: usize,
