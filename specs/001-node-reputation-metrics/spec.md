@@ -122,8 +122,10 @@ fiat/payment method breakdown, trade-size consistency, premium signal, and bond 
   distribution is `orders_in_that_currency / orders_with_a_nonempty_f_value`, a strict partition
   of that denominator that sums to 100% (see FR-008; orders with an empty `f` value are excluded
   from both numerator and denominator, not counted toward `qualifying_orders` in this ratio).
-  `pm` can carry multiple values (`order.payment_method` is split on commas, e.g.
-  "SEPA,Bank transfer" → two values), so it is a usage ranking, not a per-order partition: the
+  `pm` can carry multiple values: `order.payment_method` is split on commas server-side before
+  publishing (e.g. "SEPA,Bank transfer" → two values), and each resulting value is its own array
+  element on the wire, not a single comma-joined tag value a consumer must re-split. So it is a
+  usage ranking, not a per-order partition: the
   payment-method distribution is `mentions_of_that_method / total_payment_method_mentions` across
   all qualifying orders, which also sums to 100% but ranks methods by how often they are offered,
   not by what share of orders offer them. A qualifying order whose `f` value is empty, or whose
@@ -347,14 +349,18 @@ not block the report if any single piece of this context is unavailable.
   Orders whose `pm` produces zero values are excluded from this computation. Reported as not
   applicable when every qualifying order's `pm` produces zero values, leaving a zero denominator.
   Method values MUST be compared exactly as published, byte for byte, with no trimming of
-  whitespace and no case normalization, since `order_to_tags` in `mostro/src/nip33.rs` performs
-  none when splitting `payment_method` on commas. "SEPA,Bank transfer" and "SEPA, Bank transfer"
-  therefore produce different values (`"Bank transfer"` vs. `" Bank transfer"`) and MUST be
-  reported as distinct methods; grouping near-duplicate labels together is a presentation-layer
+  whitespace and no case normalization. `pm` is a multi-value Nostr tag, not a single
+  comma-joined string: `order_to_tags` in `mostro/src/nip33.rs` splits `payment_method` on commas
+  server-side, but passes the resulting list directly as the tag's content, so each split token
+  becomes its own array element on the wire (e.g. `["pm", "SEPA", "Bank transfer"]`), never a
+  single value a consumer must re-split. Reading only the tag's first value would silently drop
+  every method after it. "SEPA,Bank transfer" and "SEPA, Bank transfer" as the two published
+  methods therefore produce different values (`"Bank transfer"` vs. `" Bank transfer"`) and MUST
+  be reported as distinct methods; grouping near-duplicate labels together is a presentation-layer
   decision, out of scope for this spec. Empty tokens from leading, trailing, or consecutive commas
   (as in `"SEPA,"`, `",SEPA"`, or `"SEPA,,Cash"`) never reach a published `pm` tag: `order_to_tags`
-  filters them out (`.filter(|s| !s.is_empty())`) before publishing, so a real event's `pm` values
-  are never empty strings. An empty value MUST NOT be counted as a method if one is ever
+  filters them out (`.filter(|s| !s.is_empty())`) before publishing, so a real event's `pm` array
+  never contains empty values. An empty value MUST NOT be counted as a method if one is ever
   encountered anyway, since that would only happen on a malformed or non-conforming event.
 - **FR-010**: System MUST compute `std_dev_trade_sats` as the population standard deviation (divide
   by `N`, not `N-1`) of trade size in sats across the same amt-restricted set defined in FR-002,
