@@ -40,6 +40,14 @@ pub struct OrderAggregate {
     /// successful order, only when it parses successfully. A missing, empty, or
     /// unparseable value is excluded rather than treated as `0`.
     pub premium_values: Vec<i64>,
+    /// PR 7d (002 FR-004): one entry per qualifying successful order, pairing its
+    /// `created_at` with its parsed `amt` (or `None` when `amt` did not parse) — the
+    /// activity grid's own input shape (`stats::grid::GridOrder`). `trade_amounts` and
+    /// `successful_trade_timestamps` above are two separately filtered lists (only
+    /// amt-parseable orders vs. every successful order) and cannot be zipped together;
+    /// this field is populated in the same loop as both, so the grid never needs a
+    /// second scan over the aggregated orders.
+    pub qualifying_orders: Vec<(i64, Option<u64>)>,
 }
 
 /// PR 3 (T084/T085): FR-002's full qualifying-order procedure — dedup by `d` tag to the
@@ -88,6 +96,7 @@ pub fn aggregate_order_events(order_events: Vec<Event>) -> OrderAggregate {
     let mut fiat_values: Vec<String> = Vec::new();
     let mut payment_method_mentions: Vec<String> = Vec::new();
     let mut premium_values: Vec<i64> = Vec::new();
+    let mut qualifying_orders: Vec<(i64, Option<u64>)> = Vec::new();
 
     // Process the final state of unique orders
     for (_order_id, event) in orders_map {
@@ -104,18 +113,21 @@ pub fn aggregate_order_events(order_events: Vec<Event>) -> OrderAggregate {
             let event_ts = event.created_at.as_u64() as i64;
             successful_trade_timestamps.push(event_ts);
 
-            // Get Amount 'amt' (sats)
-            if let Some(amt_str) = amt_tag(&event) {
-                if let Ok(amount) = amt_str.parse::<u64>() {
-                    // `amt` comes from an untrusted relay event; saturating_add avoids a
-                    // panic (debug) or silent wraparound (release) on a crafted extreme
-                    // value, per Principle VI (no panics on user-facing paths). No
-                    // observable difference for any realistic sat amount (bounded by the
-                    // 21M BTC supply, far below u64::MAX).
-                    total_volume_sats = total_volume_sats.saturating_add(amount);
-                    trade_amounts.push(amount);
-                }
+            // Get Amount 'amt' (sats). Parsed once and reused for both `trade_amounts`
+            // (the amt-restricted set) and `qualifying_orders` (paired with this same
+            // order's timestamp for the activity grid), rather than re-parsing it twice.
+            let amount_sats: Option<u64> =
+                amt_tag(&event).and_then(|amt_str| amt_str.parse::<u64>().ok());
+            if let Some(amount) = amount_sats {
+                // `amt` comes from an untrusted relay event; saturating_add avoids a
+                // panic (debug) or silent wraparound (release) on a crafted extreme
+                // value, per Principle VI (no panics on user-facing paths). No
+                // observable difference for any realistic sat amount (bounded by the
+                // 21M BTC supply, far below u64::MAX).
+                total_volume_sats = total_volume_sats.saturating_add(amount);
+                trade_amounts.push(amount);
             }
+            qualifying_orders.push((event_ts, amount_sats));
 
             // Get fiat currency 'f' (FR-008): excluded entirely when empty.
             if let Some(fiat) = f_tag(&event) {
@@ -150,6 +162,7 @@ pub fn aggregate_order_events(order_events: Vec<Event>) -> OrderAggregate {
         fiat_values,
         payment_method_mentions,
         premium_values,
+        qualifying_orders,
     }
 }
 
@@ -310,6 +323,45 @@ mod tests {
         assert_eq!(
             aggregate.payment_method_mentions,
             vec!["SEPA".to_string(), "Bank transfer".to_string()]
+        );
+    }
+
+    /// PR 7d (002 FR-004): `qualifying_orders` pairs each qualifying successful order's
+    /// timestamp with its parsed `amt` (or `None` when unparseable), one entry per
+    /// successful order — the same set `successful_trade_timestamps` covers, not the
+    /// smaller `trade_amounts`-only set.
+    #[test]
+    fn aggregate_order_events_pairs_each_successful_orders_timestamp_with_its_parsed_amount() {
+        let with_amount = make_event(
+            38383,
+            100,
+            vec![("d", "order-1"), ("s", "success"), ("amt", "500")],
+        );
+        let malformed_amount = make_event(
+            38383,
+            200,
+            vec![("d", "order-2"), ("s", "success"), ("amt", "not-a-number")],
+        );
+        let missing_amount = make_event(38383, 300, vec![("d", "order-3"), ("s", "success")]);
+        let not_successful = make_event(
+            38383,
+            400,
+            vec![("d", "order-4"), ("s", "pending"), ("amt", "999")],
+        );
+
+        let aggregate = aggregate_order_events(vec![
+            with_amount,
+            malformed_amount,
+            missing_amount,
+            not_successful,
+        ]);
+
+        let mut qualifying_orders = aggregate.qualifying_orders.clone();
+        qualifying_orders.sort_by_key(|(created_at, _)| *created_at);
+
+        assert_eq!(
+            qualifying_orders,
+            vec![(100, Some(500)), (200, None), (300, None)]
         );
     }
 

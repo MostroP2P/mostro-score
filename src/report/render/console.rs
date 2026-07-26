@@ -1,336 +1,494 @@
-use crate::models::dev_fee::DevFeeAggregate;
-use crate::models::order::OrderAggregate;
-use crate::report::format::format_relative_time;
-use colored::Colorize;
-use nostr_sdk::prelude::*;
+//! The console renderer (002 FR-001, FR-013, FR-015): renders a fully assembled
+//! `Report`'s 5 ordered sections — node identity, relay fetch summary, activity grid,
+//! general statistics, recommendations — to an arbitrary writer, colored and
+//! width-adaptive when color is enabled and the destination is a real terminal.
+//!
+//! PR 7d supersedes PR 1 Step C's original ad hoc `render_*_section` functions entirely
+//! (they predated the `Report` model and never showed the fiat/payment-method
+//! breakdowns, premium signal, bond policy, disputes, or activity grid PR 5/PR 6/PR 7a-c
+//! already compute). The two pure debug/scaffolding blocks those functions printed
+//! (`=== SAMPLE EVENTS ===`, `=== DEBUG INFORMATION ===`) are removed outright, not
+//! migrated: they were PR1-era debugging aids, never part of spec 002's 5-section report
+//! (FR-001), and are superseded by this renderer's own fetch section (FR-003).
 
-/// PR 1 Step C: every remaining formatting/coloring `writeln!` call from the wrapped
-/// function body, moved verbatim into one function per report section. `run()`'s only
-/// job past this point is to gather already-computed values and call these in sequence.
-pub fn render_identity_header(out: &mut impl std::io::Write, public_key: PublicKey) -> Result<()> {
-    writeln!(out, "Analyzing Mostro Node: {}", public_key.to_bech32()?)?;
-    writeln!(out, "Hex: {}", public_key.to_hex())?;
-    Ok(())
+use crate::report::content::ReportRecommendations;
+use crate::report::format::{
+    color_enabled_for_stdout, display_or_not_applicable, format_decimal_thousands,
+    format_relative_time, format_sats_thousands,
+};
+use crate::report::model::{
+    RelayStatus, Report, ReportActivity, ReportFetch, ReportNode, ReportStats,
+};
+use crate::stats::grid::Granularity;
+use anstyle::{AnsiColor, Style};
+use comfy_table::{presets::UTF8_FULL, ContentArrangement, Table};
+use std::io::Write;
+
+fn heading_style() -> Style {
+    Style::new().bold()
 }
 
-pub fn render_connecting_message(out: &mut impl std::io::Write) -> Result<()> {
-    writeln!(
-        out,
-        "Connected to relays. Fetching history... (this might take a moment)"
-    )?;
-    Ok(())
+fn warning_style() -> Style {
+    Style::new().fg_color(Some(AnsiColor::Yellow.into()))
 }
 
-pub fn render_fetched_count(out: &mut impl std::io::Write, count: usize) -> Result<()> {
-    writeln!(out, "Fetched {} events. Analyzing...", count)?;
-    Ok(())
-}
-
-pub fn render_sample_events(out: &mut impl std::io::Write, events: &[Event]) -> Result<()> {
-    writeln!(out, "\n=== SAMPLE EVENTS (first 3) ===")?;
-    for (idx, event) in events.iter().take(3).enumerate() {
-        writeln!(out, "\nEvent #{}", idx + 1)?;
-        writeln!(out, "  ID: {}", event.id)?;
-        writeln!(out, "  created_at: {}", event.created_at)?;
-        writeln!(out, "  Tags:")?;
-        for tag in event.tags.iter() {
-            writeln!(out, "    {:?}", tag.as_slice())?;
-        }
-    }
-    writeln!(out, "==============================\n")?;
-    Ok(())
-}
-
-pub fn render_partition_summary(
-    out: &mut impl std::io::Write,
-    dev_fee_count: usize,
-    order_count: usize,
-) -> Result<()> {
-    writeln!(
-        out,
-        "Found {} dev fee events and {} order events",
-        dev_fee_count, order_count
-    )?;
-    Ok(())
-}
-
-/// PR 2 (T070/T071): the success case is report content (`out`); the "no dev fee events"
-/// branch is a diagnostic warning about data availability, not a report figure (`err`).
-/// PR 4: `has_qualifying_orders` distinguishes an actual fallback (orders exist) from a
-/// node with neither anchor at all (e.g. dispute/instance-status-only) — claiming a
-/// fallback to "order timestamps" when there are no orders to fall back to would be
-/// false diagnostic output.
-pub fn render_dev_fee_section(
-    out: &mut impl std::io::Write,
-    err: &mut impl std::io::Write,
-    aggregate: &DevFeeAggregate,
-    has_qualifying_orders: bool,
-) -> Result<()> {
-    if let Some(first_dev_fee_ts) = aggregate.first_dev_fee_ts {
-        writeln!(out, "\n=== MOSTRO TRADING ACTIVITY ===")?;
-        writeln!(
-            out,
-            "First dev fee payment: {}",
-            chrono::DateTime::from_timestamp(first_dev_fee_ts, 0).unwrap_or_default()
-        )?;
-        writeln!(out, "Total dev fee events: {}", aggregate.count)?;
-        writeln!(out, "================================\n")?;
+/// Applies `style`'s ANSI codes around `text` only when `color_enabled` is true — the
+/// one place every colored line in this renderer goes through, so FR-015's "color
+/// disabled" case is a single code path rather than one per call site.
+fn styled(text: &str, style: Style, color_enabled: bool) -> String {
+    if color_enabled {
+        format!("{style}{text}{style:#}")
     } else {
-        writeln!(
-            err,
-            "\n⚠ Warning: No dev fee events found (z=dev-fee-payment, y=mostro)."
-        )?;
-        if has_qualifying_orders {
-            writeln!(
-                err,
-                "Falling back to order timestamps for days_active calculation.\n"
-            )?;
+        text.to_string()
+    }
+}
+
+fn new_table() -> Table {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+    table
+}
+
+fn heading(out: &mut impl Write, title: &str, color_enabled: bool) -> std::io::Result<()> {
+    writeln!(out, "{}", styled(title, heading_style(), color_enabled))
+}
+
+/// 002 FR-002: the node identity header — both pubkey encodings, so a trader can confirm
+/// they queried the intended node.
+fn render_node_section(
+    out: &mut impl Write,
+    node: &ReportNode,
+    color_enabled: bool,
+) -> std::io::Result<()> {
+    heading(out, "=== NODE IDENTITY ===", color_enabled)?;
+    writeln!(out, "Pubkey (npub): {}", node.pubkey_npub)?;
+    writeln!(out, "Pubkey (hex):  {}", node.pubkey_hex)?;
+    writeln!(out)
+}
+
+/// 002 FR-003: which relays succeeded or failed, plus the deduplicated per-kind event
+/// counts backing every other section of the report.
+fn render_fetch_section(
+    out: &mut impl Write,
+    fetch: &ReportFetch,
+    color_enabled: bool,
+) -> std::io::Result<()> {
+    heading(out, "=== RELAY FETCH SUMMARY ===", color_enabled)?;
+
+    let mut table = new_table();
+    table.set_header(vec!["Relay", "Status", "Error"]);
+    for relay in &fetch.relays {
+        let status = match relay.status {
+            RelayStatus::Success => "success",
+            RelayStatus::Failed => "failed",
+        };
+        table.add_row(vec![
+            relay.url.clone(),
+            status.to_string(),
+            relay.error.clone().unwrap_or_else(|| "-".to_string()),
+        ]);
+    }
+    writeln!(out, "{table}")?;
+
+    writeln!(
+        out,
+        "Dev-fee events (backs Longevity):        {}",
+        fetch.dev_fee_events
+    )?;
+    writeln!(
+        out,
+        "Order events (before dedup):             {}",
+        fetch.order_events
+    )?;
+    writeln!(
+        out,
+        "Unique orders (after dedup):             {}",
+        fetch.unique_orders
+    )?;
+    writeln!(
+        out,
+        "Dispute events (backs Dispute Signals):  {}",
+        fetch.dispute_events
+    )?;
+    writeln!(
+        out,
+        "Instance status found (backs Bond Policy): {}",
+        if fetch.instance_status_found {
+            "yes"
         } else {
+            "no"
+        }
+    )?;
+    writeln!(out)
+}
+
+fn granularity_label(granularity: Granularity) -> &'static str {
+    match granularity {
+        Granularity::Daily => "daily",
+        Granularity::Monthly => "monthly",
+        Granularity::Yearly => "yearly",
+    }
+}
+
+/// 002 FR-004/FR-005: one row per time bucket. A node with zero successful orders has no
+/// order timestamp to anchor a range on (002 FR-019's zero-order Edge Case), so this
+/// shows an explicit message instead of an empty table.
+fn render_activity_section(
+    out: &mut impl Write,
+    activity: &ReportActivity,
+    color_enabled: bool,
+) -> std::io::Result<()> {
+    heading(out, "=== ACTIVITY GRID ===", color_enabled)?;
+
+    if activity.buckets.is_empty() {
+        writeln!(out, "No order history to build an activity grid from.")?;
+        return writeln!(out);
+    }
+
+    writeln!(
+        out,
+        "Granularity: {}",
+        activity
+            .granularity
+            .map(granularity_label)
+            .unwrap_or("unknown")
+    )?;
+
+    let mut table = new_table();
+    table.set_header(vec![
+        "Bucket Start",
+        "Trades",
+        "Volume (sats)",
+        "Median Trade (sats)",
+    ]);
+    for bucket in &activity.buckets {
+        table.add_row(vec![
+            bucket.bucket_start.clone(),
+            bucket.successful_trades.to_string(),
+            format_sats_thousands(bucket.volume_sats),
+            bucket
+                .median_trade_sats
+                .map(format_decimal_thousands)
+                .unwrap_or_else(|| display_or_not_applicable::<f64>(None)),
+        ]);
+    }
+    writeln!(out, "{table}")?;
+    writeln!(out)
+}
+
+/// 002 FR-006/FR-007, FR-008b: the general statistics section — one sub-block per
+/// `ReportStats` field, each labeled with enough context that a trader unfamiliar with
+/// Mostro's reputation metrics understands what it measures without leaving the tool.
+fn render_stats_section(
+    out: &mut impl Write,
+    stats: &ReportStats,
+    now_rfc3339: &str,
+    color_enabled: bool,
+) -> std::io::Result<()> {
+    heading(out, "=== GENERAL STATISTICS ===", color_enabled)?;
+
+    writeln!(
+        out,
+        "-- Longevity (time since this node's first activity) --"
+    )?;
+    writeln!(
+        out,
+        "First seen:  {}",
+        display_or_not_applicable(stats.longevity.first_seen_at.clone())
+    )?;
+    writeln!(
+        out,
+        "Days active: {}",
+        stats
+            .longevity
+            .days_active
+            .map(format_decimal_thousands)
+            .unwrap_or_else(|| display_or_not_applicable::<f64>(None))
+    )?;
+    writeln!(out)?;
+
+    writeln!(out, "-- Cumulative Performance (lifetime trade history) --")?;
+    writeln!(
+        out,
+        "Total successful trades: {}",
+        stats.cumulative.total_successful_trades
+    )?;
+    writeln!(
+        out,
+        "Total volume:            {} sats",
+        format_sats_thousands(stats.cumulative.total_volume_sats)
+    )?;
+    writeln!(out)?;
+
+    writeln!(
+        out,
+        "-- Trade Statistics (higher consistency, i.e. lower coefficient of variation, is favorable) --"
+    )?;
+    writeln!(
+        out,
+        "Min trade:    {} sats",
+        stats
+            .trade_size
+            .min_trade_sats
+            .map(format_sats_thousands)
+            .unwrap_or_else(|| display_or_not_applicable::<u64>(None))
+    )?;
+    writeln!(
+        out,
+        "Max trade:    {} sats",
+        stats
+            .trade_size
+            .max_trade_sats
+            .map(format_sats_thousands)
+            .unwrap_or_else(|| display_or_not_applicable::<u64>(None))
+    )?;
+    writeln!(
+        out,
+        "Mean trade:   {} sats",
+        stats
+            .trade_size
+            .mean_trade_sats
+            .map(format_decimal_thousands)
+            .unwrap_or_else(|| display_or_not_applicable::<f64>(None))
+    )?;
+    writeln!(
+        out,
+        "Median trade: {} sats",
+        stats
+            .trade_size
+            .median_trade_sats
+            .map(format_decimal_thousands)
+            .unwrap_or_else(|| display_or_not_applicable::<f64>(None))
+    )?;
+    writeln!(
+        out,
+        "Std dev:      {} sats",
+        stats
+            .trade_size
+            .std_dev_trade_sats
+            .map(format_decimal_thousands)
+            .unwrap_or_else(|| display_or_not_applicable::<f64>(None))
+    )?;
+    writeln!(
+        out,
+        "Coefficient of variation: {}",
+        display_or_not_applicable(stats.trade_size.coefficient_of_variation)
+    )?;
+    writeln!(out)?;
+
+    writeln!(
+        out,
+        "-- Liveness (most direct signal of current activity) --"
+    )?;
+    match &stats.liveness.last_successful_trade_at {
+        Some(last_successful_trade_at) => {
+            let relative = relative_time_from_rfc3339(last_successful_trade_at, now_rfc3339)
+                .unwrap_or_default();
             writeln!(
-                err,
-                "No successful orders either; days_active is not applicable.\n"
+                out,
+                "Last successful trade: {last_successful_trade_at} ({relative})"
+            )?;
+        }
+        None => {
+            writeln!(
+                out,
+                "Last successful trade: {}",
+                styled(
+                    "No successful trades recorded",
+                    warning_style(),
+                    color_enabled
+                )
             )?;
         }
     }
-    Ok(())
+    writeln!(
+        out,
+        "Days since last trade: {}",
+        display_or_not_applicable(stats.liveness.days_since_last_trade)
+    )?;
+    writeln!(
+        out,
+        "Trades last 7 days:   {}",
+        stats.liveness.successful_trades_last_7d
+    )?;
+    writeln!(
+        out,
+        "Trades last 30 days:  {}",
+        stats.liveness.successful_trades_last_30d
+    )?;
+    writeln!(
+        out,
+        "Trades last 90 days:  {}",
+        stats.liveness.successful_trades_last_90d
+    )?;
+    writeln!(out)?;
+
+    writeln!(out, "-- Activity Consistency (fixed 30-day window) --")?;
+    writeln!(
+        out,
+        "Active days:                    {}/30",
+        stats.consistency.active_days_last_30d
+    )?;
+    writeln!(
+        out,
+        "Max consecutive inactive days:   {}",
+        stats.consistency.max_consecutive_inactive_days_last_30d
+    )?;
+    writeln!(out)?;
+
+    writeln!(
+        out,
+        "-- Dispute Signals (no cross-node baseline; raw counts only) --"
+    )?;
+    writeln!(
+        out,
+        "Total disputes:          {}",
+        stats.disputes.total_disputes
+    )?;
+    writeln!(
+        out,
+        "Resolved disputes:       {}",
+        stats.disputes.resolved_disputes
+    )?;
+    writeln!(
+        out,
+        "Active disputes:         {}",
+        stats.disputes.active_disputes
+    )?;
+    writeln!(
+        out,
+        "Unknown-status disputes: {}",
+        stats.disputes.unknown_status_disputes
+    )?;
+    writeln!(
+        out,
+        "Disputes per 100 trades: {}",
+        stats
+            .disputes
+            .disputes_per_100_trades
+            .map(format_decimal_thousands)
+            .unwrap_or_else(|| display_or_not_applicable::<f64>(None))
+    )?;
+    writeln!(out)?;
+
+    writeln!(out, "-- Fiat Breakdown --")?;
+    match &stats.fiat_breakdown.distribution {
+        Some(distribution) if !distribution.is_empty() => {
+            let mut table = new_table();
+            table.set_header(vec!["Currency", "Orders", "Share %"]);
+            for share in distribution {
+                table.add_row(vec![
+                    share.currency.clone(),
+                    share.orders.to_string(),
+                    format_decimal_thousands(share.share_percent),
+                ]);
+            }
+            writeln!(out, "{table}")?;
+        }
+        _ => writeln!(out, "No fiat currency data available.")?,
+    }
+    writeln!(out)?;
+
+    writeln!(out, "-- Payment Method Breakdown --")?;
+    match &stats.payment_method_breakdown.distribution {
+        Some(distribution) if !distribution.is_empty() => {
+            let mut table = new_table();
+            table.set_header(vec!["Method", "Mentions", "Share %"]);
+            for share in distribution {
+                table.add_row(vec![
+                    share.method.clone(),
+                    share.mentions.to_string(),
+                    format_decimal_thousands(share.share_percent),
+                ]);
+            }
+            writeln!(out, "{table}")?;
+        }
+        _ => writeln!(out, "No payment-method data available.")?,
+    }
+    writeln!(out)?;
+
+    writeln!(
+        out,
+        "-- Premium Signal (compared against this node's own history only) --"
+    )?;
+    writeln!(
+        out,
+        "Baseline (median):    {}",
+        stats
+            .premium
+            .premium_baseline_percent
+            .map(format_decimal_thousands)
+            .unwrap_or_else(|| display_or_not_applicable::<f64>(None))
+    )?;
+    writeln!(
+        out,
+        "Dispersion (std dev): {}",
+        stats
+            .premium
+            .premium_dispersion_percent
+            .map(format_decimal_thousands)
+            .unwrap_or_else(|| display_or_not_applicable::<f64>(None))
+    )?;
+    writeln!(out)?;
+
+    writeln!(
+        out,
+        "-- Bond Policy (whether this node requires a bond deposit from traders) --"
+    )?;
+    writeln!(out, "Status: {}", stats.bond_policy.status)?;
+    writeln!(out)
 }
 
-/// PR 2 (T070/T071): entirely diagnostic (`err`), never report content. T074/T075: the `s`
-/// tag distribution is sorted by key before printing, since it comes from `HashMap`
-/// iteration and would otherwise vary nondeterministically between runs.
-pub fn render_order_debug_section(
-    err: &mut impl std::io::Write,
-    aggregate: &OrderAggregate,
-) -> Result<()> {
-    writeln!(err, "\n=== DEBUG INFORMATION ===")?;
-    writeln!(
-        err,
-        "Total order events fetched: {}",
-        aggregate.total_order_count
-    )?;
-    writeln!(
-        err,
-        "Unique orders after deduplication: {}",
-        aggregate.unique_order_count
-    )?;
-
-    if !aggregate.s_tag_distribution.is_empty() {
-        writeln!(err, "\nStatus distribution for order events (s tag):")?;
-        let mut sorted: Vec<(&String, &usize)> = aggregate.s_tag_distribution.iter().collect();
-        sorted.sort_by(|a, b| a.0.cmp(b.0));
-        for (status, count) in sorted {
-            writeln!(err, "  s='{}': {} events", status, count)?;
-        }
+/// 002 FR-008/FR-008a: plain-language guidance, explicitly stating there is nothing
+/// notable to flag when no trigger fired, rather than omitting the block.
+fn render_recommendations_section(
+    out: &mut impl Write,
+    recommendations: &ReportRecommendations,
+    color_enabled: bool,
+) -> std::io::Result<()> {
+    heading(out, "=== RECOMMENDATIONS ===", color_enabled)?;
+    if recommendations.nothing_notable {
+        writeln!(out, "Nothing notable to flag.")?;
     } else {
-        writeln!(err, "\nNo order events found with s tags")?;
-    }
-    writeln!(err, "========================\n")?;
-    Ok(())
-}
-
-pub fn render_report_header(out: &mut impl std::io::Write, public_key: PublicKey) -> Result<()> {
-    writeln!(
-        out,
-        "\n{}",
-        "========================================".cyan()
-    )?;
-    writeln!(
-        out,
-        "{}",
-        "     MOSTRO NODE REPUTATION REPORT     ".cyan().bold()
-    )?;
-    writeln!(out, "{}", "========================================".cyan())?;
-    writeln!(out, "Node: {}", public_key.to_bech32()?)?;
-    Ok(())
-}
-
-pub fn render_longevity_section(
-    out: &mut impl std::io::Write,
-    days_active: Option<f64>,
-    instance_started: Option<i64>,
-) -> Result<()> {
-    writeln!(
-        out,
-        "{}",
-        "----------------------------------------".dimmed()
-    )?;
-    writeln!(out, "{}", "LONGEVITY".bold())?;
-    match (instance_started, days_active) {
-        (Some(start_ts), Some(days)) => {
-            writeln!(
-                out,
-                "  First Activity:  {}",
-                chrono::DateTime::from_timestamp(start_ts, 0).unwrap_or_default()
-            )?;
-            writeln!(out, "  Days Active:     {:.1} days", days)?;
-        }
-        (None, Some(days)) => {
-            writeln!(
-                out,
-                "  {} Days Active:     {:.1} days (estimated from orders)",
-                "⚠".yellow(),
-                days
-            )?;
-        }
-        (_, None) => {
-            writeln!(
-                out,
-                "  {} Days Active:     N/A (no dev-fee anchor or successful orders)",
-                "⚠".yellow()
-            )?;
+        for item in &recommendations.items {
+            writeln!(out, "- {}", item.message)?;
         }
     }
-    Ok(())
+    writeln!(out)
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn render_liveness_section(
-    out: &mut impl std::io::Write,
-    last_successful_trade_at: Option<i64>,
-    now: i64,
-    days_since_last: Option<u64>,
-) -> Result<()> {
-    writeln!(
-        out,
-        "{}",
-        "----------------------------------------".dimmed()
-    )?;
-    writeln!(out, "{}", "LIVENESS".bold())?;
-    if let (Some(last_successful_trade_at), Some(days_since_last)) =
-        (last_successful_trade_at, days_since_last)
-    {
-        let relative_time = format_relative_time(last_successful_trade_at, now);
-        let last_trade_display = format!(
-            "  Last Trade:      {} ({})",
-            chrono::DateTime::from_timestamp(last_successful_trade_at, 0).unwrap_or_default(),
-            relative_time
-        );
-
-        // Color based on activity status
-        if days_since_last > 30 {
-            writeln!(out, "{}", last_trade_display.red())?;
-            writeln!(
-                out,
-                "  Days Since Last: {} {}",
-                days_since_last,
-                "INACTIVE".red().bold()
-            )?;
-        } else if days_since_last > 7 {
-            writeln!(out, "{}", last_trade_display.yellow())?;
-            writeln!(
-                out,
-                "  Days Since Last: {} {}",
-                days_since_last,
-                "LOW ACTIVITY".yellow()
-            )?;
-        } else {
-            writeln!(out, "{}", last_trade_display.green())?;
-            writeln!(
-                out,
-                "  Days Since Last: {} {}",
-                days_since_last,
-                "ACTIVE".green()
-            )?;
-        }
-    } else {
-        writeln!(out, "  {} No successful trades recorded", "⚠".yellow())?;
-    }
-    Ok(())
+/// Parses two RFC 3339 UTC strings and returns `format_relative_time`'s phrase for the
+/// gap between them, or `None` if either fails to parse (defensive only — both strings
+/// come from this same process's own `report::model` formatting, so a parse failure here
+/// would indicate a bug elsewhere, not bad external input).
+fn relative_time_from_rfc3339(timestamp_rfc3339: &str, now_rfc3339: &str) -> Option<String> {
+    let timestamp = chrono::DateTime::parse_from_rfc3339(timestamp_rfc3339)
+        .ok()?
+        .timestamp();
+    let now = chrono::DateTime::parse_from_rfc3339(now_rfc3339)
+        .ok()?
+        .timestamp();
+    Some(format_relative_time(timestamp, now))
 }
 
-pub fn render_recent_activity_section(
-    out: &mut impl std::io::Write,
-    trades_7d: usize,
-    trades_30d: usize,
-    trades_90d: usize,
-) -> Result<()> {
-    writeln!(
-        out,
-        "{}",
-        "----------------------------------------".dimmed()
-    )?;
-    writeln!(out, "{}", "RECENT ACTIVITY".bold())?;
-    writeln!(out, "  Last 7 days:     {} trades", trades_7d)?;
-    writeln!(out, "  Last 30 days:    {} trades", trades_30d)?;
-    writeln!(out, "  Last 90 days:    {} trades", trades_90d)?;
-    Ok(())
-}
+/// The console renderer's public entry point (002 FR-001, FR-013, FR-015): renders every
+/// one of the `Report`'s 5 ordered sections to `out`. `force_color` threads PR 9's future
+/// `--color`/`--no-color` override through today; `None` defers to the automatic
+/// tty/`NO_COLOR`/`TERM=dumb` policy in `report::format::color_enabled_for_stdout`.
+pub fn render(
+    out: &mut impl Write,
+    report: &Report,
+    force_color: Option<bool>,
+) -> std::io::Result<()> {
+    let color_enabled = color_enabled_for_stdout(force_color);
 
-pub fn render_activity_consistency_section(
-    out: &mut impl std::io::Write,
-    active_days_30d: usize,
-    max_inactive_gap: usize,
-) -> Result<()> {
-    writeln!(
-        out,
-        "{}",
-        "----------------------------------------".dimmed()
-    )?;
-    writeln!(out, "{}", "ACTIVITY CONSISTENCY (30 days)".bold())?;
-    writeln!(out, "  Active Days:     {}/30", active_days_30d)?;
-    if max_inactive_gap > 7 {
-        writeln!(
-            out,
-            "  Max Inactive Gap: {} days {}",
-            max_inactive_gap,
-            "⚠".yellow()
-        )?;
-    } else {
-        writeln!(out, "  Max Inactive Gap: {} days", max_inactive_gap)?;
-    }
-    Ok(())
-}
-
-pub fn render_cumulative_performance_section(
-    out: &mut impl std::io::Write,
-    successful_orders: usize,
-    total_volume_sats: u64,
-) -> Result<()> {
-    writeln!(
-        out,
-        "{}",
-        "----------------------------------------".dimmed()
-    )?;
-    writeln!(out, "{}", "CUMULATIVE PERFORMANCE".bold())?;
-    writeln!(out, "  Successful Trades: {}", successful_orders)?;
-    writeln!(
-        out,
-        "  Total Volume:      {} sats ({:.4} BTC)",
-        total_volume_sats,
-        total_volume_sats as f64 / 100_000_000.0
-    )?;
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn render_trade_statistics_section(
-    out: &mut impl std::io::Write,
-    min_trade: Option<u64>,
-    max_trade: Option<u64>,
-    mean_trade: Option<f64>,
-    median_trade: Option<f64>,
-) -> Result<()> {
-    writeln!(
-        out,
-        "{}",
-        "----------------------------------------".dimmed()
-    )?;
-    writeln!(out, "{}", "TRADE STATISTICS".bold())?;
-    match (min_trade, max_trade, mean_trade, median_trade) {
-        (Some(min_trade), Some(max_trade), Some(mean_trade), Some(median_trade)) => {
-            writeln!(out, "  Min Trade:       {} sats", min_trade)?;
-            writeln!(out, "  Max Trade:       {} sats", max_trade)?;
-            writeln!(out, "  Mean Trade:      {:.0} sats", mean_trade)?;
-            writeln!(out, "  Median Trade:    {:.1} sats", median_trade)?;
-        }
-        _ => {
-            writeln!(
-                out,
-                "  {} N/A (no successful orders with a parseable amount)",
-                "⚠".yellow()
-            )?;
-        }
-    }
+    render_node_section(out, &report.node, color_enabled)?;
+    render_fetch_section(out, &report.fetch, color_enabled)?;
+    render_activity_section(out, &report.activity, color_enabled)?;
+    render_stats_section(out, &report.stats, &report.generated_at, color_enabled)?;
+    render_recommendations_section(out, &report.recommendations, color_enabled)?;
     Ok(())
 }
 
@@ -338,59 +496,48 @@ pub fn render_trade_statistics_section(
 mod tests {
     use super::*;
 
-    fn rendered(f: impl FnOnce(&mut Vec<u8>) -> Result<()>) -> String {
+    fn rendered(f: impl FnOnce(&mut Vec<u8>) -> std::io::Result<()>) -> String {
         let mut out: Vec<u8> = Vec::new();
         f(&mut out).expect("render succeeds");
         String::from_utf8(out).expect("valid utf8")
     }
 
     #[test]
-    fn render_longevity_section_shows_first_activity_when_dev_fee_anchor_present() {
-        let output = rendered(|out| render_longevity_section(out, Some(90.0), Some(1_700_000_000)));
-        assert!(output.contains("First Activity"));
-        assert!(output.contains("Days Active:     90.0 days"));
+    fn styled_wraps_text_in_ansi_codes_only_when_color_is_enabled() {
+        let plain = styled("hello", heading_style(), false);
+        let colored = styled("hello", heading_style(), true);
+
+        assert_eq!(plain, "hello");
+        assert_ne!(colored, "hello");
+        assert!(colored.contains("hello"));
     }
 
     #[test]
-    fn render_longevity_section_shows_estimated_from_orders_when_only_fallback_available() {
-        let output = rendered(|out| render_longevity_section(out, Some(5.0), None));
-        assert!(output.contains("estimated from orders"));
-        assert!(!output.contains("First Activity"));
+    fn render_node_section_shows_both_pubkey_encodings() {
+        let node = ReportNode {
+            pubkey_hex: "abcd".to_string(),
+            pubkey_npub: "npub1abcd".to_string(),
+        };
+        let output = rendered(|out| render_node_section(out, &node, false));
+        assert!(output.contains("abcd"));
+        assert!(output.contains("npub1abcd"));
     }
 
     #[test]
-    fn render_longevity_section_shows_not_applicable_when_neither_anchor_exists() {
-        let output = rendered(|out| render_longevity_section(out, None, None));
-        assert!(output.contains("N/A"));
+    fn render_activity_section_shows_a_message_when_the_grid_is_empty() {
+        let activity = ReportActivity {
+            granularity: None,
+            range_start: None,
+            range_end: None,
+            buckets: Vec::new(),
+        };
+        let output = rendered(|out| render_activity_section(out, &activity, false));
+        assert!(output.contains("No order history"));
     }
 
     #[test]
-    fn render_liveness_section_shows_last_trade_when_present() {
-        let now = 1_700_100_000;
-        let output =
-            rendered(|out| render_liveness_section(out, Some(1_700_000_000), now, Some(1)));
-        assert!(output.contains("Last Trade"));
-    }
-
-    #[test]
-    fn render_liveness_section_reports_no_successful_trades_when_not_applicable() {
-        let output = rendered(|out| render_liveness_section(out, None, 1_700_000_000, None));
-        assert!(output.contains("No successful trades recorded"));
-    }
-
-    #[test]
-    fn render_trade_statistics_section_shows_values_when_all_present() {
-        let output = rendered(|out| {
-            render_trade_statistics_section(out, Some(10), Some(40), Some(25.0), Some(25.0))
-        });
-        assert!(output.contains("Min Trade:       10 sats"));
-        assert!(output.contains("Median Trade:    25.0 sats"));
-    }
-
-    #[test]
-    fn render_trade_statistics_section_shows_not_applicable_when_any_field_missing() {
-        let output = rendered(|out| render_trade_statistics_section(out, None, None, None, None));
-        assert!(output.contains("N/A"));
-        assert!(!output.contains("Min Trade"));
+    fn relative_time_from_rfc3339_computes_the_gap_between_two_timestamps() {
+        let relative = relative_time_from_rfc3339("2026-07-01T00:00:00Z", "2026-07-08T00:00:00Z");
+        assert_eq!(relative, Some("1 week ago".to_string()));
     }
 }

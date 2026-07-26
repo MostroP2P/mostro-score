@@ -237,8 +237,9 @@ pub struct Report {
 /// (002 FR-008, scoped to `report::content`'s 3 currently-implemented triggers — see
 /// its module doc comment). `activity_grid` is pre-computed by the caller
 /// (`stats::grid::compute_activity_grid`), not recomputed here — this function only
-/// assembles, matching every other `assemble_*_section` function's pattern. Not yet
-/// called by `run()` — a later PR wires this in once a renderer exists to consume it.
+/// assembles, matching every other `assemble_*_section` function's pattern. Called by
+/// `run()` in `lib.rs` (PR 7d), which passes the assembled `Report` to
+/// `report::render::console::render`.
 pub fn assemble_report(
     public_key: PublicKey,
     connection: &RelayConnectionOutcome,
