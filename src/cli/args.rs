@@ -12,20 +12,23 @@ use crate::stats::grid::Granularity;
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// Mostro Pubkey (npub or hex) to analyze. Falls back to `MOSTRO_SCORE_PUBKEY` when
-    /// omitted (003 FR-001/FR-003); with neither present, clap's own required-argument
-    /// handling rejects with its native usage error, exit code `2` (003 FR-013a).
+    /// omitted (003 FR-001/FR-003). Not required when `--init-config` is present (003
+    /// FR-017); `main.rs` enforces its requiredness itself, as a usage error (exit code
+    /// `2`, 003 FR-013a) for every other invocation, since clap's own native
+    /// required-argument handling cannot express "required unless another flag is
+    /// present".
     #[arg(short, long, env = "MOSTRO_SCORE_PUBKEY")]
-    pub pubkey: String,
+    pub pubkey: Option<String>,
 
     /// Relays to connect to (comma separated). Precedence: this flag, then
-    /// `MOSTRO_SCORE_RELAYS`, then the compiled-in default (003 FR-002/FR-003).
-    #[arg(
-        short,
-        long,
-        default_value = "wss://relay.mostro.network",
-        env = "MOSTRO_SCORE_RELAYS"
-    )]
-    pub relays: String,
+    /// `MOSTRO_SCORE_RELAYS`, then the configuration file's `relays` value (003
+    /// FR-016), then the compiled-in default `config::paths_defaults::DEFAULT_RELAY`
+    /// (003 FR-002/FR-003). Omitted means "not explicitly set" — no `default_value`
+    /// here, since a config-file value must be able to slot in between the
+    /// environment variable and the compiled default (`cli::options::resolve_relays`
+    /// composes the full chain).
+    #[arg(short, long, env = "MOSTRO_SCORE_RELAYS")]
+    pub relays: Option<String>,
 
     /// Output format: `console`, `plain`, or `json` (003 FR-010). Omitted means "not
     /// explicitly set" so `cli::options` can distinguish an explicit choice from the
@@ -71,6 +74,26 @@ pub struct Args {
     /// validated later by `cli::options`, matching `--since`/`--until`'s contract.
     #[arg(long)]
     pub sections: Option<String>,
+
+    /// Overrides the directory the tool reads its configuration file from (003
+    /// FR-014). When omitted, the platform-standard user configuration directory is
+    /// used (`config::paths_defaults::default_config_path`). `PathBuf`, not `String`:
+    /// a filesystem path is not guaranteed to be valid UTF-8 on Linux, and clap would
+    /// reject an otherwise-valid non-UTF-8 path with a usage error if this were a
+    /// `String`.
+    #[arg(short = 'd', long = "config-dir")]
+    pub config_dir: Option<std::path::PathBuf>,
+
+    /// Writes a starter configuration file to the resolved config path and exits `0`
+    /// without generating a report (003 FR-017/FR-019). Takes precedence over every
+    /// report-generating flag passed alongside it in the same invocation.
+    #[arg(long = "init-config", action = ArgAction::SetTrue)]
+    pub init_config: bool,
+
+    /// Allows `--init-config` to overwrite an existing configuration file (003
+    /// FR-018). Rejected as a usage error when passed without `--init-config`.
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub force: bool,
 }
 
 /// clap's own `ValueEnum`-derived mirror of `report::render::Format` (003 FR-010):

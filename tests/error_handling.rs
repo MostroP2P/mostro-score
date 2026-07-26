@@ -59,10 +59,20 @@ impl EventSource for FixtureEventSource {
 /// T064/T065: a syntactically invalid `--pubkey` exits `5` (002 FR-019), never reaching a
 /// relay. No network access — the pubkey parse failure short-circuits `main()` before
 /// `RelayEventSource` is even constructed.
+///
+/// PR 12: since every invocation now loads a real persisted configuration file (003
+/// FR-015/FR-016), `XDG_CONFIG_HOME` is pointed at a directory that does not exist so
+/// this test's outcome never silently depends on whatever configuration file happens to
+/// exist on the machine or CI runner actually running the suite (FR-015 treats a
+/// missing file the same as a genuinely absent one, silently).
 #[test]
 fn invalid_pubkey_exits_5() {
     let output = assert_cmd::Command::cargo_bin("mostro-score")
         .unwrap()
+        .env(
+            "XDG_CONFIG_HOME",
+            "/nonexistent-mostro-score-test-isolation-dir",
+        )
         .args(["--pubkey", "not-a-valid-pubkey"])
         .output()
         .expect("binary runs");

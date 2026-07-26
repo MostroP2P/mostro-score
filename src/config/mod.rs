@@ -1,3 +1,7 @@
-//! Stub scaffolding for the persisted-configuration module. The TOML schema,
-//! warn-and-ignore degradation, platform config-directory resolution, and
-//! `--init-config` scaffolding are implemented in PR 12 (003 FR-014..FR-019).
+//! Persisted-configuration subsystem (003 FR-014..FR-019): an optional, platform-located
+//! TOML file supplying persisted preferences for `--relays`, `--format`, `--view`, and
+//! color mode, plus the `--init-config` scaffolding mechanism and `--config-dir` override.
+
+pub mod file;
+pub mod init;
+pub mod paths_defaults;
