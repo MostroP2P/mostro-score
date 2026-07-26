@@ -21,6 +21,9 @@ fn default_test_options() -> RunOptions {
         format: Format::Console,
         quiet: false,
         color_override: Some(false),
+        since: None,
+        until: None,
+        view: None,
     }
 }
 

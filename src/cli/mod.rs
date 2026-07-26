@@ -4,4 +4,5 @@
 //! `mostro_score::run` need.
 
 pub mod args;
+pub mod duration;
 pub mod options;
