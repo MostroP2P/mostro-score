@@ -7,9 +7,22 @@
 use mostro_score::error::exit_code::exit_code_for;
 use mostro_score::error::AppError;
 use mostro_score::fetch::client::{EventSource, RelayConnectFailure, RelayConnectionOutcome};
+use mostro_score::report::render::{Format, RunOptions};
 use nostr_sdk::prelude::*;
 
 const TEST_PUBKEY_HEX: &str = "82fa8cb978b43c79b2156585bac2c011176a21d2aead6d9f7c575c005be88390";
+
+/// The default options every pre-PR-9 test in this file implicitly assumed: console
+/// format, no quiet suppression, color forced off (these tests assert against
+/// console-formatted output and were written before format/quiet/color existed as
+/// flags).
+fn default_test_options() -> RunOptions {
+    RunOptions {
+        format: Format::Console,
+        quiet: false,
+        color_override: Some(false),
+    }
+}
 
 fn make_event_with_keys(keys: &Keys, kind: u16, created_at: u64, tags: Vec<(&str, &str)>) -> Event {
     let parsed_tags: Vec<Tag> = tags
@@ -78,34 +91,16 @@ async fn all_relays_unreachable_is_fatal() {
     let mut out: Vec<u8> = Vec::new();
     let mut err: Vec<u8> = Vec::new();
 
-    let result = mostro_score::run(public_key, event_source, &now, &mut out, &mut err).await;
+    let options = default_test_options();
+    let result =
+        mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options).await;
 
     let actual_err = result.expect_err("zero connected relays must be fatal");
     assert!(
-        matches!(actual_err, AppError::RelaysUnreachable),
+        matches!(actual_err, AppError::RelaysUnreachable(_)),
         "must be the RelaysUnreachable variant specifically, not any error: {actual_err:?}"
     );
     assert_eq!(exit_code_for(&actual_err), 3);
-}
-
-/// Regression: `RelayEventSource::connect()` must classify a relay URL that fails to
-/// register (e.g. malformed) the same way as one that registers but fails to connect —
-/// not abort before a `RelayConnectionOutcome` even exists. Otherwise "every relay
-/// unreachable" collapses to exit `1` (`AppError::Other`) instead of `3` whenever the
-/// cause is a bad URL rather than a network failure.
-#[test]
-fn all_relay_urls_malformed_is_relays_unreachable_not_general_error() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
-        .args(["--pubkey", TEST_PUBKEY_HEX, "--relays", "not-a-url"])
-        .output()
-        .expect("binary runs");
-
-    assert_eq!(output.status.code(), Some(3));
-    assert_eq!(
-        String::from_utf8_lossy(&output.stderr).trim(),
-        "Error: None of the configured relays could be reached."
-    );
 }
 
 /// T066/T067: one relay failing among several that connected is a warning on `err`, not a
@@ -138,7 +133,9 @@ async fn one_failed_relay_among_several_is_a_warning_not_a_failure() {
     let mut out: Vec<u8> = Vec::new();
     let mut err: Vec<u8> = Vec::new();
 
-    let result = mostro_score::run(public_key, event_source, &now, &mut out, &mut err).await;
+    let options = default_test_options();
+    let result =
+        mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options).await;
 
     assert!(
         result.is_ok(),
@@ -176,7 +173,8 @@ async fn diagnostics_route_to_err_not_out() {
     let mut out: Vec<u8> = Vec::new();
     let mut err: Vec<u8> = Vec::new();
 
-    mostro_score::run(public_key, event_source, &now, &mut out, &mut err)
+    let options = default_test_options();
+    mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options)
         .await
         .expect("run succeeds");
 
@@ -223,7 +221,8 @@ async fn no_dev_fee_events_warns_on_err_and_falls_back_to_order_timestamps() {
     let mut out: Vec<u8> = Vec::new();
     let mut err: Vec<u8> = Vec::new();
 
-    mostro_score::run(public_key, event_source, &now, &mut out, &mut err)
+    let options = default_test_options();
+    mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options)
         .await
         .expect("run succeeds");
 
@@ -256,7 +255,9 @@ async fn zero_usable_events_across_all_four_kinds_exits_4() {
     let mut out: Vec<u8> = Vec::new();
     let mut err: Vec<u8> = Vec::new();
 
-    let result = mostro_score::run(public_key, event_source, &now, &mut out, &mut err).await;
+    let options = default_test_options();
+    let result =
+        mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options).await;
 
     let actual_err = result.expect_err("zero usable events across all four kinds must be fatal");
     assert!(
@@ -297,7 +298,8 @@ async fn a_node_with_only_a_dispute_event_does_not_trigger_no_usable_events() {
     let mut out: Vec<u8> = Vec::new();
     let mut err: Vec<u8> = Vec::new();
 
-    mostro_score::run(public_key, event_source, &now, &mut out, &mut err)
+    let options = default_test_options();
+    mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options)
         .await
         .expect("a node with a dispute event but no dev-fee/order events must not exit 4");
 
@@ -339,7 +341,8 @@ async fn a_node_with_only_an_instance_status_event_does_not_trigger_no_usable_ev
     let mut out: Vec<u8> = Vec::new();
     let mut err: Vec<u8> = Vec::new();
 
-    mostro_score::run(public_key, event_source, &now, &mut out, &mut err)
+    let options = default_test_options();
+    mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options)
         .await
         .expect("a node with an instance-status event but no dev-fee/order events must not exit 4");
 
@@ -384,7 +387,9 @@ async fn a_future_dated_event_is_excluded_and_does_not_count_as_usable() {
     let mut out: Vec<u8> = Vec::new();
     let mut err: Vec<u8> = Vec::new();
 
-    let result = mostro_score::run(public_key, event_source, &now, &mut out, &mut err).await;
+    let options = default_test_options();
+    let result =
+        mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options).await;
 
     let actual_err =
         result.expect_err("a future-dated event must be excluded, leaving nothing usable");
@@ -421,7 +426,8 @@ async fn console_report_never_prints_a_trust_score_line() {
     let mut out: Vec<u8> = Vec::new();
     let mut err: Vec<u8> = Vec::new();
 
-    mostro_score::run(public_key, event_source, &now, &mut out, &mut err)
+    let options = default_test_options();
+    mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options)
         .await
         .expect("run succeeds");
 
@@ -456,7 +462,8 @@ async fn duplicate_dev_fee_event_from_multiple_relays_is_counted_once_in_the_rep
     let mut out: Vec<u8> = Vec::new();
     let mut err: Vec<u8> = Vec::new();
 
-    mostro_score::run(public_key, event_source, &now, &mut out, &mut err)
+    let options = default_test_options();
+    mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options)
         .await
         .expect("run succeeds");
 

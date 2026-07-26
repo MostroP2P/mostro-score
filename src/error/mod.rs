@@ -25,9 +25,11 @@ pub enum AppError {
 
     /// 002 FR-019 exit code `3`: every configured relay failed to connect. A single failed
     /// relay among several that succeeded is a warning (Technical Context), not this
-    /// variant.
+    /// variant. Carries the list of relays that failed, needed to populate the JSON
+    /// fatal-error envelope's `error.relays` field (plan.md's fatal envelope contract,
+    /// PR 9).
     #[error("None of the configured relays could be reached.")]
-    RelaysUnreachable,
+    RelaysUnreachable(Vec<crate::fetch::client::RelayConnectFailure>),
 
     /// 002 FR-019 exit code `2`: a usage error detected by application code after argument
     /// parsing succeeds (e.g. `--force` without `--init-config`, `--since` after
@@ -75,7 +77,7 @@ mod tests {
     #[test]
     fn relays_unreachable_message_matches_the_user_facing_text() {
         assert_eq!(
-            AppError::RelaysUnreachable.to_string(),
+            AppError::RelaysUnreachable(vec![]).to_string(),
             "None of the configured relays could be reached."
         );
     }
