@@ -1,5 +1,7 @@
-//! Stub scaffolding for the CLI argument-parsing module. `main.rs`'s `Args` struct
-//! (clap derive) stays in `main.rs` for now; it moves here, alongside `--since`/`--until`
-//! parsing and the flag-precedence chain, in PR 9 (003 FR-001..FR-013a).
+//! The CLI argument-parsing module: `args` holds the clap-derived `Args` struct (moved
+//! out of `main.rs` in PR 9, 003 FR-001..FR-013a), and `options` resolves those parsed
+//! flags, plus environment/automatic-detection state, into the values `main.rs` and
+//! `mostro_score::run` need.
 
+pub mod args;
 pub mod options;

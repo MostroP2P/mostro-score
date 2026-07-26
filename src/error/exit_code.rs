@@ -8,7 +8,7 @@ use crate::error::AppError;
 pub fn exit_code_for(error: &AppError) -> i32 {
     match error {
         AppError::UsageError(_) => 2,
-        AppError::RelaysUnreachable => 3,
+        AppError::RelaysUnreachable(_) => 3,
         AppError::InvalidPubkey => 5,
         AppError::NoUsableEvents => 4,
         AppError::Other(_) => 1,
@@ -22,7 +22,7 @@ pub fn json_error_code_for(error: &AppError) -> &'static str {
     match error {
         AppError::Other(_) => "general_error",
         AppError::UsageError(_) => "usage_error",
-        AppError::RelaysUnreachable => "relays_unreachable",
+        AppError::RelaysUnreachable(_) => "relays_unreachable",
         AppError::NoUsableEvents => "no_usable_events",
         AppError::InvalidPubkey => "invalid_pubkey",
     }
@@ -39,7 +39,7 @@ mod tests {
 
     #[test]
     fn relays_unreachable_maps_to_exit_code_3() {
-        assert_eq!(exit_code_for(&AppError::RelaysUnreachable), 3);
+        assert_eq!(exit_code_for(&AppError::RelaysUnreachable(vec![])), 3);
     }
 
     #[test]
@@ -73,7 +73,7 @@ mod tests {
                 2,
                 "usage_error",
             ),
-            (AppError::RelaysUnreachable, 3, "relays_unreachable"),
+            (AppError::RelaysUnreachable(vec![]), 3, "relays_unreachable"),
             (AppError::NoUsableEvents, 4, "no_usable_events"),
             (AppError::InvalidPubkey, 5, "invalid_pubkey"),
         ];

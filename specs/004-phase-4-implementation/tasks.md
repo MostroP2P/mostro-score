@@ -299,16 +299,16 @@ work they described no longer applies.
 
 **Depends on**: 8. Requirements: 003 FR-001..FR-003, FR-010..FR-013a.
 
-- [ ] T168 [RED] Failing tests for `--pubkey`/`MOSTRO_SCORE_PUBKEY` and `--relays`/`MOSTRO_SCORE_RELAYS` precedence in `src/cli/options.rs`.
-- [ ] T169 [GREEN] Implement the precedence chain per 003 FR-001..FR-003 in `src/cli/options.rs`.
-- [ ] T170 [RED] Failing tests validating `--relays`/`MOSTRO_SCORE_RELAYS` well-formedness before any connection attempt, covering both the flag and the environment-variable path, expecting an actionable message naming the malformed relay string and exit code `2` (003's `--relays`/environment-variable Edge Case, FR-002/FR-003, FR-013a) — in `src/cli/options.rs`. No golden fixture to retire (see T099's note); this intentionally replaces the malformed-relay case's current generic `Client::add_relay` error (exit `1`, per `src/main.rs`'s catch-all — see `error::AppError::Other`) with the actionable usage-error/exit-`2` behavior.
-- [ ] T171 [GREEN] Implement pre-connection well-formedness validation for `--relays`/`MOSTRO_SCORE_RELAYS` in `src/cli/options.rs`, rejecting a malformed value with an actionable message and exit code `2` before `Client::add_relay` is ever called.
-- [ ] T172 [RED] Failing tests for `--format`, `--color`/`--no-color` mutual exclusion, `--quiet` validation in `src/cli/options.rs`.
-- [ ] T173 [GREEN] Implement resolution/validation per 003 FR-010..FR-013a in `src/cli/options.rs`.
-- [ ] T174 [RED] Failing test: `--quiet` suppresses the two transient status lines (`"Connected to relays. Fetching history..."` and `"Fetched {N} events. Analyzing..."`, routed to `err` in T072/T073) while required report content on `out` is unaffected, in `src/cli/options.rs`.
-- [ ] T175 [GREEN] Wire `--quiet` to suppress those two transient status lines per 003 FR-012 in `src/report/render/console.rs`.
-- [ ] T176 [RED] Failing binary-level test: `--help`/`--version` exit `0`.
-- [ ] T177 [GREEN] Wire `--help`/`--version` via clap derive in `src/cli/args.rs`.
+- [x] T168 [RED] Failing tests for `--pubkey`/`MOSTRO_SCORE_PUBKEY` and `--relays`/`MOSTRO_SCORE_RELAYS` precedence in `src/cli/options.rs`. **Implemented as binary-level tests in `tests/cli_flags.rs`** instead: precedence here is entirely native `clap` `env`/`default_value` behavior (no custom resolution code to unit-test in isolation), so the RED/GREEN cycle is proven end to end through the real binary.
+- [x] T169 [GREEN] Implement the precedence chain per 003 FR-001..FR-003 in `src/cli/options.rs`. **Implemented as `env = "MOSTRO_SCORE_PUBKEY"`/`env = "MOSTRO_SCORE_RELAYS"` attributes on `Args` in `src/cli/args.rs`** — clap's own flag > env > default precedence, zero custom code.
+- [x] T170 [RED] Failing tests validating `--relays`/`MOSTRO_SCORE_RELAYS` well-formedness before any connection attempt, covering both the flag and the environment-variable path, expecting an actionable message naming the malformed relay string and exit code `2` (003's `--relays`/environment-variable Edge Case, FR-002/FR-003, FR-013a) — in `src/cli/options.rs`. No golden fixture to retire (see T099's note); this intentionally replaces the malformed-relay case's current behavior of folding into `AppError::RelaysUnreachable` (exit `3`, via `RelayEventSource::connect()`'s `add_relay`-failure handling) with the actionable usage-error/exit-`2` behavior. Covered by unit tests in `src/cli/options.rs` plus binary-level tests (both flag and env path) in `tests/cli_flags.rs`; `tests/error_handling.rs`'s pre-existing malformed-relay regression test updated to assert the new exit-`2` behavior.
+- [x] T171 [GREEN] Implement pre-connection well-formedness validation for `--relays`/`MOSTRO_SCORE_RELAYS` in `src/cli/options.rs`, rejecting a malformed value with an actionable message and exit code `2` before `Client::add_relay` is ever called.
+- [x] T172 [RED] Failing tests for `--format`, `--color`/`--no-color` mutual exclusion, `--quiet` validation in `src/cli/options.rs`.
+- [x] T173 [GREEN] Implement resolution/validation per 003 FR-010..FR-013a in `src/cli/options.rs`.
+- [x] T174 [RED] Failing test: `--quiet` suppresses the two transient status lines (`"Connected to relays. Fetching history..."` and `"Fetched {N} events. Analyzing..."`, routed to `err` in T072/T073) while required report content on `out` is unaffected, in `src/cli/options.rs`. **Implemented as an integration test in `tests/cli_flags.rs`** exercising `mostro_score::run()` directly, since the suppression itself lives in `run()` (`src/lib.rs`), not in `cli::options`.
+- [x] T175 [GREEN] Wire `--quiet` to suppress those two transient status lines per 003 FR-012 in `src/report/render/console.rs`. **Implemented in `src/lib.rs`'s `run()`**, where those two `writeln!` calls actually live — `console.rs` never contained them.
+- [x] T176 [RED] Failing binary-level test: `--help`/`--version` exit `0`.
+- [x] T177 [GREEN] Wire `--help`/`--version` via clap derive in `src/cli/args.rs`.
 
 ---
 

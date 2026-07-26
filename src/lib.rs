@@ -24,7 +24,7 @@ use models::instance_status::aggregate_instance_status;
 use models::order::aggregate_order_events;
 use nostr_sdk::prelude::*;
 use report::model::assemble_report;
-use report::render::console;
+use report::render::{console, json, plain, Format, RunOptions};
 use stats::grid::{compute_activity_grid, GridOrder};
 use stats::NodeMetrics;
 
@@ -41,6 +41,7 @@ pub async fn run<E: EventSource>(
     now: &dyn Fn() -> chrono::DateTime<chrono::Utc>,
     out: &mut impl std::io::Write,
     err: &mut impl std::io::Write,
+    options: &RunOptions,
 ) -> Result<(), AppError> {
     // 2/3. Setup Client, add relays, connect — matches the original code's ordering:
     // a malformed relay fails here, before "Connected to relays" ever prints. T067/T069:
@@ -48,7 +49,7 @@ pub async fn run<E: EventSource>(
     // relays that did connect is a warning to `err`, not a failure (Technical Context).
     let connection = event_source.connect().await?;
     if connection.connected_count == 0 {
-        return Err(AppError::RelaysUnreachable);
+        return Err(AppError::RelaysUnreachable(connection.failed));
     }
     if !connection.failed.is_empty() {
         for failure in &connection.failed {
@@ -62,16 +63,24 @@ pub async fn run<E: EventSource>(
     // PR 7d: transient status, not report content (002 FR-017) — written directly as a
     // plain `writeln!` to `err`, matching the relay-warning loop above, now that the
     // ad hoc `console::render_connecting_message` wrapper it used to go through is
-    // removed along with the rest of PR 1's pre-`Report` renderer. `--quiet` suppresses
-    // this line later (PR 9's T174/T175).
-    writeln!(
-        err,
-        "Connected to relays. Fetching history... (this might take a moment)"
-    )?;
+    // removed along with the rest of PR 1's pre-`Report` renderer. PR 9 (003 FR-012):
+    // `--quiet` suppresses this line and the "Fetched N events" line below — both are
+    // transient status narration, never report content, so they are the only two lines
+    // `options.quiet` affects; the relay-warning loop above and the no-dev-fee-anchor
+    // warning below are diagnostic facts, not transient narration, and are never
+    // suppressed.
+    if !options.quiet {
+        writeln!(
+            err,
+            "Connected to relays. Fetching history... (this might take a moment)"
+        )?;
+    }
 
     // 4. Fetch every scoped event kind
     let events: Vec<Event> = event_source.fetch(public_key).await?;
-    writeln!(err, "Fetched {} events. Analyzing...", events.len())?;
+    if !options.quiet {
+        writeln!(err, "Fetched {} events. Analyzing...", events.len())?;
+    }
 
     // Captured once, here, and reused for both FR-014's future-event exclusion below
     // and the report's own "now" (Section 6): a single consistent instant for the
@@ -177,7 +186,14 @@ pub async fn run<E: EventSource>(
         &activity_grid,
         report_generated_at,
     )?;
-    console::render(out, &report, None)?;
+    // PR 9 (003 FR-010): dispatches on the resolved `Format` instead of always rendering
+    // console — `options.color_override` only ever affects `Format::Console`; the plain
+    // and JSON renderers never look at color at all.
+    match options.format {
+        Format::Console => console::render(out, &report, options.color_override)?,
+        Format::Plain => plain::render(out, &report)?,
+        Format::Json => json::render(out, &report)?,
+    }
 
     Ok(())
 }

@@ -12,12 +12,12 @@
 
 use crate::error::exit_code::json_error_code_for;
 use crate::error::AppError;
+use crate::fetch::client::RelayConnectFailure;
 use crate::models::core::MetricValue;
 use crate::report::content::ReportRecommendations;
 use crate::report::model::{
-    metric_definitions, MetricDefinition, RelaySummary, Report, ReportActivity,
-    ReportActivityBucket, ReportFetch, ReportLiveness, ReportLongevity, ReportNode, ReportStats,
-    SCHEMA_VERSION,
+    metric_definitions, MetricDefinition, Report, ReportActivity, ReportActivityBucket,
+    ReportFetch, ReportLiveness, ReportLongevity, ReportNode, ReportStats, SCHEMA_VERSION,
 };
 use crate::stats::context::{
     FiatBreakdown, FiatCurrencyShare, PaymentMethodBreakdown, PaymentMethodShare, PremiumSignal,
@@ -287,12 +287,12 @@ struct JsonRelayFailure {
     error: Option<String>,
 }
 
-impl From<&RelaySummary> for JsonRelayFailure {
-    fn from(relay: &RelaySummary) -> Self {
+impl From<&RelayConnectFailure> for JsonRelayFailure {
+    fn from(relay: &RelayConnectFailure) -> Self {
         JsonRelayFailure {
             url: relay.url.clone(),
             status: "failed",
-            error: relay.error.clone(),
+            error: Some(relay.error.clone()),
         }
     }
 }
@@ -311,13 +311,18 @@ struct JsonErrorEnvelope {
 }
 
 /// 002 FR-011's fatal error envelope: a distinct document, never a report-shaped one with
-/// its fields left `null`. `failed_relays` uses the exact same `{ url, status, error }`
+/// its fields left `null`. The `relays` array uses the exact same `{ url, status, error }`
 /// record shape `fetch.relays` already uses (`status` is always `"failed"` here, since
-/// every relay in this array is one that failed) and is only emitted when `error` is
-/// `AppError::RelaysUnreachable` (002 FR-019 exit code `3`); `null` for every other code.
-pub fn error_envelope(error: &AppError, failed_relays: &[RelaySummary]) -> serde_json::Value {
-    let relays = matches!(error, AppError::RelaysUnreachable)
-        .then(|| failed_relays.iter().map(JsonRelayFailure::from).collect());
+/// every relay in this array is one that failed) and is only present when `error` is
+/// `AppError::RelaysUnreachable` (002 FR-019 exit code `3`), extracted directly from the
+/// variant's own failed-relay list; `null` for every other code.
+pub fn error_envelope(error: &AppError) -> serde_json::Value {
+    let relays = match error {
+        AppError::RelaysUnreachable(failed) => {
+            Some(failed.iter().map(JsonRelayFailure::from).collect())
+        }
+        _ => None,
+    };
 
     let envelope = JsonErrorEnvelope {
         schema_version: SCHEMA_VERSION,
@@ -334,7 +339,7 @@ pub fn error_envelope(error: &AppError, failed_relays: &[RelaySummary]) -> serde
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::report::model::RelayStatus;
+    use crate::report::model::{RelayStatus, RelaySummary};
 
     fn sample_report() -> Report {
         Report {
@@ -501,14 +506,12 @@ mod tests {
 
     #[test]
     fn error_envelope_shape_matches_the_schema_for_relays_unreachable() {
-        let error = AppError::RelaysUnreachable;
-        let failed_relays = vec![RelaySummary {
+        let error = AppError::RelaysUnreachable(vec![RelayConnectFailure {
             url: "wss://relay.mostro.network".to_string(),
-            status: RelayStatus::Failed,
-            error: Some("connection timed out".to_string()),
-        }];
+            error: "connection timed out".to_string(),
+        }]);
 
-        let value = error_envelope(&error, &failed_relays);
+        let value = error_envelope(&error);
 
         assert_eq!(value["schema_version"], serde_json::json!("1.0.0"));
         assert_eq!(
@@ -542,7 +545,7 @@ mod tests {
             AppError::NoUsableEvents,
             AppError::from(source),
         ] {
-            let value = error_envelope(&error, &[]);
+            let value = error_envelope(&error);
             assert_eq!(value["error"]["relays"], serde_json::Value::Null);
         }
     }
@@ -555,13 +558,13 @@ mod tests {
         let cases: Vec<(AppError, &str)> = vec![
             (AppError::from(source), "general_error"),
             (AppError::UsageError("bad".to_string()), "usage_error"),
-            (AppError::RelaysUnreachable, "relays_unreachable"),
+            (AppError::RelaysUnreachable(vec![]), "relays_unreachable"),
             (AppError::NoUsableEvents, "no_usable_events"),
             (AppError::InvalidPubkey, "invalid_pubkey"),
         ];
 
         for (error, expected_code) in cases {
-            let value = error_envelope(&error, &[]);
+            let value = error_envelope(&error);
             assert_eq!(value["error"]["code"], serde_json::json!(expected_code));
         }
     }
