@@ -8,6 +8,12 @@ use clap::{ArgAction, Parser, ValueEnum};
 use crate::report::render::Format;
 use crate::stats::grid::Granularity;
 
+// Every flag below carries two layers of documentation on purpose: the `///` doc
+// comment is internal, architecture-facing notes for whoever maintains this file next
+// (spec references, precedence chains, why a type was chosen); the explicit `help`
+// attribute is the plain, user-facing text clap actually prints for `-h`/`--help`.
+// clap's derive macro prefers an explicit `help` attribute over text extracted from the
+// doc comment, so the two never mix in the rendered output.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
@@ -17,7 +23,13 @@ pub struct Args {
     /// `2`, 003 FR-013a) for every other invocation, since clap's own native
     /// required-argument handling cannot express "required unless another flag is
     /// present".
-    #[arg(short, long, env = "MOSTRO_SCORE_PUBKEY")]
+    #[arg(
+        short,
+        long,
+        env = "MOSTRO_SCORE_PUBKEY",
+        help = "The node's public key to look up (npub or hex). Can also be set via the \
+                MOSTRO_SCORE_PUBKEY environment variable. Not required when using --init-config."
+    )]
     pub pubkey: Option<String>,
 
     /// Relays to connect to (comma separated). Precedence: this flag, then
@@ -27,44 +39,83 @@ pub struct Args {
     /// here, since a config-file value must be able to slot in between the
     /// environment variable and the compiled default (`cli::options::resolve_relays`
     /// composes the full chain).
-    #[arg(short, long, env = "MOSTRO_SCORE_RELAYS")]
+    #[arg(
+        short,
+        long,
+        env = "MOSTRO_SCORE_RELAYS",
+        help = "Nostr relays to query, comma separated. Falls back to the \
+                MOSTRO_SCORE_RELAYS environment variable, then to a saved configuration \
+                file, then to a default public relay."
+    )]
     pub relays: Option<String>,
 
     /// Output format: `console`, `plain`, or `json` (003 FR-010). Omitted means "not
     /// explicitly set" so `cli::options` can distinguish an explicit choice from the
     /// automatic default.
-    #[arg(long, value_enum)]
+    #[arg(
+        long,
+        value_enum,
+        help = "How to print the report. Defaults to a saved configuration file value \
+                if present, otherwise a colored console view in a terminal, or plain \
+                text when not; json is always an explicit choice."
+    )]
     pub format: Option<CliFormat>,
 
     /// Force color output on for console format (003 FR-011). Mutually exclusive with
     /// `--no-color`.
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Force colored console output on, even when not printing to a terminal. \
+                Has no effect on plain-text or json output."
+    )]
     pub color: bool,
 
     /// Force color output off (003 FR-011). Mutually exclusive with `--color`.
-    #[arg(long = "no-color", action = ArgAction::SetTrue)]
+    #[arg(
+        long = "no-color",
+        action = ArgAction::SetTrue,
+        help = "Force colored output off."
+    )]
     pub no_color: bool,
 
     /// Suppress progress indicators and transient status narration (003 FR-012).
-    #[arg(short, long, action = ArgAction::SetTrue)]
+    #[arg(
+        short,
+        long,
+        action = ArgAction::SetTrue,
+        help = "Hide progress messages while connecting and fetching data."
+    )]
     pub quiet: bool,
 
     /// Scopes the activity grid's requested range to start on or after this date (003
     /// FR-004). Accepts an ISO 8601 calendar date or a relative shorthand (`30d`, `6mo`,
     /// `1y`), parsed later by `cli::duration`/`cli::options` — never validated here,
     /// since resolution needs a `now` value this flag-only layer has no business owning.
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Only include activity on or after this date. Accepts YYYY-MM-DD or a \
+                shorthand like 30d, 6mo, or 1y."
+    )]
     pub since: Option<String>,
 
     /// Scopes the activity grid's requested range to end on or before this date (003
     /// FR-004). Same raw-string, parse-later contract as `--since`.
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Only include activity on or before this date. Same format as --since."
+    )]
     pub until: Option<String>,
 
     /// Selects the activity grid's time-bucket granularity (003 FR-006). Omitted means
     /// "not explicitly set" so `cli::options` can distinguish an explicit choice from
     /// configuration-sourced or automatic selection.
-    #[arg(long, value_enum)]
+    #[arg(
+        long,
+        value_enum,
+        help = "Group the activity chart by day, month, or year instead of choosing \
+                automatically."
+    )]
     pub view: Option<CliGranularity>,
 
     /// Restricts console/plain-text rendering to a comma-separated subset of the 4
@@ -72,7 +123,12 @@ pub struct Args {
     /// `recommendations`. Omitted means every section renders, matching current
     /// behavior. Has no effect on `--format json` (003 FR-008). Raw string, parsed and
     /// validated later by `cli::options`, matching `--since`/`--until`'s contract.
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Only show these report sections, comma separated with no spaces: \
+                fetch, activity, stats, recommendations. Has no effect with --format \
+                json, which always includes everything."
+    )]
     pub sections: Option<String>,
 
     /// Overrides the directory the tool reads its configuration file from (003
@@ -81,18 +137,33 @@ pub struct Args {
     /// a filesystem path is not guaranteed to be valid UTF-8 on Linux, and clap would
     /// reject an otherwise-valid non-UTF-8 path with a usage error if this were a
     /// `String`.
-    #[arg(short = 'd', long = "config-dir")]
+    #[arg(
+        short = 'd',
+        long = "config-dir",
+        help = "Read (or, with --init-config, write) the configuration file in this \
+                directory instead of the default location."
+    )]
     pub config_dir: Option<std::path::PathBuf>,
 
     /// Writes a starter configuration file to the resolved config path and exits `0`
     /// without generating a report (003 FR-017/FR-019). Takes precedence over every
     /// report-generating flag passed alongside it in the same invocation.
-    #[arg(long = "init-config", action = ArgAction::SetTrue)]
+    #[arg(
+        long = "init-config",
+        action = ArgAction::SetTrue,
+        help = "Create a starter configuration file (with the default relay active and \
+                format/view/color shown as commented-out examples), then exit without \
+                generating a report."
+    )]
     pub init_config: bool,
 
     /// Allows `--init-config` to overwrite an existing configuration file (003
     /// FR-018). Rejected as a usage error when passed without `--init-config`.
-    #[arg(long, action = ArgAction::SetTrue)]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Allow --init-config to overwrite an existing configuration file."
+    )]
     pub force: bool,
 }
 
