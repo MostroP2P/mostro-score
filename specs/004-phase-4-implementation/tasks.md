@@ -265,7 +265,7 @@ work they described no longer applies.
 - [ ] T145 **DEFERRED** (depends on T141): Implement the 2 threshold-based triggers in `src/report/content.rs`, using T141's boundaries.
 - [x] T146 [RED] Failing test: `nothing_notable` true only when none of the 3 currently-implemented triggers fire (zero trades, disputes present, bond policy not enabled); extending this to the 2 deferred threshold-based triggers is follow-up work once T141/T144/T145 land.
 - [x] T147 [GREEN] Implement `nothing_notable`/`items` assembly per 002 FR-008 in `src/report/content.rs`, scoped to the 3 implemented triggers.
-- [x] T148 [RED] Failing `insta` snapshot tests for the console renderer's 5 sections in `tests/report_snapshots.rs`.
+- [x] T148 [RED] Failing `insta` snapshot tests for the console renderer's 5 sections in `tests/report_snapshots.rs`. **Later removed** (PR 8): the maintainer decided against committing generated `insta` snapshot files to the repository; `insta` and every snapshot-based test (console and plain-text) were removed, keeping only the non-snapshot assertions that survive on their own merits.
 - [x] T149 [GREEN] Implement the width-adaptive, colored console renderer (`comfy-table`) per 002 FR-013 in `src/report/render/console.rs`.
 - [x] T150 [RED] Failing test for the tty/`NO_COLOR`/`TERM=dumb` color policy in `src/report/format.rs`.
 - [x] T151 [GREEN] Implement the color policy per 002 FR-015 (`anstream`/`anstyle`) in `src/report/format.rs`; remove `colored` from `Cargo.toml`.
@@ -278,7 +278,7 @@ work they described no longer applies.
 
 **Depends on**: 7. Requirements: 002 FR-009..FR-012a.
 
-- [x] T154 [RED] Failing `insta` snapshot tests for the plain-text renderer in `tests/report_snapshots.rs`.
+- [x] T154 [RED] Failing `insta` snapshot tests for the plain-text renderer in `tests/report_snapshots.rs`. **Later removed**, see T148's note: no generated snapshot files are committed to this repository.
 - [x] T155 [GREEN] Implement the plain-text renderer per 002 FR-009 in `src/report/render/plain.rs`.
 - [x] T156 [RED] Failing tests for context-based format auto-selection (tty vs. piped) in `src/report/render/mod.rs`.
 - [x] T157 [GREEN] Implement the `Renderer` trait + format auto-selection per 002 FR-010 in `src/report/render/mod.rs`.

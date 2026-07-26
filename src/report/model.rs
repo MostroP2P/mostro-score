@@ -17,7 +17,10 @@ use nostr_sdk::prelude::*;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-const SCHEMA_VERSION: &str = "1.0.0";
+/// 002 FR-012a: shared by both the success-path `Report` and the JSON renderer's
+/// fatal-error envelope (`report::render::json`), since the envelope is versioned on the
+/// same schedule as the report.
+pub const SCHEMA_VERSION: &str = "1.0.0";
 
 /// Renders a stored epoch-second timestamp as an RFC 3339 UTC string (with a literal
 /// `Z` suffix, matching plan.md's JSON examples), rather than the bare epoch integer

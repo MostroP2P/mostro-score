@@ -1,3 +1,29 @@
+use crate::stats::grid::Granularity;
+
+/// The activity grid's granularity as the lowercase word both the console and plain-text
+/// renderers display -- shared so the two formats can never drift on this wording.
+pub fn granularity_label(granularity: Granularity) -> &'static str {
+    match granularity {
+        Granularity::Daily => "daily",
+        Granularity::Monthly => "monthly",
+        Granularity::Yearly => "yearly",
+    }
+}
+
+/// Parses two RFC 3339 UTC strings and returns `format_relative_time`'s phrase for the
+/// gap between them, or `None` if either fails to parse (defensive only -- both strings
+/// come from this same process's own `report::model` formatting). Shared by the console
+/// and plain-text renderers so they can never disagree on relative-time phrasing.
+pub fn relative_time_from_rfc3339(timestamp_rfc3339: &str, now_rfc3339: &str) -> Option<String> {
+    let timestamp = chrono::DateTime::parse_from_rfc3339(timestamp_rfc3339)
+        .ok()?
+        .timestamp();
+    let now = chrono::DateTime::parse_from_rfc3339(now_rfc3339)
+        .ok()?
+        .timestamp();
+    Some(format_relative_time(timestamp, now))
+}
+
 /// Format relative time for human readability (Section 6.1)
 pub fn format_relative_time(timestamp: i64, now: i64) -> String {
     let diff_secs = now - timestamp;

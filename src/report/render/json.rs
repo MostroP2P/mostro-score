@@ -17,6 +17,7 @@ use crate::report::content::ReportRecommendations;
 use crate::report::model::{
     metric_definitions, MetricDefinition, RelaySummary, Report, ReportActivity,
     ReportActivityBucket, ReportFetch, ReportLiveness, ReportLongevity, ReportNode, ReportStats,
+    SCHEMA_VERSION,
 };
 use crate::stats::context::{
     FiatBreakdown, FiatCurrencyShare, PaymentMethodBreakdown, PaymentMethodShare, PremiumSignal,
@@ -30,19 +31,13 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::io::Write;
 
-const SCHEMA_VERSION: &str = "1.0.0";
-
-/// Converts an `Option<f64>` into `MetricValue<f64>`, asserting in debug builds that a
-/// `Some` value is always finite — the JSON renderer's own defensive boundary, since every
-/// `stats/` computation is already audited to guard NaN/infinity at its own not-applicable
-/// condition (PR 8) rather than let a degenerate float reach here.
+/// Converts an `Option<f64>` into `MetricValue<f64>` — the JSON renderer's own defensive
+/// boundary, since every `stats/` computation is already audited to guard NaN/infinity at
+/// its own not-applicable condition (PR 8) rather than let a degenerate float reach here.
+/// A non-finite `Some` is coerced to `NotApplicable` unconditionally, in every build
+/// profile, so this guarantee never depends on whether debug assertions are enabled.
 fn checked_f64(value: Option<f64>) -> MetricValue<f64> {
-    debug_assert!(
-        value.map(|v| v.is_finite()).unwrap_or(true),
-        "a stats computation returned a non-finite float instead of None at its own \
-         not-applicable guard"
-    );
-    MetricValue::from(value)
+    MetricValue::from(value.filter(|v| v.is_finite()))
 }
 
 #[derive(Serialize)]
@@ -490,6 +485,18 @@ mod tests {
             value["stats"]["longevity"]["first_seen_at"],
             serde_json::json!("2026-01-01T00:00:00Z")
         );
+    }
+
+    /// A non-finite float must never reach the serializer as `Computed`, in any build
+    /// profile: `checked_f64` coerces it to `NotApplicable` unconditionally, not only via
+    /// `debug_assert!` (which compiles out in release), so this guarantee cannot silently
+    /// depend on the build profile.
+    #[test]
+    fn checked_f64_coerces_a_non_finite_value_to_not_applicable_unconditionally() {
+        assert_eq!(checked_f64(Some(f64::NAN)), MetricValue::NotApplicable);
+        assert_eq!(checked_f64(Some(f64::INFINITY)), MetricValue::NotApplicable);
+        assert_eq!(checked_f64(Some(1.5)), MetricValue::Computed(1.5));
+        assert_eq!(checked_f64(None), MetricValue::NotApplicable);
     }
 
     #[test]

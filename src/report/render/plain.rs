@@ -8,22 +8,13 @@
 
 use crate::report::content::ReportRecommendations;
 use crate::report::format::{
-    display_or_not_applicable, format_decimal_thousands, format_relative_time,
-    format_sats_thousands,
+    display_or_not_applicable, format_decimal_thousands, format_sats_thousands, granularity_label,
+    relative_time_from_rfc3339,
 };
 use crate::report::model::{
     RelayStatus, Report, ReportActivity, ReportFetch, ReportNode, ReportStats,
 };
-use crate::stats::grid::Granularity;
 use std::io::Write;
-
-fn granularity_label(granularity: Granularity) -> &'static str {
-    match granularity {
-        Granularity::Daily => "daily",
-        Granularity::Monthly => "monthly",
-        Granularity::Yearly => "yearly",
-    }
-}
 
 /// 002 FR-002: the node identity header -- both pubkey encodings, so a trader can confirm
 /// they queried the intended node.
@@ -400,19 +391,6 @@ fn render_recommendations_section(
         }
     }
     writeln!(out)
-}
-
-/// Parses two RFC 3339 UTC strings and returns `format_relative_time`'s phrase for the
-/// gap between them, or `None` if either fails to parse (defensive only -- both strings
-/// come from this same process's own `report::model` formatting).
-fn relative_time_from_rfc3339(timestamp_rfc3339: &str, now_rfc3339: &str) -> Option<String> {
-    let timestamp = chrono::DateTime::parse_from_rfc3339(timestamp_rfc3339)
-        .ok()?
-        .timestamp();
-    let now = chrono::DateTime::parse_from_rfc3339(now_rfc3339)
-        .ok()?
-        .timestamp();
-    Some(format_relative_time(timestamp, now))
 }
 
 /// The plain-text renderer's public entry point (002 FR-009): renders every one of the
