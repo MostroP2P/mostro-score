@@ -12,7 +12,7 @@
 /// converting it to `f64` loses precision above 2^53, but that threshold is already over
 /// 4x the entire 21M BTC supply in sats, so no realistic `amt` value is affected — only a
 /// deliberately crafted, physically impossible one.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct TradeSizeStats {
     pub min_trade_sats: Option<u64>,
     pub max_trade_sats: Option<u64>,
