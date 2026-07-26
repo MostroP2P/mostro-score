@@ -265,7 +265,7 @@ work they described no longer applies.
 - [ ] T145 **DEFERRED** (depends on T141): Implement the 2 threshold-based triggers in `src/report/content.rs`, using T141's boundaries.
 - [x] T146 [RED] Failing test: `nothing_notable` true only when none of the 3 currently-implemented triggers fire (zero trades, disputes present, bond policy not enabled); extending this to the 2 deferred threshold-based triggers is follow-up work once T141/T144/T145 land.
 - [x] T147 [GREEN] Implement `nothing_notable`/`items` assembly per 002 FR-008 in `src/report/content.rs`, scoped to the 3 implemented triggers.
-- [x] T148 [RED] Failing `insta` snapshot tests for the console renderer's 5 sections in `tests/report_snapshots.rs`.
+- [x] T148 [RED] Failing `insta` snapshot tests for the console renderer's 5 sections in `tests/report_snapshots.rs`. **Later removed** (PR 8): the maintainer decided against committing generated `insta` snapshot files to the repository; `insta` and every snapshot-based test (console and plain-text) were removed, keeping only the non-snapshot assertions that survive on their own merits.
 - [x] T149 [GREEN] Implement the width-adaptive, colored console renderer (`comfy-table`) per 002 FR-013 in `src/report/render/console.rs`.
 - [x] T150 [RED] Failing test for the tty/`NO_COLOR`/`TERM=dumb` color policy in `src/report/format.rs`.
 - [x] T151 [GREEN] Implement the color policy per 002 FR-015 (`anstream`/`anstyle`) in `src/report/format.rs`; remove `colored` from `Cargo.toml`.
@@ -278,20 +278,20 @@ work they described no longer applies.
 
 **Depends on**: 7. Requirements: 002 FR-009..FR-012a.
 
-- [ ] T154 [RED] Failing `insta` snapshot tests for the plain-text renderer in `tests/report_snapshots.rs`.
-- [ ] T155 [GREEN] Implement the plain-text renderer per 002 FR-009 in `src/report/render/plain.rs`.
-- [ ] T156 [RED] Failing tests for context-based format auto-selection (tty vs. piped) in `src/report/render/mod.rs`.
-- [ ] T157 [GREEN] Implement the `Renderer` trait + format auto-selection per 002 FR-010 in `src/report/render/mod.rs`.
-- [ ] T158 [RED] Failing tests for the JSON top-level shape (`schema_version`, `generated_at`, `node`, `fetch`, `activity`, `stats`, `recommendations`, `metric_definitions`, all keys always present) in `src/report/render/json.rs`.
-- [ ] T159 [GREEN] Implement the JSON top-level shape per the plan's contract in `src/report/render/json.rs`.
-- [ ] T160 [RED] Failing test: `metric_definitions`'s key set matches the plan's exhaustive list exactly — all `stats` sub-object fields, `activity.granularity`, `buckets[].median_trade_sats`, `fetch.relays[].status`, `fetch.relays[].error` — no more, no fewer.
-- [ ] T161 [GREEN] Author the static `metric_definitions` table (`label`/`meaning`/`unit_and_direction`) in `src/report/model.rs`.
-- [ ] T162 [RED] Failing tests for `MetricValue::Computed(T) | NotApplicable` `null` serialization, guarding against NaN/infinity, in `src/models/core.rs`.
-- [ ] T163 [GREEN] Ensure every `stats/` computation returns `NotApplicable` at its guard rather than a degenerate float.
-- [ ] T164 [RED] Failing test for the fatal-error envelope shape and the 5 `code`/exit-code pairs in `src/error/exit_code.rs`.
-- [ ] T165 [GREEN] Implement the fatal-error envelope in `src/report/render/json.rs`, `error.relays` populated only for `relays_unreachable`.
-- [ ] T166 [RED] Failing test: explicit `--format` overrides the context-based default.
-- [ ] T167 [GREEN] Wire explicit-format override ahead of the default in `src/cli/options.rs` (call-site skeleton; full flag wiring in PR 9).
+- [x] T154 [RED] Failing `insta` snapshot tests for the plain-text renderer in `tests/report_snapshots.rs`. **Later removed**, see T148's note: no generated snapshot files are committed to this repository.
+- [x] T155 [GREEN] Implement the plain-text renderer per 002 FR-009 in `src/report/render/plain.rs`.
+- [x] T156 [RED] Failing tests for context-based format auto-selection (tty vs. piped) in `src/report/render/mod.rs`.
+- [x] T157 [GREEN] Implement the `Renderer` trait + format auto-selection per 002 FR-010 in `src/report/render/mod.rs`.
+- [x] T158 [RED] Failing tests for the JSON top-level shape (`schema_version`, `generated_at`, `node`, `fetch`, `activity`, `stats`, `recommendations`, `metric_definitions`, all keys always present) in `src/report/render/json.rs`.
+- [x] T159 [GREEN] Implement the JSON top-level shape per the plan's contract in `src/report/render/json.rs`.
+- [x] T160 [RED] Failing test: `metric_definitions`'s key set matches the plan's exhaustive list exactly — all `stats` sub-object fields, `activity.granularity`, `buckets[].median_trade_sats`, `fetch.relays[].status`, `fetch.relays[].error` — no more, no fewer.
+- [x] T161 [GREEN] Author the static `metric_definitions` table (`label`/`meaning`/`unit_and_direction`) in `src/report/model.rs`.
+- [x] T162 [RED] Failing tests for `MetricValue::Computed(T) | NotApplicable` `null` serialization, guarding against NaN/infinity, in `src/models/core.rs`.
+- [x] T163 [GREEN] Ensure every `stats/` computation returns `NotApplicable` at its guard rather than a degenerate float.
+- [x] T164 [RED] Failing test for the fatal-error envelope shape and the 5 `code`/exit-code pairs in `src/error/exit_code.rs`.
+- [x] T165 [GREEN] Implement the fatal-error envelope in `src/report/render/json.rs`, `error.relays` populated only for `relays_unreachable`.
+- [x] T166 [RED] Failing test: explicit `--format` overrides the context-based default.
+- [x] T167 [GREEN] Wire explicit-format override ahead of the default in `src/cli/options.rs` (call-site skeleton; full flag wiring in PR 9).
 
 ---
 

@@ -1,18 +1,12 @@
-//! T148/T149: `insta` snapshot coverage for the console renderer's 5 ordered sections
-//! (002 FR-001), so any future wording/layout change shows up as an explicit, reviewable
-//! diff rather than passing silently (plan.md's Testing Strategy, "Snapshot discipline").
-//!
-//! Every snapshot is rendered with color forced off (`Some(false)`), independent of the
-//! test runner's own terminal/environment state, so the captured text is deterministic
-//! across machines and CI. Color itself is covered separately by `report::format`'s own
-//! policy unit tests, not by these snapshots.
+//! 002 FR-009: the plain-text renderer must produce no decoration at all -- no ANSI color
+//! codes, no box-drawing table characters -- unlike the console renderer.
 
 use mostro_score::report::content::{RecommendationItem, ReportRecommendations};
 use mostro_score::report::model::{
     RelayStatus, RelaySummary, Report, ReportActivity, ReportActivityBucket, ReportFetch,
     ReportLiveness, ReportLongevity, ReportNode, ReportStats,
 };
-use mostro_score::report::render::console::render;
+use mostro_score::report::render::plain;
 use mostro_score::stats::context::{
     FiatBreakdown, FiatCurrencyShare, PaymentMethodBreakdown, PaymentMethodShare, PremiumSignal,
 };
@@ -22,15 +16,15 @@ use mostro_score::stats::lifecycle::CumulativePerformance;
 use mostro_score::stats::trade_size::TradeSizeStats;
 use mostro_score::stats::{ActivityConsistency, BondPolicy};
 
-fn rendered(report: &Report) -> String {
+fn rendered_plain(report: &Report) -> String {
     let mut out: Vec<u8> = Vec::new();
-    render(&mut out, report, Some(false)).expect("render succeeds");
+    plain::render(&mut out, report).expect("render succeeds");
     String::from_utf8(out).expect("valid utf8")
 }
 
 /// A node with a rich history: multiple relays (one failed), a multi-bucket activity
 /// grid, every stats sub-object populated, and one recommendation firing (disputes
-/// present) — covers all 5 sections with representative, non-degenerate data.
+/// present) -- covers all 5 sections with representative, non-degenerate data.
 fn rich_node_report() -> Report {
     Report {
         schema_version: "1.0.0".to_string(),
@@ -162,129 +156,12 @@ fn rich_node_report() -> Report {
     }
 }
 
-/// A brand-new node: zero successful trades, no dev-fee anchor, empty activity grid,
-/// every optional stats field not-applicable, `nothing_notable` true — covers the report's
-/// full not-applicable branch set and the "nothing notable" recommendations wording.
-fn empty_node_report() -> Report {
-    Report {
-        schema_version: "1.0.0".to_string(),
-        generated_at: "2026-07-24T10:15:00Z".to_string(),
-        node: ReportNode {
-            pubkey_hex: "0000000000000000000000000000000000000000000000000000000000aa".to_string(),
-            pubkey_npub: "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqz"
-                .to_string(),
-        },
-        fetch: ReportFetch {
-            relays: vec![RelaySummary {
-                url: "wss://relay.mostro.network".to_string(),
-                status: RelayStatus::Success,
-                error: None,
-            }],
-            dev_fee_events: 0,
-            order_events: 0,
-            unique_orders: 0,
-            dispute_events: 0,
-            instance_status_found: false,
-        },
-        activity: ReportActivity {
-            granularity: None,
-            range_start: None,
-            range_end: None,
-            buckets: Vec::new(),
-        },
-        stats: ReportStats {
-            longevity: ReportLongevity {
-                first_seen_at: None,
-                days_active: None,
-            },
-            cumulative: CumulativePerformance {
-                total_successful_trades: 0,
-                total_volume_sats: 0,
-            },
-            trade_size: TradeSizeStats {
-                min_trade_sats: None,
-                max_trade_sats: None,
-                mean_trade_sats: None,
-                median_trade_sats: None,
-                std_dev_trade_sats: None,
-                coefficient_of_variation: None,
-            },
-            liveness: ReportLiveness {
-                last_successful_trade_at: None,
-                days_since_last_trade: None,
-                successful_trades_last_7d: 0,
-                successful_trades_last_30d: 0,
-                successful_trades_last_90d: 0,
-            },
-            consistency: ActivityConsistency {
-                active_days_last_30d: 0,
-                max_consecutive_inactive_days_last_30d: 30,
-            },
-            disputes: DisputeSignals {
-                total_disputes: 0,
-                resolved_disputes: 0,
-                active_disputes: 0,
-                unknown_status_disputes: 0,
-                disputes_per_100_trades: None,
-            },
-            fiat_breakdown: FiatBreakdown {
-                orders_considered: 0,
-                distribution: None,
-            },
-            payment_method_breakdown: PaymentMethodBreakdown {
-                total_mentions: 0,
-                distribution: None,
-            },
-            premium: PremiumSignal {
-                premium_baseline_percent: None,
-                premium_dispersion_percent: None,
-            },
-            bond_policy: BondPolicy { status: "unknown" },
-        },
-        recommendations: ReportRecommendations {
-            nothing_notable: false,
-            items: vec![RecommendationItem {
-                id: "no_completed_trades".to_string(),
-                metric: Some("stats.cumulative.total_successful_trades".to_string()),
-                message: "This node has no completed trade history yet — there is no \
-                          successful-trade track record to evaluate."
-                    .to_string(),
-            }],
-        },
-    }
-}
-
-/// The `nothing_notable` case on its own smaller fixture: no dispute/bond/zero-trade
-/// trigger fires, so the recommendations block must state plainly there is nothing to
-/// flag (002 FR-008) rather than fabricating or omitting guidance.
-fn nothing_notable_report() -> Report {
-    let mut report = rich_node_report();
-    report.recommendations = ReportRecommendations {
-        nothing_notable: true,
-        items: Vec::new(),
-    };
-    report.stats.disputes = DisputeSignals {
-        total_disputes: 0,
-        resolved_disputes: 0,
-        active_disputes: 0,
-        unknown_status_disputes: 0,
-        disputes_per_100_trades: Some(0.0),
-    };
-    report.stats.bond_policy = BondPolicy { status: "enabled" };
-    report
-}
-
+/// 002 FR-009: plain-text output has no decoration at all -- no ANSI color codes, no
+/// box-drawing table characters -- unlike the console renderer.
 #[test]
-fn console_renderer_snapshot_rich_node_with_multiple_relays_and_a_multi_bucket_grid() {
-    insta::assert_snapshot!(rendered(&rich_node_report()));
-}
-
-#[test]
-fn console_renderer_snapshot_empty_node_with_every_not_applicable_field() {
-    insta::assert_snapshot!(rendered(&empty_node_report()));
-}
-
-#[test]
-fn console_renderer_snapshot_nothing_notable_recommendations() {
-    insta::assert_snapshot!(rendered(&nothing_notable_report()));
+fn plain_text_renderer_never_emits_ansi_escape_codes_or_box_drawing_characters() {
+    let output = rendered_plain(&rich_node_report());
+    assert!(!output.contains('\u{1b}'));
+    assert!(!output.contains('│'));
+    assert!(!output.contains('┌'));
 }

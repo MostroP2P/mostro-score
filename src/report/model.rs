@@ -15,8 +15,12 @@ use crate::stats::{ActivityConsistency, BondPolicy, NodeMetrics};
 use chrono::{DateTime, SecondsFormat, Utc};
 use nostr_sdk::prelude::*;
 use serde::Serialize;
+use std::collections::BTreeMap;
 
-const SCHEMA_VERSION: &str = "1.0.0";
+/// 002 FR-012a: shared by both the success-path `Report` and the JSON renderer's
+/// fatal-error envelope (`report::render::json`), since the envelope is versioned on the
+/// same schedule as the report.
+pub const SCHEMA_VERSION: &str = "1.0.0";
 
 /// Renders a stored epoch-second timestamp as an RFC 3339 UTC string (with a literal
 /// `Z` suffix, matching plan.md's JSON examples), rather than the bare epoch integer
@@ -259,13 +263,393 @@ pub fn assemble_report(
     })
 }
 
+/// plan.md's JSON output contract, `metric_definitions`: one entry's `label`/`meaning`/
+/// `unit_and_direction`, all three grounded in FR prose since FR-008b's companion
+/// decisions document does not exist in this repository.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct MetricDefinition {
+    pub label: &'static str,
+    pub meaning: &'static str,
+    pub unit_and_direction: &'static str,
+}
+
+/// plan.md's JSON output contract: the static `metric_definitions` table, keyed by the
+/// same dotted path `recommendations.items[].metric` already uses (for example
+/// `stats.trade_size.coefficient_of_variation`). The key set is exhaustive and
+/// mechanically checkable, not judgment-based: every field already listed in plan.md's
+/// `stats` table (all ten sub-objects), plus `activity.granularity` and
+/// `buckets[].median_trade_sats`, plus `fetch.relays[].status` and
+/// `fetch.relays[].error` — nothing else. `metric_definitions` is static per build: this
+/// function recomputes the same fixed table every call rather than caching a global, since
+/// the table itself never varies with a report's contents.
+pub fn metric_definitions() -> BTreeMap<&'static str, MetricDefinition> {
+    BTreeMap::from([
+        // 001 FR-001
+        (
+            "stats.longevity.first_seen_at",
+            MetricDefinition {
+                label: "First seen",
+                meaning: "The created_at of this node's oldest qualifying dev-fee-payment \
+                          event, the earliest activity this report can anchor on.",
+                unit_and_direction: "RFC 3339 UTC timestamp; a historical fact, no favorable \
+                                     direction.",
+            },
+        ),
+        // 001 FR-001
+        (
+            "stats.longevity.days_active",
+            MetricDefinition {
+                label: "Days active",
+                meaning: "Elapsed days since first_seen_at, or, when no dev-fee anchor \
+                          exists, since this node's first qualifying successful order, \
+                          measured to report-generation time.",
+                unit_and_direction: "Days; a higher value means a longer observed history.",
+            },
+        ),
+        // 001 FR-002
+        (
+            "stats.cumulative.total_successful_trades",
+            MetricDefinition {
+                label: "Total successful trades",
+                meaning: "Count of this node's qualifying orders whose deduplicated final \
+                          state is s=success.",
+                unit_and_direction: "Count; a higher value indicates more completed trade \
+                                     history.",
+            },
+        ),
+        // 001 FR-002
+        (
+            "stats.cumulative.total_volume_sats",
+            MetricDefinition {
+                label: "Total volume",
+                meaning: "Sum of amt across the successful-order set, restricted to orders \
+                          whose amt tag parsed as a non-negative integer.",
+                unit_and_direction: "Satoshis; a higher value indicates greater cumulative \
+                                     trade volume.",
+            },
+        ),
+        // 001 FR-003
+        (
+            "stats.trade_size.min_trade_sats",
+            MetricDefinition {
+                label: "Minimum trade size",
+                meaning: "Smallest amt among the amt-restricted successful-order set.",
+                unit_and_direction: "Satoshis; describes the range, no favorable direction.",
+            },
+        ),
+        // 001 FR-003
+        (
+            "stats.trade_size.max_trade_sats",
+            MetricDefinition {
+                label: "Maximum trade size",
+                meaning: "Largest amt among the amt-restricted successful-order set.",
+                unit_and_direction: "Satoshis; describes the range, no favorable direction.",
+            },
+        ),
+        // 001 FR-003
+        (
+            "stats.trade_size.mean_trade_sats",
+            MetricDefinition {
+                label: "Mean trade size",
+                meaning: "Arithmetic mean of amt across the amt-restricted successful-order \
+                          set.",
+                unit_and_direction: "Satoshis; no fixed favorable direction.",
+            },
+        ),
+        // 001 FR-003
+        (
+            "stats.trade_size.median_trade_sats",
+            MetricDefinition {
+                label: "Median trade size",
+                meaning: "Median amt across the amt-restricted successful-order set — the \
+                          primary reference for typical trade size in any risk assessment.",
+                unit_and_direction: "Satoshis; no fixed favorable direction.",
+            },
+        ),
+        // 001 FR-010
+        (
+            "stats.trade_size.std_dev_trade_sats",
+            MetricDefinition {
+                label: "Trade size standard deviation",
+                meaning: "Population standard deviation (divide by N) of amt across the \
+                          same amt-restricted set.",
+                unit_and_direction: "Satoshis; a lower value indicates less spread around \
+                                     the mean trade size.",
+            },
+        ),
+        // 001 FR-010
+        (
+            "stats.trade_size.coefficient_of_variation",
+            MetricDefinition {
+                label: "Trade size coefficient of variation",
+                meaning: "std_dev_trade_sats divided by median_trade_sats — the figure to \
+                          use when comparing trade-size consistency across nodes of \
+                          different trade volume.",
+                unit_and_direction: "Unitless ratio with no fixed upper bound; a lower value \
+                                     means more consistent trade sizing.",
+            },
+        ),
+        // 001 FR-004
+        (
+            "stats.liveness.last_successful_trade_at",
+            MetricDefinition {
+                label: "Last successful trade",
+                meaning: "The created_at of this node's most recent successful order.",
+                unit_and_direction: "RFC 3339 UTC timestamp; more recent is a stronger \
+                                     current-activity signal.",
+            },
+        ),
+        // 001 FR-004
+        (
+            "stats.liveness.days_since_last_trade",
+            MetricDefinition {
+                label: "Days since last trade",
+                meaning: "Elapsed days between last_successful_trade_at and \
+                          report-generation time.",
+                unit_and_direction: "Days; a lower value indicates more recent activity.",
+            },
+        ),
+        // 001 FR-004
+        (
+            "stats.liveness.successful_trades_last_7d",
+            MetricDefinition {
+                label: "Successful trades, last 7 days",
+                meaning: "Count of successful orders whose created_at falls within the last \
+                          7×24 hours before report-generation time, both ends inclusive.",
+                unit_and_direction: "Count; a higher value indicates more recent trading \
+                                     activity.",
+            },
+        ),
+        // 001 FR-004
+        (
+            "stats.liveness.successful_trades_last_30d",
+            MetricDefinition {
+                label: "Successful trades, last 30 days",
+                meaning: "Count of successful orders whose created_at falls within the last \
+                          30×24 hours before report-generation time, both ends inclusive.",
+                unit_and_direction: "Count; a higher value indicates more recent trading \
+                                     activity.",
+            },
+        ),
+        // 001 FR-004
+        (
+            "stats.liveness.successful_trades_last_90d",
+            MetricDefinition {
+                label: "Successful trades, last 90 days",
+                meaning: "Count of successful orders whose created_at falls within the last \
+                          90×24 hours before report-generation time, both ends inclusive.",
+                unit_and_direction: "Count; a higher value indicates more recent trading \
+                                     activity.",
+            },
+        ),
+        // 001 FR-005
+        (
+            "stats.consistency.active_days_last_30d",
+            MetricDefinition {
+                label: "Active days (last 30 days)",
+                meaning: "Count of distinct UTC calendar days with at least one successful \
+                          order within the 30 UTC calendar days ending on and including \
+                          today.",
+                unit_and_direction: "Count out of 30; a higher value indicates more \
+                                     consistent day-to-day activity.",
+            },
+        ),
+        // 001 FR-005
+        (
+            "stats.consistency.max_consecutive_inactive_days_last_30d",
+            MetricDefinition {
+                label: "Longest inactive streak (last 30 days)",
+                meaning: "Longest run of consecutive UTC calendar days with zero successful \
+                          orders within that same 30-day window.",
+                unit_and_direction: "Days, 0 to 30; a lower value indicates more consistent \
+                                     activity.",
+            },
+        ),
+        // 001 FR-006
+        (
+            "stats.disputes.disputes_per_100_trades",
+            MetricDefinition {
+                label: "Disputes per 100 trades",
+                meaning: "The deduplicated dispute count expressed as a ratio per 100 \
+                          successful trades.",
+                unit_and_direction: "Ratio per 100 trades with no fixed upper bound; a lower \
+                                     value indicates fewer disputes relative to trade volume.",
+            },
+        ),
+        // 001 FR-006
+        (
+            "stats.disputes.total_disputes",
+            MetricDefinition {
+                label: "Total disputes",
+                meaning: "Count of unique disputes, deduplicated by d tag, regardless of \
+                          status.",
+                unit_and_direction: "Count; no cross-node baseline exists for this figure \
+                                     alone.",
+            },
+        ),
+        // 001 FR-006
+        (
+            "stats.disputes.resolved_disputes",
+            MetricDefinition {
+                label: "Resolved disputes",
+                meaning: "Count of deduplicated disputes whose latest status is settled, \
+                          seller-refunded, or released.",
+                unit_and_direction: "Count; a fact, not itself favorable or unfavorable.",
+            },
+        ),
+        // 001 FR-006
+        (
+            "stats.disputes.active_disputes",
+            MetricDefinition {
+                label: "Active disputes",
+                meaning: "Count of deduplicated disputes whose latest status is initiated or \
+                          in-progress.",
+                unit_and_direction: "Count; a fact, not itself favorable or unfavorable.",
+            },
+        ),
+        // 001 FR-006
+        (
+            "stats.disputes.unknown_status_disputes",
+            MetricDefinition {
+                label: "Unknown-status disputes",
+                meaning: "Count of deduplicated disputes whose latest status is missing or \
+                          does not match any known value, so it could not be classified as \
+                          resolved or active.",
+                unit_and_direction: "Count; a fact, not itself favorable or unfavorable.",
+            },
+        ),
+        // 001 FR-008
+        (
+            "stats.fiat_breakdown.orders_considered",
+            MetricDefinition {
+                label: "Fiat orders considered",
+                meaning: "Count of qualifying successful orders carrying a non-empty f \
+                          (fiat currency) value — the distribution's denominator.",
+                unit_and_direction: "Count; describes sample size, no favorable direction.",
+            },
+        ),
+        // 001 FR-008
+        (
+            "stats.fiat_breakdown.distribution",
+            MetricDefinition {
+                label: "Fiat currency distribution",
+                meaning: "Each currency's share of orders_considered, computed as \
+                          orders_in_that_currency / orders_considered.",
+                unit_and_direction: "Percent per currency, summing to 100%; descriptive \
+                                     only, no favorable direction.",
+            },
+        ),
+        // 001 FR-009
+        (
+            "stats.payment_method_breakdown.total_mentions",
+            MetricDefinition {
+                label: "Payment method mentions",
+                meaning: "Count of every pm mention across qualifying successful orders — \
+                          the usage ranking's denominator.",
+                unit_and_direction: "Count; describes sample size, no favorable direction.",
+            },
+        ),
+        // 001 FR-009
+        (
+            "stats.payment_method_breakdown.distribution",
+            MetricDefinition {
+                label: "Payment method usage ranking",
+                meaning: "Each method's share of total_mentions, computed as \
+                          mentions_of_that_method / total_mentions, compared byte for byte \
+                          with no trimming or case normalization.",
+                unit_and_direction: "Percent per method, summing to 100%; descriptive only, \
+                                     no favorable direction.",
+            },
+        ),
+        // 001 FR-011
+        (
+            "stats.premium.premium_baseline_percent",
+            MetricDefinition {
+                label: "Premium baseline",
+                meaning: "Median premium (a market-price markup/discount percentage) across \
+                          this node's orders carrying a valid premium tag.",
+                unit_and_direction: "Percentage points; positive is a markup over market \
+                                     price, negative is a discount — no favorable direction \
+                                     on its own.",
+            },
+        ),
+        // 001 FR-011
+        (
+            "stats.premium.premium_dispersion_percent",
+            MetricDefinition {
+                label: "Premium dispersion",
+                meaning: "Population standard deviation (divide by N) of premium across \
+                          that same set.",
+                unit_and_direction: "Percentage points; a lower value indicates more \
+                                     consistent pricing relative to this node's own \
+                                     baseline.",
+            },
+        ),
+        // 001 FR-012, 002 FR-007
+        (
+            "stats.bond_policy.status",
+            MetricDefinition {
+                label: "Bond policy",
+                meaning: "Whether this node's kind 38385 instance-status event reports \
+                          bond_enabled as true or false, or could not be determined.",
+                unit_and_direction: "One of enabled/disabled/unknown; reported neutrally, \
+                                     never implying which state is safer.",
+            },
+        ),
+        // 002 FR-005, 003 FR-006
+        (
+            "activity.granularity",
+            MetricDefinition {
+                label: "Activity grid granularity",
+                meaning: "The activity grid's auto-selected time bucket size, chosen from \
+                          this node's observed successful-order range.",
+                unit_and_direction: "One of daily/monthly/yearly; not itself favorable or \
+                                     unfavorable.",
+            },
+        ),
+        // 002 FR-004, Edge Cases
+        (
+            "buckets[].median_trade_sats",
+            MetricDefinition {
+                label: "Bucket median trade size",
+                meaning: "Median amt among the successful orders falling inside this \
+                          activity-grid time bucket; undefined, not zero, for a bucket with \
+                          no orders.",
+                unit_and_direction: "Satoshis; no fixed favorable direction.",
+            },
+        ),
+        // 002 FR-003
+        (
+            "fetch.relays[].status",
+            MetricDefinition {
+                label: "Relay status",
+                meaning: "Whether this configured relay's connection attempt succeeded or \
+                          failed for this report.",
+                unit_and_direction: "One of success/failed; a connectivity fact, not a node \
+                                     metric.",
+            },
+        ),
+        // 002 FR-003
+        (
+            "fetch.relays[].error",
+            MetricDefinition {
+                label: "Relay error detail",
+                meaning: "The connection failure message for this relay, present only when \
+                          its status is failed.",
+                unit_and_direction: "Free-text string, or null when the relay succeeded; not \
+                                     a node metric.",
+            },
+        ),
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use crate::fetch::client::{RelayConnectFailure, RelayConnectionOutcome, RelayOutcome};
     use crate::fetch::filters_summary::RelayFetchOutcome;
     use crate::report::model::{
         assemble_activity_section, assemble_fetch_section, assemble_node_section, assemble_report,
-        assemble_stats_section, Granularity, RelayStatus,
+        assemble_stats_section, metric_definitions, Granularity, RelayStatus,
     };
     use crate::stats::grid::{compute_activity_grid, ActivityGrid, GridOrder};
     use crate::stats::NodeMetrics;
@@ -582,5 +966,65 @@ mod tests {
             serde_json::to_string(&RelayStatus::Failed).unwrap(),
             "\"failed\""
         );
+    }
+
+    /// plan.md's JSON output contract: the `metric_definitions` key set is exhaustive and
+    /// mechanically checkable — exactly one entry per field plan.md's `stats` table lists
+    /// (all ten sub-objects), plus `activity.granularity`, `buckets[].median_trade_sats`,
+    /// `fetch.relays[].status`, and `fetch.relays[].error` — no more, no fewer.
+    #[test]
+    fn metric_definitions_key_set_matches_the_plans_exhaustive_list_exactly() {
+        let definitions = metric_definitions();
+        let mut keys: Vec<&str> = definitions.keys().copied().collect();
+        keys.sort_unstable();
+
+        let mut expected = vec![
+            "activity.granularity",
+            "buckets[].median_trade_sats",
+            "fetch.relays[].error",
+            "fetch.relays[].status",
+            "stats.bond_policy.status",
+            "stats.consistency.active_days_last_30d",
+            "stats.consistency.max_consecutive_inactive_days_last_30d",
+            "stats.cumulative.total_successful_trades",
+            "stats.cumulative.total_volume_sats",
+            "stats.disputes.active_disputes",
+            "stats.disputes.disputes_per_100_trades",
+            "stats.disputes.resolved_disputes",
+            "stats.disputes.total_disputes",
+            "stats.disputes.unknown_status_disputes",
+            "stats.fiat_breakdown.distribution",
+            "stats.fiat_breakdown.orders_considered",
+            "stats.liveness.days_since_last_trade",
+            "stats.liveness.last_successful_trade_at",
+            "stats.liveness.successful_trades_last_30d",
+            "stats.liveness.successful_trades_last_7d",
+            "stats.liveness.successful_trades_last_90d",
+            "stats.longevity.days_active",
+            "stats.longevity.first_seen_at",
+            "stats.payment_method_breakdown.distribution",
+            "stats.payment_method_breakdown.total_mentions",
+            "stats.premium.premium_baseline_percent",
+            "stats.premium.premium_dispersion_percent",
+            "stats.trade_size.coefficient_of_variation",
+            "stats.trade_size.max_trade_sats",
+            "stats.trade_size.mean_trade_sats",
+            "stats.trade_size.median_trade_sats",
+            "stats.trade_size.min_trade_sats",
+            "stats.trade_size.std_dev_trade_sats",
+        ];
+        expected.sort_unstable();
+
+        assert_eq!(keys, expected);
+        assert_eq!(definitions.len(), 33);
+    }
+
+    #[test]
+    fn every_metric_definition_has_a_non_empty_label_meaning_and_unit_and_direction() {
+        for definition in metric_definitions().values() {
+            assert!(!definition.label.is_empty());
+            assert!(!definition.meaning.is_empty());
+            assert!(!definition.unit_and_direction.is_empty());
+        }
     }
 }
