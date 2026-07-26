@@ -16,16 +16,20 @@ const TEST_PUBKEY_HEX: &str = "82fa8cb978b43c79b2156585bac2c011176a21d2aead6d9f7
 /// every invocation loads a real persisted configuration file (003 FR-015/FR-016) from
 /// the platform-standard location -- without isolation, a test's outcome would silently
 /// depend on whatever configuration file happens to exist on the machine or CI runner
-/// actually running the suite. Pointing `XDG_CONFIG_HOME` at a directory that does not
-/// exist reliably resolves to "no configuration file" (FR-015's silent, no-warning
-/// case), the same as a genuinely absent file, without needing to create and clean up a
-/// real temporary directory for tests that have nothing else to do with the filesystem.
+/// actually running the suite. `--config-dir` (rather than setting `XDG_CONFIG_HOME`)
+/// is the platform-independent way to force this: `config::paths_defaults::
+/// default_config_path` checks it first on every OS, unlike `XDG_CONFIG_HOME`, which
+/// this codebase's own path resolution only ever consults on Linux. Pointing it at a
+/// directory that does not exist reliably resolves to "no configuration file" (FR-015's
+/// silent, no-warning case), the same as a genuinely absent file, without needing to
+/// create and clean up a real temporary directory for tests that have nothing else to
+/// do with the filesystem.
 fn isolated_command() -> assert_cmd::Command {
     let mut command = assert_cmd::Command::cargo_bin("mostro-score").unwrap();
-    command.env(
-        "XDG_CONFIG_HOME",
+    command.args([
+        "--config-dir",
         "/nonexistent-mostro-score-test-isolation-dir",
-    );
+    ]);
     command
 }
 

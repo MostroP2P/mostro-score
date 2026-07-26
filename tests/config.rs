@@ -286,12 +286,11 @@ fn explicit_relays_flag_overrides_the_config_file_value() {
 }
 
 /// T222/T223 (003 FR-015a): a config file with a semantically invalid value is warned
-/// about and ignored entirely -- the invocation proceeds as if no config file existed
-/// (falling through to the compiled default relay, a real network address this test
-/// deliberately does not assert reachability of), rather than surfacing a config-parsing
-/// usage error. Exit code `2` is reserved for CLI usage errors (003 FR-013a); this run's
-/// actual exit code depends on whether the compiled default relay is reachable from the
-/// test environment, which this test does not assert either way.
+/// about and ignored entirely -- the invocation proceeds as if no config file existed,
+/// rather than surfacing a config-parsing usage error. An explicit, deliberately
+/// unreachable local `--relays` value keeps this test's assertion (warned, not a usage
+/// error) independent of the invalid `format` value under test, without depending on a
+/// real network connection to the compiled default relay.
 #[test]
 fn a_semantically_invalid_config_file_is_ignored_and_falls_back_to_compiled_defaults() {
     let dir = TempDir::new("config-invalid");
@@ -304,6 +303,8 @@ fn a_semantically_invalid_config_file_is_ignored_and_falls_back_to_compiled_defa
             TEST_PUBKEY_HEX,
             "--config-dir",
             dir.path().to_str().unwrap(),
+            "--relays",
+            "ws://127.0.0.1:1",
         ])
         .env_remove("MOSTRO_SCORE_RELAYS")
         .output()

@@ -76,9 +76,21 @@ pub fn default_config_path(config_dir_override: Option<&Path>) -> PathBuf {
     #[cfg(target_os = "linux")]
     {
         let xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
-        let base_dirs = directories::BaseDirs::new();
-        let home_dir = base_dirs.as_ref().map(|dirs| dirs.home_dir().as_os_str());
-        resolve_config_path(None, xdg_config_home.as_deref(), home_dir)
+        // `BaseDirs::new()` failing means the OS could not determine a home directory
+        // at all -- an already-degraded environment. Rather than silently falling
+        // through `resolve_config_path`'s `None`-home branch into a path relative to
+        // the current working directory (surprising: a `--init-config` run from a
+        // different directory would read or write a different file), fall back
+        // explicitly to a bare filename in the working directory, the same documented
+        // last-resort this function's non-Linux branch already uses.
+        match directories::BaseDirs::new() {
+            Some(base_dirs) => resolve_config_path(
+                None,
+                xdg_config_home.as_deref(),
+                Some(base_dirs.home_dir().as_os_str()),
+            ),
+            None => PathBuf::from(CONFIG_FILE_NAME),
+        }
     }
 
     #[cfg(not(target_os = "linux"))]
