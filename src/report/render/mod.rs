@@ -12,7 +12,7 @@ pub mod console;
 pub mod json;
 pub mod plain;
 
-use std::io::{IsTerminal, Write};
+use std::io::IsTerminal;
 
 /// Which renderer a caller should use for a report. `Console`/`Plain` are the two
 /// context-selectable defaults (002 FR-010); `Json` is always an explicit choice.
@@ -66,10 +66,13 @@ pub struct RunOptions {
 /// `json::error_envelope`'s single-line document to `out` — the same stream a successful
 /// JSON report already uses (`json::render`), since a fatal error replaces the report on
 /// that stream rather than living on a separate one. `Format::Console`/`Format::Plain`
-/// write the existing plain `"Error: {error}"` line to standard error, unchanged from the
-/// behavior this function replaces.
+/// write the existing plain `"Error: {error}"` line to `err` (an injected writer, not a
+/// hardcoded `std::io::stderr()` handle, matching `run()`'s own `out`/`err` injection
+/// convention elsewhere in this codebase — this is what makes the message itself, not
+/// just its absence from `out`, directly assertable in a test).
 pub fn render_fatal_error(
     out: &mut impl std::io::Write,
+    err: &mut impl std::io::Write,
     error: &crate::error::AppError,
     format: Format,
 ) -> std::io::Result<()> {
@@ -78,7 +81,7 @@ pub fn render_fatal_error(
             let envelope = json::error_envelope(error);
             writeln!(out, "{envelope}")
         }
-        Format::Console | Format::Plain => writeln!(std::io::stderr(), "Error: {error}"),
+        Format::Console | Format::Plain => writeln!(err, "Error: {error}"),
     }
 }
 
@@ -101,33 +104,39 @@ mod tests {
     }
 
     /// 002 FR-011: a JSON-format fatal error writes the envelope to `out`, the same
-    /// stream a successful JSON report would use.
+    /// stream a successful JSON report would use, and nothing to `err`.
     #[test]
     fn render_fatal_error_writes_the_json_envelope_to_out_for_json_format() {
         let error = AppError::InvalidPubkey;
         let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
 
-        render_fatal_error(&mut out, &error, Format::Json).expect("renders");
+        render_fatal_error(&mut out, &mut err, &error, Format::Json).expect("renders");
 
         let rendered = String::from_utf8(out).expect("valid utf8");
         assert!(rendered.contains("\"code\":\"invalid_pubkey\""));
         assert!(rendered.contains("\"schema_version\""));
+        assert!(err.is_empty());
     }
 
     /// Console/plain fatal-error rendering is unchanged from before this function
-    /// existed: a plain `"Error: {error}"` line to standard error, never to `out`.
+    /// existed: a plain `"Error: {error}"` line to `err`, never to `out` — now directly
+    /// assertable since `err` is an injected writer, not the real process stderr.
     #[test]
-    fn render_fatal_error_writes_nothing_to_out_for_console_or_plain_format() {
+    fn render_fatal_error_writes_the_plain_message_to_err_for_console_or_plain_format() {
         let error = AppError::InvalidPubkey;
         for format in [Format::Console, Format::Plain] {
             let mut out: Vec<u8> = Vec::new();
+            let mut err: Vec<u8> = Vec::new();
 
-            render_fatal_error(&mut out, &error, format).expect("renders");
+            render_fatal_error(&mut out, &mut err, &error, format).expect("renders");
 
             assert!(
                 out.is_empty(),
-                "console/plain fatal errors must go to stderr, never to `out`"
+                "console/plain fatal errors must go to `err`, never to `out`"
             );
+            let rendered = String::from_utf8(err).expect("valid utf8");
+            assert_eq!(rendered, "Error: Invalid public key format.\n");
         }
     }
 }

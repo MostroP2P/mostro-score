@@ -103,26 +103,6 @@ async fn all_relays_unreachable_is_fatal() {
     assert_eq!(exit_code_for(&actual_err), 3);
 }
 
-/// T170/T171 (003 FR-002/FR-003, FR-013a Edge Case): a malformed `--relays` entry is now
-/// rejected as a usage error (exit `2`) before any connection attempt, naming the exact
-/// malformed string. Superseded by PR 9: previously this reached `RelayEventSource::
-/// connect()` and folded into `AppError::RelaysUnreachable` (exit `3`), since every
-/// configured relay had failed to register; that generic-outage classification is no
-/// longer reachable from the CLI for a syntactically malformed relay, since it is now
-/// caught earlier with an actionable message.
-#[test]
-fn a_malformed_relay_url_is_a_usage_error_naming_the_relay_before_any_connection() {
-    let output = assert_cmd::Command::cargo_bin("mostro-score")
-        .unwrap()
-        .args(["--pubkey", TEST_PUBKEY_HEX, "--relays", "not-a-url"])
-        .output()
-        .expect("binary runs");
-
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not-a-url"));
-}
-
 /// T066/T067: one relay failing among several that connected is a warning on `err`, not a
 /// failure — the report still succeeds (Technical Context's graceful-degradation rule).
 #[tokio::test]

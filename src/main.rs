@@ -1,8 +1,7 @@
 use clap::Parser;
 use mostro_score::cli::args::Args;
 use mostro_score::cli::options::{
-    apply_color_format_override, resolve_format, resolve_run_options, validate_color_flags,
-    validate_relay_urls,
+    apply_color_format_override, resolve_format, resolve_run_options, validate_relay_urls,
 };
 use mostro_score::error::exit_code::exit_code_for;
 use mostro_score::error::AppError;
@@ -31,13 +30,9 @@ async fn main() {
         apply_color_format_override(context_default, args.color),
     );
 
-    if let Err(usage_error) = validate_color_flags(args.color, args.no_color) {
-        exit_with_error(usage_error, error_render_format);
-    }
-
-    // The same contradiction `validate_color_flags` above already ruled out cannot fail
-    // here; `resolve_run_options` is called so `RunOptions` is built from a single
-    // composed function rather than re-deriving each field inline.
+    // `resolve_run_options` calls `validate_color_flags` as its own first step, so this
+    // is the single place that contradiction (`--color` and `--no-color` together) is
+    // checked, rather than duplicating the check here as well.
     let options = match resolve_run_options(
         explicit_format,
         args.color,
@@ -100,7 +95,8 @@ async fn main() {
 /// be printed (e.g. a closed stderr/stdout).
 fn exit_with_error(err: AppError, format: Format) -> ! {
     let mut stdout = std::io::stdout();
-    let _ = render_fatal_error(&mut stdout, &err, format);
+    let mut stderr = std::io::stderr();
+    let _ = render_fatal_error(&mut stdout, &mut stderr, &err, format);
     std::process::exit(exit_code_for(&err));
 }
 

@@ -107,9 +107,13 @@ fn an_explicit_relays_flag_takes_precedence_over_its_environment_variable() {
     assert!(!stderr.contains("not-an-env-url"));
 }
 
-/// T170/T171 (003 FR-002/FR-003 Edge Case, FR-013a): a malformed `--relays` entry is
-/// rejected with an actionable message naming it, exit code `2`, before any connection
-/// attempt.
+/// T170/T171 (003 FR-002/FR-003, FR-013a Edge Case): a malformed `--relays` entry is
+/// rejected as a usage error (exit `2`) before any connection attempt, naming the exact
+/// malformed string. Superseded by PR 9: previously this reached `RelayEventSource::
+/// connect()` and folded into `AppError::RelaysUnreachable` (exit `3`), since every
+/// configured relay had failed to register; that generic-outage classification is no
+/// longer reachable from the CLI for a syntactically malformed relay, since it is now
+/// caught earlier with an actionable message.
 #[test]
 fn a_malformed_relays_flag_value_is_a_usage_error_naming_the_relay() {
     let output = assert_cmd::Command::cargo_bin("mostro-score")
