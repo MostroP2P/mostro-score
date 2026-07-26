@@ -2,6 +2,7 @@ use clap::Parser;
 use mostro_score::error::exit_code::exit_code_for;
 use mostro_score::error::AppError;
 use mostro_score::fetch::client::RelayEventSource;
+use mostro_score::report::progress::TerminalProgressReporter;
 use nostr_sdk::prelude::*;
 
 #[derive(Parser, Debug)]
@@ -30,7 +31,10 @@ async fn main() {
     };
 
     let relays: Vec<String> = args.relays.split(',').map(|s| s.to_string()).collect();
-    let event_source = RelayEventSource::new(relays);
+    // T138 (002 FR-014): binds the concrete terminal `ProgressReporter` at construction,
+    // here in the wiring root, so `fetch::client` itself never depends on `report`.
+    let event_source =
+        RelayEventSource::with_progress_reporter(relays, TerminalProgressReporter::new());
     let now = chrono::Utc::now;
 
     let mut stdout = std::io::stdout();

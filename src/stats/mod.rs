@@ -1,5 +1,6 @@
 pub mod context;
 pub mod disputes;
+pub mod grid;
 pub mod lifecycle;
 pub mod trade_size;
 

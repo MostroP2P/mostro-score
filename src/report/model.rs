@@ -7,6 +7,7 @@ use crate::fetch::client::RelayConnectionOutcome;
 use crate::fetch::filters_summary::RelayFetchOutcome;
 use crate::stats::context::{FiatBreakdown, PaymentMethodBreakdown, PremiumSignal};
 use crate::stats::disputes::DisputeSignals;
+use crate::stats::grid::{ActivityGrid, Granularity};
 use crate::stats::lifecycle::CumulativePerformance;
 use crate::stats::trade_size::TradeSizeStats;
 use crate::stats::{ActivityConsistency, BondPolicy, NodeMetrics};
@@ -104,11 +105,49 @@ pub fn assemble_fetch_section(
     }
 }
 
-/// 002 FR-004/FR-005: the activity grid. Out of scope for this PR (implemented from
-/// T129 onward) — a minimal placeholder so `Report` compiles with its full 5-section
-/// shape now.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct ReportActivity {}
+/// One row of `activity.buckets[]` (002 FR-004): `bucket_start` re-typed as an RFC 3339
+/// string, matching every other timestamp field in this schema, instead of
+/// `stats::grid::GridBucket`'s bare epoch integer.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportActivityBucket {
+    pub bucket_start: String,
+    pub successful_trades: usize,
+    pub volume_sats: u64,
+    pub median_trade_sats: Option<f64>,
+}
+
+/// 002 FR-004/FR-005: the activity grid. `granularity`/`range_start`/`range_end` are
+/// `null` and `buckets` is empty only when the node has zero successful orders (FR-019's
+/// zero-order Edge Case) — the block stays present either way, per FR-012's "every key
+/// always present" rule.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportActivity {
+    pub granularity: Option<Granularity>,
+    pub range_start: Option<String>,
+    pub range_end: Option<String>,
+    pub buckets: Vec<ReportActivityBucket>,
+}
+
+/// Pure struct assembly from `stats::grid`'s already-computed `ActivityGrid` — no new
+/// bucketing logic, only the RFC 3339 string formatting every other timestamp field in
+/// this schema already uses.
+pub fn assemble_activity_section(grid: &ActivityGrid) -> ReportActivity {
+    ReportActivity {
+        granularity: grid.granularity,
+        range_start: grid.range_start.map(rfc3339_from_epoch_seconds),
+        range_end: grid.range_end.map(rfc3339_from_epoch_seconds),
+        buckets: grid
+            .buckets
+            .iter()
+            .map(|bucket| ReportActivityBucket {
+                bucket_start: rfc3339_from_epoch_seconds(bucket.bucket_start),
+                successful_trades: bucket.successful_trades,
+                volume_sats: bucket.volume_sats,
+                median_trade_sats: bucket.median_trade_sats,
+            })
+            .collect(),
+    }
+}
 
 /// 002 FR-008/FR-008a: the recommendations block. Out of scope for this PR (implemented
 /// from T141 onward) — a minimal placeholder so `Report` compiles with its full
@@ -187,8 +226,8 @@ pub fn assemble_stats_section(metrics: &NodeMetrics) -> ReportStats {
 }
 
 /// 002 FR-001: the complete report — 5 ordered sections plus `schema_version` (FR-012a)
-/// and `generated_at`. `activity` and `recommendations` are placeholders in this PR;
-/// later PRs populate their real content.
+/// and `generated_at`. `recommendations` is a placeholder in this PR; a later PR
+/// populates its real content.
 #[derive(Debug, Clone, Serialize)]
 pub struct Report {
     pub schema_version: String,
@@ -200,15 +239,18 @@ pub struct Report {
     pub recommendations: ReportRecommendations,
 }
 
-/// Assembles the complete `Report` from this PR's three fully populated sections
-/// (`node`, `fetch`, `stats`), leaving `activity`/`recommendations` as their
-/// placeholder defaults. Not yet called by `run()` — a later PR wires this in once a
-/// renderer exists to consume it.
+/// Assembles the complete `Report` from this PR's fully populated sections (`node`,
+/// `fetch`, `activity`, `stats`), leaving `recommendations` as its placeholder default.
+/// `activity_grid` is pre-computed by the caller (`stats::grid::compute_activity_grid`),
+/// not recomputed here — this function only assembles, matching every other
+/// `assemble_*_section` function's pattern. Not yet called by `run()` — a later PR wires
+/// this in once a renderer exists to consume it.
 pub fn assemble_report(
     public_key: PublicKey,
     connection: &RelayConnectionOutcome,
     fetch_outcome: &RelayFetchOutcome,
     metrics: &NodeMetrics,
+    activity_grid: &ActivityGrid,
     generated_at: DateTime<Utc>,
 ) -> Result<Report> {
     Ok(Report {
@@ -216,7 +258,7 @@ pub fn assemble_report(
         generated_at: generated_at.to_rfc3339_opts(SecondsFormat::Secs, true),
         node: assemble_node_section(public_key)?,
         fetch: assemble_fetch_section(connection, fetch_outcome),
-        activity: ReportActivity::default(),
+        activity: assemble_activity_section(activity_grid),
         stats: assemble_stats_section(metrics),
         recommendations: ReportRecommendations::default(),
     })
@@ -227,9 +269,10 @@ mod tests {
     use crate::fetch::client::{RelayConnectFailure, RelayConnectionOutcome, RelayOutcome};
     use crate::fetch::filters_summary::RelayFetchOutcome;
     use crate::report::model::{
-        assemble_fetch_section, assemble_node_section, assemble_report, assemble_stats_section,
-        RelayStatus,
+        assemble_activity_section, assemble_fetch_section, assemble_node_section, assemble_report,
+        assemble_stats_section, Granularity, RelayStatus,
     };
+    use crate::stats::grid::{compute_activity_grid, ActivityGrid, GridOrder};
     use crate::stats::NodeMetrics;
     use chrono::{DateTime, Utc};
     use nostr_sdk::prelude::*;
@@ -279,15 +322,73 @@ mod tests {
         let generated_at = DateTime::parse_from_rfc3339("2026-07-24T10:15:00Z")
             .unwrap()
             .with_timezone(&Utc);
+        let activity_grid = compute_activity_grid(&[
+            GridOrder {
+                created_at: 10 * 86400,
+                amount_sats: Some(100),
+            },
+            GridOrder {
+                created_at: 90 * 86400,
+                amount_sats: Some(300),
+            },
+        ]);
 
-        let report =
-            assemble_report(public_key, &connection, &outcome, &metrics, generated_at).unwrap();
+        let report = assemble_report(
+            public_key,
+            &connection,
+            &outcome,
+            &metrics,
+            &activity_grid,
+            generated_at,
+        )
+        .unwrap();
 
         assert_eq!(report.schema_version, "1.0.0");
         assert_eq!(report.generated_at, "2026-07-24T10:15:00Z");
         assert_eq!(report.node.pubkey_hex, public_key.to_hex());
         assert_eq!(report.fetch.dev_fee_events, 1);
         assert_eq!(report.stats.cumulative.total_successful_trades, 2);
+        assert_eq!(report.activity.granularity, Some(Granularity::Daily));
+        assert!(!report.activity.buckets.is_empty());
+    }
+
+    #[test]
+    fn assemble_activity_section_formats_bucket_start_as_rfc3339_and_preserves_values() {
+        let grid = compute_activity_grid(&[GridOrder {
+            created_at: 0,
+            amount_sats: Some(1000),
+        }]);
+
+        let activity = assemble_activity_section(&grid);
+
+        assert_eq!(activity.granularity, Some(Granularity::Daily));
+        assert_eq!(
+            activity.range_start,
+            Some("1970-01-01T00:00:00Z".to_string())
+        );
+        assert_eq!(activity.range_end, Some("1970-01-01T00:00:00Z".to_string()));
+        assert_eq!(activity.buckets.len(), 1);
+        assert_eq!(
+            activity.buckets[0].bucket_start,
+            "1970-01-01T00:00:00Z".to_string()
+        );
+        assert_eq!(activity.buckets[0].successful_trades, 1);
+        assert_eq!(activity.buckets[0].volume_sats, 1000);
+        assert_eq!(activity.buckets[0].median_trade_sats, Some(1000.0));
+    }
+
+    /// Edge Cases (002 FR-019/FR-005): zero successful orders reports the whole activity
+    /// block as `null`/empty, not an invented default range.
+    #[test]
+    fn assemble_activity_section_reports_null_range_when_grid_is_empty() {
+        let grid: ActivityGrid = compute_activity_grid(&[]);
+
+        let activity = assemble_activity_section(&grid);
+
+        assert_eq!(activity.granularity, None);
+        assert_eq!(activity.range_start, None);
+        assert_eq!(activity.range_end, None);
+        assert!(activity.buckets.is_empty());
     }
 
     #[test]
