@@ -214,6 +214,9 @@ async fn quiet_suppresses_transient_status_lines_but_not_other_diagnostics_or_co
         format: Format::Console,
         quiet: true,
         color_override: Some(false),
+        since: None,
+        until: None,
+        view: None,
     };
 
     mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options)

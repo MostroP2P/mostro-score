@@ -6,6 +6,7 @@
 use clap::{ArgAction, Parser, ValueEnum};
 
 use crate::report::render::Format;
+use crate::stats::grid::Granularity;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -44,6 +45,24 @@ pub struct Args {
     /// Suppress progress indicators and transient status narration (003 FR-012).
     #[arg(short, long, action = ArgAction::SetTrue)]
     pub quiet: bool,
+
+    /// Scopes the activity grid's requested range to start on or after this date (003
+    /// FR-004). Accepts an ISO 8601 calendar date or a relative shorthand (`30d`, `6mo`,
+    /// `1y`), parsed later by `cli::duration`/`cli::options` — never validated here,
+    /// since resolution needs a `now` value this flag-only layer has no business owning.
+    #[arg(long)]
+    pub since: Option<String>,
+
+    /// Scopes the activity grid's requested range to end on or before this date (003
+    /// FR-004). Same raw-string, parse-later contract as `--since`.
+    #[arg(long)]
+    pub until: Option<String>,
+
+    /// Selects the activity grid's time-bucket granularity (003 FR-006). Omitted means
+    /// "not explicitly set" so `cli::options` can distinguish an explicit choice from
+    /// configuration-sourced or automatic selection.
+    #[arg(long, value_enum)]
+    pub view: Option<CliGranularity>,
 }
 
 /// clap's own `ValueEnum`-derived mirror of `report::render::Format` (003 FR-010):
@@ -63,6 +82,26 @@ impl From<CliFormat> for Format {
             CliFormat::Console => Format::Console,
             CliFormat::Plain => Format::Plain,
             CliFormat::Json => Format::Json,
+        }
+    }
+}
+
+/// clap's own `ValueEnum`-derived mirror of `stats::grid::Granularity` (003 FR-006),
+/// kept as a distinct type for the same reason `CliFormat` is kept distinct from
+/// `report::render::Format`: `stats::grid` never depends on `clap`.
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CliGranularity {
+    Daily,
+    Monthly,
+    Yearly,
+}
+
+impl From<CliGranularity> for Granularity {
+    fn from(value: CliGranularity) -> Self {
+        match value {
+            CliGranularity::Daily => Granularity::Daily,
+            CliGranularity::Monthly => Granularity::Monthly,
+            CliGranularity::Yearly => Granularity::Yearly,
         }
     }
 }

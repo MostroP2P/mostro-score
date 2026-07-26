@@ -6,8 +6,11 @@
 //! directly, and every resolution/validation rule stays unit-testable without a
 //! subprocess.
 
+use crate::cli::duration::{parse_date_bound, since_bound_seconds, until_bound_seconds};
 use crate::error::AppError;
 use crate::report::render::Format;
+use crate::stats::grid::Granularity;
+use chrono::{DateTime, Datelike, Utc};
 use nostr_sdk::prelude::*;
 
 /// 002 FR-010: an explicit format choice always overrides the context-based default,
@@ -76,18 +79,22 @@ pub fn validate_relay_urls(relays: &[String]) -> Result<(), AppError> {
     Ok(())
 }
 
-/// 003 FR-010..FR-013a: the top-level resolution/validation entry point `main.rs` calls
-/// once flags are parsed — composes every pure function above into the final
-/// `RunOptions` a report-generating invocation needs. Fails only on the one validation
-/// this composition can raise (`--color`/`--no-color` together); relay well-formedness
-/// (`validate_relay_urls`) is a separate, independent check `main.rs` runs on the parsed
-/// `--relays` list.
+/// 003 FR-010..FR-013a, FR-004..FR-007: the top-level resolution/validation entry point
+/// `main.rs` calls once flags are parsed — composes every pure function above into the
+/// final `RunOptions` a report-generating invocation needs. Fails on `--color`/
+/// `--no-color` contradiction, or on any of `resolve_time_range`'s own validation
+/// failures (FR-005's since-later-than-until check, FR-006's explicit-`--view`
+/// alignment check); relay well-formedness (`validate_relay_urls`) is a separate,
+/// independent check `main.rs` runs on the parsed `--relays` list.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_run_options(
     explicit_format: Option<Format>,
     color: bool,
     no_color: bool,
     quiet: bool,
     stdout_is_terminal: bool,
+    time_range_inputs: TimeRangeInputs,
+    now: DateTime<Utc>,
 ) -> Result<crate::report::render::RunOptions, AppError> {
     validate_color_flags(color, no_color)?;
 
@@ -97,11 +104,189 @@ pub fn resolve_run_options(
         apply_color_format_override(context_default, color),
     );
 
+    let time_range = resolve_time_range(time_range_inputs, now)?;
+
     Ok(crate::report::render::RunOptions {
         format,
         quiet,
         color_override: resolve_color_override(color, no_color),
+        since: time_range.since,
+        until: time_range.until,
+        view: time_range.view,
     })
+}
+
+/// 003 FR-004/FR-006: the raw, unparsed `--since`/`--until`/`--view` flag values, plus
+/// `now`-independent `--view` conversion already done by `CliGranularity::into()`. Holds
+/// exactly what `cli::args::Args` carries for this concern, kept separate from `Args`
+/// itself so this module never depends on `clap`.
+#[derive(Debug, Clone)]
+pub struct TimeRangeInputs {
+    pub since_raw: Option<String>,
+    pub until_raw: Option<String>,
+    pub view: Option<Granularity>,
+}
+
+/// 003 FR-004/FR-006: the fully resolved parts of the activity grid's time range.
+/// `since` is `None` when either both flags were omitted, or `--until` was given alone —
+/// defaulting `--since` to the node's earliest available history, a data-dependent value
+/// only `run()` can resolve once it has real order data. `until` is `None` when either
+/// both flags were omitted, or `--since` was given alone — deliberately deferred to
+/// `run()`'s own `report_generated_at`, captured after connecting/fetching, rather than
+/// resolved here against an earlier `now` read before any relay is even queried (the two
+/// instants could otherwise diverge by however long the fetch takes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedTimeRange {
+    pub since: Option<i64>,
+    pub until: Option<i64>,
+    pub view: Option<Granularity>,
+}
+
+/// 003 FR-004/FR-005/FR-006: resolves `--since`/`--until`/`--view` into their final
+/// values, performing every validation that must happen before querying any relay
+/// (FR-005's since-later-than-until check, FR-006's explicit-`--view` alignment check).
+/// Pure aside from the injected `now` — no clock read, no I/O.
+pub fn resolve_time_range(
+    inputs: TimeRangeInputs,
+    now: DateTime<Utc>,
+) -> Result<ResolvedTimeRange, AppError> {
+    let today = now.date_naive();
+
+    let since_explicit = inputs
+        .since_raw
+        .as_deref()
+        .map(|raw| parse_date_bound(raw, today).map(since_bound_seconds))
+        .transpose()?;
+    let until_explicit = inputs
+        .until_raw
+        .as_deref()
+        .map(|raw| parse_date_bound(raw, today).map(until_bound_seconds))
+        .transpose()?;
+
+    // `--until` stays deferred (`None`) in the since-only case, exactly like `--since`
+    // already stays deferred in the until-only case: `run()` resolves it against its own
+    // `report_generated_at`, captured after connecting/fetching, not against this `now`
+    // captured here in `cli::options` before any relay is even queried. Resolving it
+    // here instead would let the two diverge by however long the fetch takes, so an
+    // event created in that gap could count toward general statistics (measured against
+    // the later instant) while being silently excluded from the activity grid (measured
+    // against this earlier one) -- the same "report-generation instant" is supposed to
+    // mean one single instant everywhere in the report, per FR-004.
+    let (since, until) = match (since_explicit, until_explicit) {
+        (None, None) => (None, None),
+        (Some(since), None) => (Some(since), None),
+        (None, Some(until)) => (None, Some(until)),
+        (Some(since), Some(until)) => (Some(since), Some(until)),
+    };
+
+    // FR-005: applies whenever `--since` was explicitly given, regardless of whether
+    // `--until` was too or stays deferred to the report-generation instant above -- an
+    // explicit `--since` later than either kind of `--until` is the same actionable
+    // mistake, and this validation must happen before querying any relay (FR-005), so it
+    // uses `now` here as its own stand-in for the eventual until-default -- a deliberately
+    // separate concern from the resolved `until` value above, which stays deferred to
+    // `run()`'s own, more precise instant. Only a *defaulted* `--since` (the data-
+    // dependent earliest-history case, resolved later in `run()`) is exempt, per
+    // FR-004/FR-005's own text.
+    if let Some(since) = since {
+        let effective_until = until.unwrap_or_else(|| now.timestamp());
+        if since > effective_until {
+            return Err(AppError::UsageError(format!(
+                "--since resolves to a point later than --until ({since} > {effective_until}); \
+                 --since must not be later than --until"
+            )));
+        }
+    }
+
+    if let Some(view) = inputs.view {
+        validate_explicit_view_alignment(view, since_explicit, until_explicit)?;
+    }
+
+    Ok(ResolvedTimeRange {
+        since,
+        until,
+        view: inputs.view,
+    })
+}
+
+/// 003 FR-006: with an explicit `--view` flag, an explicitly given `--since` must land on
+/// the first day of a calendar month/year and an explicitly given `--until` must land on
+/// the last day of one. Only applies to values the caller actually typed — a defaulted
+/// `--since`/`--until` is snapped instead, inside `stats::grid`, never rejected here.
+fn validate_explicit_view_alignment(
+    view: Granularity,
+    since_explicit: Option<i64>,
+    until_explicit: Option<i64>,
+) -> Result<(), AppError> {
+    if let Some(since) = since_explicit {
+        if !is_first_day_of_period(view, since) {
+            return Err(AppError::UsageError(format!(
+                "--since ({since}) does not resolve to the first day of a calendar {}, \
+                 required when --view {} is explicit",
+                period_name(view),
+                view_name(view)
+            )));
+        }
+    }
+    if let Some(until) = until_explicit {
+        if !is_last_day_of_period(view, until) {
+            return Err(AppError::UsageError(format!(
+                "--until ({until}) does not resolve to the last day of a calendar {}, \
+                 required when --view {} is explicit",
+                period_name(view),
+                view_name(view)
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn period_name(view: Granularity) -> &'static str {
+    match view {
+        Granularity::Daily => "day",
+        Granularity::Monthly => "month",
+        Granularity::Yearly => "year",
+    }
+}
+
+fn view_name(view: Granularity) -> &'static str {
+    match view {
+        Granularity::Daily => "daily",
+        Granularity::Monthly => "monthly",
+        Granularity::Yearly => "yearly",
+    }
+}
+
+fn date_from_seconds(timestamp: i64) -> chrono::NaiveDate {
+    DateTime::<Utc>::from_timestamp(timestamp, 0)
+        .unwrap_or_default()
+        .date_naive()
+}
+
+fn is_first_day_of_period(view: Granularity, timestamp: i64) -> bool {
+    match view {
+        Granularity::Daily => true,
+        Granularity::Monthly => date_from_seconds(timestamp).day() == 1,
+        Granularity::Yearly => {
+            let date = date_from_seconds(timestamp);
+            date.month() == 1 && date.day() == 1
+        }
+    }
+}
+
+fn is_last_day_of_period(view: Granularity, timestamp: i64) -> bool {
+    match view {
+        Granularity::Daily => true,
+        Granularity::Monthly => {
+            let date = date_from_seconds(timestamp);
+            let next_day = date + chrono::Duration::days(1);
+            next_day.month() != date.month()
+        }
+        Granularity::Yearly => {
+            let date = date_from_seconds(timestamp);
+            date.month() == 12 && date.day() == 31
+        }
+    }
 }
 
 #[cfg(test)]
@@ -216,9 +401,31 @@ mod tests {
         assert!(error.to_string().contains("https://relay.example"));
     }
 
+    fn no_time_range_inputs() -> TimeRangeInputs {
+        TimeRangeInputs {
+            since_raw: None,
+            until_raw: None,
+            view: None,
+        }
+    }
+
+    fn fixed_now() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-07-25T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
     #[test]
     fn resolve_run_options_rejects_contradictory_color_flags() {
-        let result = resolve_run_options(None, true, true, false, true);
+        let result = resolve_run_options(
+            None,
+            true,
+            true,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+        );
         assert!(matches!(result, Err(AppError::UsageError(_))));
     }
 
@@ -226,8 +433,16 @@ mod tests {
     /// plain (non-terminal) default to console, and forces the color override on.
     #[test]
     fn resolve_run_options_applies_the_color_format_upgrade_and_override() {
-        let options = resolve_run_options(None, true, false, false, false)
-            .expect("color alone is not contradictory");
+        let options = resolve_run_options(
+            None,
+            true,
+            false,
+            false,
+            false,
+            no_time_range_inputs(),
+            fixed_now(),
+        )
+        .expect("color alone is not contradictory");
 
         assert_eq!(
             options,
@@ -235,6 +450,9 @@ mod tests {
                 format: Format::Console,
                 quiet: false,
                 color_override: Some(true),
+                since: None,
+                until: None,
+                view: None,
             }
         );
     }
@@ -244,16 +462,226 @@ mod tests {
     /// format is present.
     #[test]
     fn resolve_run_options_explicit_format_ignores_the_color_flag() {
-        let options = resolve_run_options(Some(Format::Json), true, false, false, false)
-            .expect("color alone is not contradictory");
+        let options = resolve_run_options(
+            Some(Format::Json),
+            true,
+            false,
+            false,
+            false,
+            no_time_range_inputs(),
+            fixed_now(),
+        )
+        .expect("color alone is not contradictory");
 
         assert_eq!(options.format, Format::Json);
     }
 
     #[test]
     fn resolve_run_options_threads_quiet_through_unchanged() {
-        let options =
-            resolve_run_options(None, false, false, true, true).expect("no validation failure");
+        let options = resolve_run_options(
+            None,
+            false,
+            false,
+            true,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+        )
+        .expect("no validation failure");
         assert!(options.quiet);
+    }
+
+    #[test]
+    fn resolve_run_options_propagates_a_time_range_validation_failure() {
+        let inputs = TimeRangeInputs {
+            since_raw: Some("2026-06-01".to_string()),
+            until_raw: Some("2026-01-01".to_string()),
+            view: None,
+        };
+        let result = resolve_run_options(None, false, false, false, true, inputs, fixed_now());
+        assert!(matches!(result, Err(AppError::UsageError(_))));
+    }
+
+    // ---- 003 FR-004/FR-005/FR-006: `resolve_time_range` ----
+
+    /// FR-004: omitting both `--since`/`--until` covers the node's full available
+    /// history, matching current tool behavior — no restriction at all.
+    #[test]
+    fn resolve_time_range_with_both_flags_omitted_covers_full_history() {
+        let resolved = resolve_time_range(no_time_range_inputs(), fixed_now()).unwrap();
+
+        assert_eq!(resolved.since, None);
+        assert_eq!(resolved.until, None);
+    }
+
+    /// FR-004: `--since` alone leaves `--until` deferred (`None`) here -- `run()` resolves
+    /// it against its own, later-captured `report_generated_at`, not against `now` as
+    /// read in `cli::options` before any relay is even queried, so the two never diverge
+    /// by however long the fetch takes (a real bug found and fixed during review).
+    #[test]
+    fn resolve_time_range_with_only_since_leaves_until_deferred_to_run() {
+        let inputs = TimeRangeInputs {
+            since_raw: Some("2026-06-01".to_string()),
+            until_raw: None,
+            view: None,
+        };
+        let now = fixed_now();
+
+        let resolved = resolve_time_range(inputs, now).unwrap();
+
+        assert_eq!(resolved.until, None);
+        assert!(resolved.since.is_some());
+    }
+
+    /// FR-004: `--until` alone leaves `--since` unresolved (`None`) — the node's
+    /// earliest history is a data-dependent default only `run()` can resolve.
+    #[test]
+    fn resolve_time_range_with_only_until_leaves_since_unresolved() {
+        let inputs = TimeRangeInputs {
+            since_raw: None,
+            until_raw: Some("2026-06-01".to_string()),
+            view: None,
+        };
+
+        let resolved = resolve_time_range(inputs, fixed_now()).unwrap();
+
+        assert_eq!(resolved.since, None);
+        assert!(resolved.until.is_some());
+    }
+
+    /// FR-005: an explicitly given `--since` resolving later than `--until` is rejected
+    /// before ever querying a relay.
+    #[test]
+    fn resolve_time_range_rejects_an_explicit_since_later_than_until() {
+        let inputs = TimeRangeInputs {
+            since_raw: Some("2026-06-01".to_string()),
+            until_raw: Some("2026-01-01".to_string()),
+            view: None,
+        };
+
+        let error = resolve_time_range(inputs, fixed_now()).expect_err("since > until");
+        assert!(matches!(error, AppError::UsageError(_)));
+    }
+
+    /// FR-005: an explicit `--since` later than `--until` is rejected even when
+    /// `--until` was never given itself and defaults to the report-generation instant --
+    /// the check is not limited to the case where both flags were explicitly typed.
+    #[test]
+    fn resolve_time_range_rejects_an_explicit_since_in_the_future_with_until_omitted() {
+        let inputs = TimeRangeInputs {
+            since_raw: Some("2099-01-01".to_string()),
+            until_raw: None,
+            view: None,
+        };
+
+        let error =
+            resolve_time_range(inputs, fixed_now()).expect_err("since later than now is rejected");
+        assert!(matches!(error, AppError::UsageError(_)));
+    }
+
+    /// FR-005: a *defaulted* `--since` (the earliest-history default, still `None` at
+    /// this layer) later than `--until` is not an error here — that emptiness is only
+    /// knowable once `run()` resolves the actual earliest order timestamp.
+    #[test]
+    fn resolve_time_range_does_not_reject_a_defaulted_since_against_until() {
+        let inputs = TimeRangeInputs {
+            since_raw: None,
+            until_raw: Some("2000-01-01".to_string()),
+            view: None,
+        };
+
+        let resolved = resolve_time_range(inputs, fixed_now()).expect("not an error here");
+        assert_eq!(resolved.since, None);
+    }
+
+    /// FR-006: `--view` threads through unchanged when the resolved range does not
+    /// conflict with it (or is entirely defaulted).
+    #[test]
+    fn resolve_time_range_threads_an_explicit_view_through_unchanged() {
+        let inputs = TimeRangeInputs {
+            since_raw: None,
+            until_raw: None,
+            view: Some(Granularity::Monthly),
+        };
+
+        let resolved = resolve_time_range(inputs, fixed_now()).unwrap();
+        assert_eq!(resolved.view, Some(Granularity::Monthly));
+    }
+
+    /// FR-006: with an explicit `--view monthly`, an explicit `--since` must resolve to
+    /// the first day of a calendar month.
+    #[test]
+    fn resolve_time_range_rejects_a_since_misaligned_with_an_explicit_monthly_view() {
+        let inputs = TimeRangeInputs {
+            since_raw: Some("2026-06-15".to_string()),
+            until_raw: Some("2026-06-30".to_string()),
+            view: Some(Granularity::Monthly),
+        };
+
+        let error = resolve_time_range(inputs, fixed_now())
+            .expect_err("since must be the first day of the month");
+        assert!(matches!(error, AppError::UsageError(_)));
+    }
+
+    /// FR-006: with an explicit `--view monthly`, an explicit `--until` must resolve to
+    /// the last day of a calendar month.
+    #[test]
+    fn resolve_time_range_rejects_an_until_misaligned_with_an_explicit_monthly_view() {
+        let inputs = TimeRangeInputs {
+            since_raw: Some("2026-06-01".to_string()),
+            until_raw: Some("2026-06-15".to_string()),
+            view: Some(Granularity::Monthly),
+        };
+
+        let error = resolve_time_range(inputs, fixed_now())
+            .expect_err("until must be the last day of the month");
+        assert!(matches!(error, AppError::UsageError(_)));
+    }
+
+    /// FR-006: an explicit `--view monthly` accepts a `--since`/`--until` already
+    /// aligned to calendar month boundaries.
+    #[test]
+    fn resolve_time_range_accepts_an_explicit_monthly_view_with_aligned_bounds() {
+        let inputs = TimeRangeInputs {
+            since_raw: Some("2026-06-01".to_string()),
+            until_raw: Some("2026-06-30".to_string()),
+            view: Some(Granularity::Monthly),
+        };
+
+        let resolved = resolve_time_range(inputs, fixed_now()).expect("already aligned");
+        assert_eq!(resolved.view, Some(Granularity::Monthly));
+    }
+
+    /// FR-006: an explicit `--view yearly` requires `--since`/`--until` on calendar year
+    /// boundaries.
+    #[test]
+    fn resolve_time_range_rejects_bounds_misaligned_with_an_explicit_yearly_view() {
+        let inputs = TimeRangeInputs {
+            since_raw: Some("2026-03-01".to_string()),
+            until_raw: Some("2026-12-31".to_string()),
+            view: Some(Granularity::Yearly),
+        };
+
+        let error = resolve_time_range(inputs, fixed_now())
+            .expect_err("since must be January 1st for an explicit yearly view");
+        assert!(matches!(error, AppError::UsageError(_)));
+    }
+
+    /// FR-006: a `--since` left to its data-dependent default (`--until` given alone,
+    /// `--since` omitted) is never checked for alignment here — there is no resolved
+    /// value yet to check; only `--until`'s own explicit alignment is validated, and
+    /// only `stats::grid` later snaps whatever the defaulted `--since` turns out to be.
+    #[test]
+    fn resolve_time_range_never_checks_alignment_of_a_since_left_to_its_default() {
+        let inputs = TimeRangeInputs {
+            since_raw: None,
+            until_raw: Some("2026-06-30".to_string()),
+            view: Some(Granularity::Monthly),
+        };
+
+        let resolved = resolve_time_range(inputs, fixed_now())
+            .expect("an omitted --since is never checked for alignment");
+        assert_eq!(resolved.since, None);
+        assert_eq!(resolved.view, Some(Granularity::Monthly));
     }
 }

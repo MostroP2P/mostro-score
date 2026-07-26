@@ -25,7 +25,7 @@ use models::order::aggregate_order_events;
 use nostr_sdk::prelude::*;
 use report::model::assemble_report;
 use report::render::{console, json, plain, Format, RunOptions};
-use stats::grid::{compute_activity_grid, GridOrder};
+use stats::grid::{compute_activity_grid, wide_range_warning_message, GridOrder, GridRange};
 use stats::NodeMetrics;
 
 /// PR 1 Step D: the module move — the wiring-only wrapped function relocated here as
@@ -174,7 +174,47 @@ pub async fn run<E: EventSource>(
             amount_sats,
         })
         .collect();
-    let activity_grid = compute_activity_grid(&grid_orders);
+    // PR 10 (003 FR-004): the activity grid's own range, resolved from `options.since`/
+    // `options.until` — `cli::options` has already resolved everything explicitly given.
+    // Two deferred defaults are resolved here, now that both `grid_orders` and
+    // `report_generated_at` are available: `--until` alone defers `since` to the node's
+    // earliest order (a data-dependent value `cli::options` cannot know); `--since` alone
+    // defers `until` to this same `report_generated_at` instant, deliberately, rather
+    // than an earlier `now` `cli::options` would have had to read before any relay was
+    // even queried — using that earlier instant here would let it silently diverge from
+    // the one used for FR-014's future-event exclusion and the report's own
+    // `generated_at`. General statistics (above) are computed over the node's full
+    // history, entirely unaffected by this range.
+    let grid_range = match (options.since, options.until) {
+        (None, None) => GridRange::Unbounded,
+        (None, Some(until)) => match grid_orders.iter().map(|order| order.created_at).min() {
+            Some(earliest) => GridRange::Bounded {
+                since: earliest,
+                until,
+            },
+            // Nothing to anchor "earliest" on: fall back to inferring the range as
+            // normal, rather than inventing a value.
+            None => GridRange::Unbounded,
+        },
+        (Some(since), until) => GridRange::Bounded {
+            since,
+            until: until.unwrap_or_else(|| report_generated_at.timestamp()),
+        },
+    };
+    let activity_grid = compute_activity_grid(&grid_orders, grid_range, options.view);
+    // 003 FR-005a/FR-007: fires when `--view`/`--since`/`--until` combine to force a
+    // daily grid over a wide range. A diagnostic fact about the requested range, not
+    // transient status narration, so it is never suppressed by `--quiet`, matching the
+    // relay-warning loop above.
+    if let (Some(granularity), Some(range_start), Some(range_end)) = (
+        activity_grid.granularity,
+        activity_grid.range_start,
+        activity_grid.range_end,
+    ) {
+        if let Some(warning) = wide_range_warning_message(granularity, range_start, range_end) {
+            writeln!(err, "{warning}")?;
+        }
+    }
 
     // 7. Assemble and render the complete 5-section report (002 FR-001), replacing PR
     // 1's ad hoc per-section `console::render_*` pipeline entirely.

@@ -316,24 +316,24 @@ work they described no longer applies.
 
 **Depends on**: 9 (independent of PR 11). Requirements: 003 FR-004..FR-007.
 
-- [ ] T178 [RED] Failing tests for ISO 8601 and `Nd`/`Nmo`/`Ny` shorthand (end-of-month clamping) in `src/cli/duration.rs`.
-- [ ] T179 [GREEN] Implement `--since`/`--until` parsing per 003 FR-004 in `src/cli/duration.rs`.
-- [ ] T180 [RED] Failing test: `--since` later than `--until` is a usage error (exit `2`).
-- [ ] T181 [GREEN] Wire the cross-validation into `src/cli/options.rs`.
-- [ ] T182 [RED] Failing tests for one-sided `--since`/`--until` range resolution: `--since` alone defaults `--until` to the report-generation instant, `--until` alone defaults `--since` to earliest history, and omitting both resolves to full history, in `src/cli/options.rs`.
-- [ ] T183 [GREEN] Implement one-sided `--since`/`--until` default resolution per 003 FR-004 in `src/cli/options.rs`.
-- [ ] T184 [RED] Failing tests for `--view` overriding PR 7's granularity mechanism in `src/cli/options.rs`.
-- [ ] T185 [GREEN] Wire `--view` per 003 FR-006/FR-007 into `src/stats/grid.rs` (no new threshold).
-- [ ] T186 [RED] Failing test: an explicitly-supplied `--since`/`--until` that does not align to a calendar month/year boundary is rejected as a usage error when `--view monthly`/`--view yearly` is explicit, in `src/cli/options.rs`.
-- [ ] T187 [GREEN] Implement the explicit-`--view` boundary-rejection rule per 003 FR-006 in `src/cli/options.rs`.
-- [ ] T188 [RED] Failing test: a misaligned range is snapped, not rejected, to the calendar month/year boundary when the monthly/yearly granularity comes from config or automatic selection rather than an explicit `--view`, in `src/stats/grid.rs`.
-- [ ] T189 [GREEN] Implement boundary snapping for the non-explicit-`--view` path per 003 FR-006 in `src/stats/grid.rs`.
-- [ ] T190 [RED] Failing test: an empty or inverted `--since`/`--until` range stays empty after monthly/yearly boundary snapping, in `src/stats/grid.rs`.
-- [ ] T191 [GREEN] Preserve the empty range through snapping per 003 FR-006 in `src/stats/grid.rs`.
-- [ ] T192 [RED] Failing test: FR-005a warning fires when `--since`/`--until` exceed PR 7's chosen boundary.
-- [ ] T193 [GREEN] Wire `--since`/`--until` into PR 7's existing warning mechanism.
-- [ ] T194 [RED] Failing test comparing a `--since`/`--until`-scoped activity grid against an unscoped grid over the same fixture event set: the scoped grid includes only buckets within range, while spec 001's lifetime metrics (longevity, cumulative, trade size, liveness) remain unaffected by the flag.
-- [ ] T195 [GREEN] Wire the resolved `--since`/`--until` range into `src/stats/grid.rs`'s bucket construction so only in-range buckets are built; confirm `src/stats/lifecycle.rs` and `src/stats/trade_size.rs` are untouched by this wiring.
+- [x] T178 [RED] Failing tests for ISO 8601 and `Nd`/`Nmo`/`Ny` shorthand (end-of-month clamping) in `src/cli/duration.rs`.
+- [x] T179 [GREEN] Implement `--since`/`--until` parsing per 003 FR-004 in `src/cli/duration.rs`.
+- [x] T180 [RED] Failing test: `--since` later than `--until` is a usage error (exit `2`).
+- [x] T181 [GREEN] Wire the cross-validation into `src/cli/options.rs`.
+- [x] T182 [RED] Failing tests for one-sided `--since`/`--until` range resolution: `--since` alone defaults `--until` to the report-generation instant, `--until` alone defaults `--since` to earliest history, and omitting both resolves to full history, in `src/cli/options.rs`.
+- [x] T183 [GREEN] Implement one-sided `--since`/`--until` default resolution per 003 FR-004 in `src/cli/options.rs`.
+- [x] T184 [RED] Failing tests for `--view` overriding PR 7's granularity mechanism in `src/cli/options.rs`.
+- [x] T185 [GREEN] Wire `--view` per 003 FR-006/FR-007 into `src/stats/grid.rs` (no new threshold).
+- [x] T186 [RED] Failing test: an explicitly-supplied `--since`/`--until` that does not align to a calendar month/year boundary is rejected as a usage error when `--view monthly`/`--view yearly` is explicit, in `src/cli/options.rs`.
+- [x] T187 [GREEN] Implement the explicit-`--view` boundary-rejection rule per 003 FR-006 in `src/cli/options.rs`.
+- [x] T188 [RED] Failing test: a misaligned range is snapped, not rejected, to the calendar month/year boundary when the monthly/yearly granularity comes from config or automatic selection rather than an explicit `--view`, in `src/stats/grid.rs`.
+- [x] T189 [GREEN] Implement boundary snapping for the non-explicit-`--view` path per 003 FR-006 in `src/stats/grid.rs`.
+- [x] T190 [RED] Failing test: an empty or inverted `--since`/`--until` range stays empty after monthly/yearly boundary snapping, in `src/stats/grid.rs`.
+- [x] T191 [GREEN] Preserve the empty range through snapping per 003 FR-006 in `src/stats/grid.rs`.
+- [x] T192 [RED] Failing test: FR-005a warning fires when `--since`/`--until` exceed PR 7's chosen boundary.
+- [x] T193 [GREEN] Wire `--since`/`--until` into PR 7's existing warning mechanism.
+- [x] T194 [RED] Failing test comparing a `--since`/`--until`-scoped activity grid against an unscoped grid over the same fixture event set: the scoped grid includes only buckets within range, while spec 001's lifetime metrics (longevity, cumulative, trade size, liveness) remain unaffected by the flag.
+- [x] T195 [GREEN] Wire the resolved `--since`/`--until` range into `src/stats/grid.rs`'s bucket construction so only in-range buckets are built; confirm `src/stats/lifecycle.rs` and `src/stats/trade_size.rs` are untouched by this wiring.
 
 ---
 

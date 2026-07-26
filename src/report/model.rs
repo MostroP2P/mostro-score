@@ -651,7 +651,7 @@ mod tests {
         assemble_activity_section, assemble_fetch_section, assemble_node_section, assemble_report,
         assemble_stats_section, metric_definitions, Granularity, RelayStatus,
     };
-    use crate::stats::grid::{compute_activity_grid, ActivityGrid, GridOrder};
+    use crate::stats::grid::{compute_activity_grid, ActivityGrid, GridOrder, GridRange};
     use crate::stats::NodeMetrics;
     use chrono::{DateTime, Utc};
     use nostr_sdk::prelude::*;
@@ -701,16 +701,20 @@ mod tests {
         let generated_at = DateTime::parse_from_rfc3339("2026-07-24T10:15:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let activity_grid = compute_activity_grid(&[
-            GridOrder {
-                created_at: 10 * 86400,
-                amount_sats: Some(100),
-            },
-            GridOrder {
-                created_at: 90 * 86400,
-                amount_sats: Some(300),
-            },
-        ]);
+        let activity_grid = compute_activity_grid(
+            &[
+                GridOrder {
+                    created_at: 10 * 86400,
+                    amount_sats: Some(100),
+                },
+                GridOrder {
+                    created_at: 90 * 86400,
+                    amount_sats: Some(300),
+                },
+            ],
+            GridRange::Unbounded,
+            None,
+        );
 
         let report = assemble_report(
             public_key,
@@ -733,10 +737,14 @@ mod tests {
 
     #[test]
     fn assemble_activity_section_formats_bucket_start_as_rfc3339_and_preserves_values() {
-        let grid = compute_activity_grid(&[GridOrder {
-            created_at: 0,
-            amount_sats: Some(1000),
-        }]);
+        let grid = compute_activity_grid(
+            &[GridOrder {
+                created_at: 0,
+                amount_sats: Some(1000),
+            }],
+            GridRange::Unbounded,
+            None,
+        );
 
         let activity = assemble_activity_section(&grid);
 
@@ -760,7 +768,7 @@ mod tests {
     /// block as `null`/empty, not an invented default range.
     #[test]
     fn assemble_activity_section_reports_null_range_when_grid_is_empty() {
-        let grid: ActivityGrid = compute_activity_grid(&[]);
+        let grid: ActivityGrid = compute_activity_grid(&[], GridRange::Unbounded, None);
 
         let activity = assemble_activity_section(&grid);
 

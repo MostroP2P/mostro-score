@@ -12,6 +12,7 @@ pub mod console;
 pub mod json;
 pub mod plain;
 
+use crate::stats::grid::Granularity;
 use std::io::IsTerminal;
 
 /// Which renderer a caller should use for a report. `Console`/`Plain` are the two
@@ -58,6 +59,21 @@ pub struct RunOptions {
     /// this; `Format::Plain`/`Format::Json` never render color, so this field is
     /// harmless, not meaningful, for those two formats.
     pub color_override: Option<bool>,
+    /// PR 10 (003 FR-004): the activity grid's resolved `--since` bound, in epoch
+    /// seconds. `None` means either both `--since`/`--until` were omitted (full
+    /// history), or `--until` alone was given and `run()` still needs to resolve this to
+    /// the node's earliest available history once it has fetched data — `cli::options`
+    /// cannot know that value itself.
+    pub since: Option<i64>,
+    /// PR 10 (003 FR-004): the activity grid's resolved `--until` bound, in epoch
+    /// seconds. `None` means either both `--since`/`--until` were omitted (full
+    /// history), or `--since` alone was given and `run()` still needs to resolve this to
+    /// its own `report_generated_at` (captured after connecting/fetching) rather than an
+    /// earlier `now` read before any relay is even queried.
+    pub until: Option<i64>,
+    /// PR 10 (003 FR-006): an explicit `--view` flag's resolved granularity, forcing the
+    /// activity grid's bucket size instead of automatic selection.
+    pub view: Option<Granularity>,
 }
 
 /// 002 FR-011: the single format-aware fatal-error rendering point, used both by

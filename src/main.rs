@@ -2,6 +2,7 @@ use clap::Parser;
 use mostro_score::cli::args::Args;
 use mostro_score::cli::options::{
     apply_color_format_override, resolve_format, resolve_run_options, validate_relay_urls,
+    TimeRangeInputs,
 };
 use mostro_score::error::exit_code::exit_code_for;
 use mostro_score::error::AppError;
@@ -33,12 +34,20 @@ async fn main() {
     // `resolve_run_options` calls `validate_color_flags` as its own first step, so this
     // is the single place that contradiction (`--color` and `--no-color` together) is
     // checked, rather than duplicating the check here as well.
+    let time_range_now = chrono::Utc::now();
+    let time_range_inputs = TimeRangeInputs {
+        since_raw: args.since.clone(),
+        until_raw: args.until.clone(),
+        view: args.view.map(Into::into),
+    };
     let options = match resolve_run_options(
         explicit_format,
         args.color,
         args.no_color,
         args.quiet,
         stdout_is_terminal,
+        time_range_inputs,
+        time_range_now,
     ) {
         Ok(options) => options,
         Err(usage_error) => exit_with_error(usage_error, error_render_format),
