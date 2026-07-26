@@ -424,8 +424,9 @@ mod tests {
     }
 
     /// plan.md's JSON output contract: all 8 top-level keys are always present,
-    /// regardless of a node's data completeness — there is no `--sections` flag yet
-    /// (PR 11's job) to filter any of them out.
+    /// regardless of a node's data completeness or PR 11's `--sections` flag, which
+    /// filters console/plain-text rendering only (003 FR-008) and never reaches this
+    /// module.
     #[test]
     fn to_value_includes_all_eight_top_level_keys_always() {
         let value = to_value(&sample_report());

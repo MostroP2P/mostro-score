@@ -12,6 +12,7 @@ pub mod console;
 pub mod json;
 pub mod plain;
 
+use crate::report::content::SectionFilter;
 use crate::stats::grid::Granularity;
 use std::io::IsTerminal;
 
@@ -74,6 +75,10 @@ pub struct RunOptions {
     /// PR 10 (003 FR-006): an explicit `--view` flag's resolved granularity, forcing the
     /// activity grid's bucket size instead of automatic selection.
     pub view: Option<Granularity>,
+    /// PR 11 (003 FR-008): which console/plain-text sections render. `Format::Json`
+    /// never consults this — it always emits the complete structure (FR-008's
+    /// carve-out).
+    pub sections: SectionFilter,
 }
 
 /// 002 FR-011: the single format-aware fatal-error rendering point, used both by

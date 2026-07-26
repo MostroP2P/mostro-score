@@ -48,6 +48,7 @@ async fn main() {
         stdout_is_terminal,
         time_range_inputs,
         time_range_now,
+        args.sections.clone(),
     ) {
         Ok(options) => options,
         Err(usage_error) => exit_with_error(usage_error, error_render_format),

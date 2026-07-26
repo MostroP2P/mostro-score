@@ -5,6 +5,7 @@
 //! parsing and env-var behavior end to end, which only a subprocess can prove.
 
 use mostro_score::fetch::client::{EventSource, RelayConnectFailure, RelayConnectionOutcome};
+use mostro_score::report::content::SectionFilter;
 use mostro_score::report::render::{Format, RunOptions};
 use nostr_sdk::prelude::*;
 
@@ -127,6 +128,33 @@ fn a_malformed_relays_flag_value_is_a_usage_error_naming_the_relay() {
     assert!(stderr.contains("not-a-url"));
 }
 
+/// 003 FR-009: an unrecognized `--sections` token is rejected as a usage error naming
+/// the invalid token before any relay is ever queried — using a malformed `--relays`
+/// value alongside it proves the rejection happens before relay validation/connection
+/// would otherwise fail differently, matching this suite's existing pre-relay
+/// validation pattern (e.g. the malformed-`--relays` test above).
+#[test]
+fn an_unrecognized_sections_token_is_a_usage_error_naming_it_before_any_relay_is_queried() {
+    let output = assert_cmd::Command::cargo_bin("mostro-score")
+        .unwrap()
+        .args([
+            "--pubkey",
+            TEST_PUBKEY_HEX,
+            "--relays",
+            "not-a-url",
+            "--sections",
+            "stats,bogus",
+        ])
+        .output()
+        .expect("binary runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("bogus"));
+    // The relay-well-formedness check never runs: the sections error surfaces first.
+    assert!(!stderr.contains("not-a-url"));
+}
+
 /// 003 FR-011 Edge Case: `--color` and `--no-color` together is rejected as a
 /// contradictory usage error, exit code `2`.
 #[test]
@@ -217,6 +245,7 @@ async fn quiet_suppresses_transient_status_lines_but_not_other_diagnostics_or_co
         since: None,
         until: None,
         view: None,
+        sections: SectionFilter::all(),
     };
 
     mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options)
@@ -231,6 +260,113 @@ async fn quiet_suppresses_transient_status_lines_but_not_other_diagnostics_or_co
     assert!(actual_err.contains("wss://unreachable.example"));
     assert!(actual_out.contains("=== NODE IDENTITY ==="));
     assert!(actual_out.contains("=== RELAY FETCH SUMMARY ==="));
+}
+
+/// 003 FR-008: a narrowed `--sections` value suppresses the excluded console sections'
+/// output while the node identity header always renders regardless.
+#[tokio::test]
+async fn sections_filter_narrows_console_output_while_the_node_header_always_renders() {
+    let node_keys = Keys::generate();
+    let public_key = node_keys.public_key();
+    let events = vec![make_event_with_keys(
+        &node_keys,
+        8383,
+        1_700_000_000,
+        vec![("z", "dev-fee-payment"), ("y", "mostro")],
+    )];
+    let event_source = FixtureEventSource {
+        connection: RelayConnectionOutcome {
+            connected_count: 1,
+            ordered: vec![],
+            connected_urls: vec!["wss://connected.example".to_string()],
+            failed: vec![],
+        },
+        events,
+    };
+    let now = chrono::Utc::now;
+    let mut out: Vec<u8> = Vec::new();
+    let mut err: Vec<u8> = Vec::new();
+    let options = RunOptions {
+        format: Format::Console,
+        quiet: false,
+        color_override: Some(false),
+        since: None,
+        until: None,
+        view: None,
+        sections: SectionFilter {
+            fetch: false,
+            activity: false,
+            stats: true,
+            recommendations: false,
+        },
+    };
+
+    mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options)
+        .await
+        .expect("run succeeds");
+
+    let actual_out = String::from_utf8(out).unwrap();
+
+    assert!(actual_out.contains("=== NODE IDENTITY ==="));
+    assert!(!actual_out.contains("=== RELAY FETCH SUMMARY ==="));
+    assert!(!actual_out.contains("=== ACTIVITY GRID ==="));
+    assert!(actual_out.contains("=== GENERAL STATISTICS ==="));
+    assert!(!actual_out.contains("=== RECOMMENDATIONS ==="));
+}
+
+/// 003 FR-008: `--format json` always emits all 5 section keys regardless of
+/// `--sections` -- the JSON carve-out this spec explicitly requires. The full document
+/// also carries `schema_version`/`generated_at`/`metric_definitions`, unaffected by
+/// this test's scope.
+#[tokio::test]
+async fn json_format_always_emits_all_five_section_keys_regardless_of_sections() {
+    let node_keys = Keys::generate();
+    let public_key = node_keys.public_key();
+    let events = vec![make_event_with_keys(
+        &node_keys,
+        8383,
+        1_700_000_000,
+        vec![("z", "dev-fee-payment"), ("y", "mostro")],
+    )];
+    let event_source = FixtureEventSource {
+        connection: RelayConnectionOutcome {
+            connected_count: 1,
+            ordered: vec![],
+            connected_urls: vec!["wss://connected.example".to_string()],
+            failed: vec![],
+        },
+        events,
+    };
+    let now = chrono::Utc::now;
+    let mut out: Vec<u8> = Vec::new();
+    let mut err: Vec<u8> = Vec::new();
+    let options = RunOptions {
+        format: Format::Json,
+        quiet: false,
+        color_override: None,
+        since: None,
+        until: None,
+        view: None,
+        sections: SectionFilter {
+            fetch: false,
+            activity: false,
+            stats: true,
+            recommendations: false,
+        },
+    };
+
+    mostro_score::run(public_key, event_source, &now, &mut out, &mut err, &options)
+        .await
+        .expect("run succeeds");
+
+    let json: serde_json::Value = serde_json::from_slice(&out).expect("valid json");
+    let object = json.as_object().expect("json object");
+
+    assert!(object.contains_key("node"));
+    assert!(object.contains_key("fetch"));
+    assert!(object.contains_key("activity"));
+    assert!(object.contains_key("stats"));
+    assert!(object.contains_key("recommendations"));
 }
 
 fn make_event_with_keys(keys: &Keys, kind: u16, created_at: u64, tags: Vec<(&str, &str)>) -> Event {

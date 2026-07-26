@@ -103,6 +103,64 @@ fn bond_policy_recommendation(metrics: &NodeMetrics) -> Option<RecommendationIte
     })
 }
 
+/// 003 FR-008/FR-009: which of the 4 filterable console/plain-text sections render.
+/// The node identity header is not represented here since 003 FR-008's Assumptions
+/// section states it always renders regardless of `--sections`. `--format json` never
+/// consults this: `report::render::json` always emits the complete structure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SectionFilter {
+    pub fetch: bool,
+    pub activity: bool,
+    pub stats: bool,
+    pub recommendations: bool,
+}
+
+impl SectionFilter {
+    /// The omitted-`--sections`-flag default (003 FR-008): every section renders,
+    /// matching current tool behavior.
+    pub fn all() -> Self {
+        SectionFilter {
+            fetch: true,
+            activity: true,
+            stats: true,
+            recommendations: true,
+        }
+    }
+
+    /// 003 FR-008/FR-009: parses a comma-separated `--sections` value into a
+    /// `SectionFilter`, matching each token case-sensitively against the 4 valid
+    /// names. No trimming: a token with surrounding whitespace does not match any of
+    /// the 4 exact names, since the spec documents only those 4 exact tokens and this
+    /// function does not invent undocumented leniency. Collects every invalid token
+    /// encountered, not just the first, so a caller can report the complete list in
+    /// one validation error.
+    pub fn parse(raw: &str) -> Result<SectionFilter, Vec<String>> {
+        let mut filter = SectionFilter {
+            fetch: false,
+            activity: false,
+            stats: false,
+            recommendations: false,
+        };
+        let mut invalid_tokens = Vec::new();
+
+        for token in raw.split(',') {
+            match token {
+                "fetch" => filter.fetch = true,
+                "activity" => filter.activity = true,
+                "stats" => filter.stats = true,
+                "recommendations" => filter.recommendations = true,
+                other => invalid_tokens.push(other.to_string()),
+            }
+        }
+
+        if invalid_tokens.is_empty() {
+            Ok(filter)
+        } else {
+            Err(invalid_tokens)
+        }
+    }
+}
+
 /// 002 FR-008/FR-008a: assembles the recommendations block from `NodeMetrics`,
 /// scoped to this PR's 3 deterministic triggers (see this module's doc comment).
 /// Pure assembly over already-computed metrics, matching every other
@@ -297,5 +355,88 @@ mod tests {
                 "bond_policy_not_enabled",
             ]
         );
+    }
+
+    // ---- 003 FR-008/FR-009: `SectionFilter::parse` ----
+
+    #[test]
+    fn section_filter_all_enables_every_field() {
+        let filter = SectionFilter::all();
+
+        assert!(filter.fetch);
+        assert!(filter.activity);
+        assert!(filter.stats);
+        assert!(filter.recommendations);
+    }
+
+    #[test]
+    fn section_filter_parse_accepts_a_single_valid_token() {
+        let filter = SectionFilter::parse("stats").expect("valid token");
+
+        assert!(!filter.fetch);
+        assert!(!filter.activity);
+        assert!(filter.stats);
+        assert!(!filter.recommendations);
+    }
+
+    #[test]
+    fn section_filter_parse_accepts_multiple_valid_tokens_in_any_order() {
+        let filter = SectionFilter::parse("stats,fetch").expect("valid tokens");
+
+        assert!(filter.fetch);
+        assert!(!filter.activity);
+        assert!(filter.stats);
+        assert!(!filter.recommendations);
+    }
+
+    #[test]
+    fn section_filter_parse_accepts_all_four_valid_tokens() {
+        let filter =
+            SectionFilter::parse("fetch,activity,stats,recommendations").expect("valid tokens");
+
+        assert!(filter.fetch);
+        assert!(filter.activity);
+        assert!(filter.stats);
+        assert!(filter.recommendations);
+    }
+
+    #[test]
+    fn section_filter_parse_rejects_an_unrecognized_token() {
+        let error = SectionFilter::parse("stats,bogus").expect_err("unrecognized token");
+
+        assert_eq!(error, vec!["bogus".to_string()]);
+    }
+
+    #[test]
+    fn section_filter_parse_collects_every_invalid_token_encountered() {
+        let error = SectionFilter::parse("bogus,also-bogus").expect_err("both tokens invalid");
+
+        assert_eq!(error, vec!["bogus".to_string(), "also-bogus".to_string()]);
+    }
+
+    /// Case sensitivity matters (003 FR-008): a capitalized token must be rejected,
+    /// not silently accepted as its lowercase equivalent.
+    #[test]
+    fn section_filter_parse_is_case_sensitive() {
+        let error = SectionFilter::parse("Fetch").expect_err("capitalized token is invalid");
+
+        assert_eq!(error, vec!["Fetch".to_string()]);
+    }
+
+    #[test]
+    fn section_filter_parse_rejects_an_empty_string() {
+        let error = SectionFilter::parse("").expect_err("empty string has no valid token");
+
+        assert_eq!(error, vec!["".to_string()]);
+    }
+
+    /// No trimming: a token with surrounding whitespace does not match any of the 4
+    /// exact names, since the spec documents only the exact tokens and this function
+    /// deliberately does not invent undocumented leniency.
+    #[test]
+    fn section_filter_parse_does_not_trim_whitespace_around_tokens() {
+        let error = SectionFilter::parse(" stats ,fetch").expect_err("whitespace is not trimmed");
+
+        assert_eq!(error, vec![" stats ".to_string()]);
     }
 }

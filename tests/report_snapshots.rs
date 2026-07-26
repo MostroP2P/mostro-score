@@ -1,7 +1,7 @@
 //! 002 FR-009: the plain-text renderer must produce no decoration at all -- no ANSI color
 //! codes, no box-drawing table characters -- unlike the console renderer.
 
-use mostro_score::report::content::{RecommendationItem, ReportRecommendations};
+use mostro_score::report::content::{RecommendationItem, ReportRecommendations, SectionFilter};
 use mostro_score::report::model::{
     RelayStatus, RelaySummary, Report, ReportActivity, ReportActivityBucket, ReportFetch,
     ReportLiveness, ReportLongevity, ReportNode, ReportStats,
@@ -18,7 +18,7 @@ use mostro_score::stats::{ActivityConsistency, BondPolicy};
 
 fn rendered_plain(report: &Report) -> String {
     let mut out: Vec<u8> = Vec::new();
-    plain::render(&mut out, report).expect("render succeeds");
+    plain::render(&mut out, report, &SectionFilter::all()).expect("render succeeds");
     String::from_utf8(out).expect("valid utf8")
 }
 

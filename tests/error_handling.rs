@@ -7,6 +7,7 @@
 use mostro_score::error::exit_code::exit_code_for;
 use mostro_score::error::AppError;
 use mostro_score::fetch::client::{EventSource, RelayConnectFailure, RelayConnectionOutcome};
+use mostro_score::report::content::SectionFilter;
 use mostro_score::report::render::{Format, RunOptions};
 use nostr_sdk::prelude::*;
 
@@ -24,6 +25,7 @@ fn default_test_options() -> RunOptions {
         since: None,
         until: None,
         view: None,
+        sections: SectionFilter::all(),
     }
 }
 

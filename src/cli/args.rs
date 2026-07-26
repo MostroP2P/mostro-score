@@ -63,6 +63,14 @@ pub struct Args {
     /// configuration-sourced or automatic selection.
     #[arg(long, value_enum)]
     pub view: Option<CliGranularity>,
+
+    /// Restricts console/plain-text rendering to a comma-separated subset of the 4
+    /// filterable section names (003 FR-008/FR-009): `fetch`, `activity`, `stats`,
+    /// `recommendations`. Omitted means every section renders, matching current
+    /// behavior. Has no effect on `--format json` (003 FR-008). Raw string, parsed and
+    /// validated later by `cli::options`, matching `--since`/`--until`'s contract.
+    #[arg(long)]
+    pub sections: Option<String>,
 }
 
 /// clap's own `ValueEnum`-derived mirror of `report::render::Format` (003 FR-010):

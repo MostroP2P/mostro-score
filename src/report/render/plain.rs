@@ -4,9 +4,10 @@
 //! decoration. Every metric is its own `label: value` line, including each field of a
 //! repeated record (a relay, an activity bucket, a breakdown share), which becomes one
 //! line per metric rather than a table row, so the output stays easy to grep or parse
-//! line by line in scripts.
+//! line by line in scripts. `--sections` (003 FR-008) may narrow the 4 filterable
+//! sections, matching the console renderer; the node identity header always renders.
 
-use crate::report::content::ReportRecommendations;
+use crate::report::content::{ReportRecommendations, SectionFilter};
 use crate::report::format::{
     display_or_not_applicable, format_decimal_thousands, format_sats_thousands, granularity_label,
     relative_time_from_rfc3339,
@@ -394,15 +395,30 @@ fn render_recommendations_section(
 }
 
 /// The plain-text renderer's public entry point (002 FR-009): renders every one of the
-/// `Report`'s 5 ordered sections to `out` -- the same content and labels the console
-/// renderer shows, with no color and no decorative tables, so the output stays easy to
-/// grep or parse line by line in scripts.
-pub fn render(out: &mut impl Write, report: &Report) -> std::io::Result<()> {
+/// `Report`'s 5 ordered sections to `out`, except that `sections` (003 FR-008) may
+/// narrow the 4 filterable ones; the node identity header always renders, unaffected
+/// by `sections`. The same content and labels the console renderer shows, with no
+/// color and no decorative tables, so the output stays easy to grep or parse line by
+/// line in scripts.
+pub fn render(
+    out: &mut impl Write,
+    report: &Report,
+    sections: &SectionFilter,
+) -> std::io::Result<()> {
     render_node_section(out, &report.node)?;
-    render_fetch_section(out, &report.fetch)?;
-    render_activity_section(out, &report.activity)?;
-    render_stats_section(out, &report.stats, &report.generated_at)?;
-    render_recommendations_section(out, &report.recommendations)
+    if sections.fetch {
+        render_fetch_section(out, &report.fetch)?;
+    }
+    if sections.activity {
+        render_activity_section(out, &report.activity)?;
+    }
+    if sections.stats {
+        render_stats_section(out, &report.stats, &report.generated_at)?;
+    }
+    if sections.recommendations {
+        render_recommendations_section(out, &report.recommendations)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -548,5 +564,119 @@ mod tests {
         assert!(!output.contains('|'));
         assert!(output.contains("Relay wss://relay-a.example Status: failed"));
         assert!(output.contains("Relay wss://relay-a.example Error: connection refused"));
+    }
+
+    fn empty_report() -> Report {
+        crate::report::model::Report {
+            schema_version: "1.0.0".to_string(),
+            node: ReportNode {
+                pubkey_hex: "abcd".to_string(),
+                pubkey_npub: "npub1abcd".to_string(),
+            },
+            fetch: ReportFetch {
+                relays: vec![],
+                dev_fee_events: 0,
+                order_events: 0,
+                unique_orders: 0,
+                dispute_events: 0,
+                instance_status_found: false,
+            },
+            activity: ReportActivity {
+                granularity: None,
+                range_start: None,
+                range_end: None,
+                buckets: Vec::new(),
+            },
+            stats: crate::report::model::ReportStats {
+                longevity: crate::report::model::ReportLongevity {
+                    first_seen_at: None,
+                    days_active: None,
+                },
+                cumulative: crate::stats::lifecycle::CumulativePerformance {
+                    total_successful_trades: 0,
+                    total_volume_sats: 0,
+                },
+                trade_size: crate::stats::trade_size::TradeSizeStats {
+                    min_trade_sats: None,
+                    max_trade_sats: None,
+                    mean_trade_sats: None,
+                    median_trade_sats: None,
+                    std_dev_trade_sats: None,
+                    coefficient_of_variation: None,
+                },
+                liveness: crate::report::model::ReportLiveness {
+                    last_successful_trade_at: None,
+                    days_since_last_trade: None,
+                    successful_trades_last_7d: 0,
+                    successful_trades_last_30d: 0,
+                    successful_trades_last_90d: 0,
+                },
+                consistency: crate::stats::ActivityConsistency {
+                    active_days_last_30d: 0,
+                    max_consecutive_inactive_days_last_30d: 30,
+                },
+                disputes: crate::stats::disputes::DisputeSignals {
+                    total_disputes: 0,
+                    resolved_disputes: 0,
+                    active_disputes: 0,
+                    unknown_status_disputes: 0,
+                    disputes_per_100_trades: None,
+                },
+                fiat_breakdown: crate::stats::context::FiatBreakdown {
+                    orders_considered: 0,
+                    distribution: None,
+                },
+                payment_method_breakdown: crate::stats::context::PaymentMethodBreakdown {
+                    total_mentions: 0,
+                    distribution: None,
+                },
+                premium: crate::stats::context::PremiumSignal {
+                    premium_baseline_percent: None,
+                    premium_dispersion_percent: None,
+                },
+                bond_policy: crate::stats::BondPolicy { status: "unknown" },
+            },
+            recommendations: ReportRecommendations {
+                nothing_notable: true,
+                items: Vec::new(),
+            },
+            generated_at: "2026-07-24T10:15:00Z".to_string(),
+        }
+    }
+
+    /// 003 FR-008: the node identity header always renders regardless of `--sections`,
+    /// while a narrowed `SectionFilter` suppresses the excluded sections' output.
+    #[test]
+    fn render_honors_a_narrowed_section_filter_while_the_node_header_always_renders() {
+        let report = empty_report();
+        let sections = SectionFilter {
+            fetch: false,
+            activity: false,
+            stats: true,
+            recommendations: false,
+        };
+
+        let output = rendered(|out| render(out, &report, &sections));
+
+        assert!(output.contains("NODE IDENTITY"));
+        assert!(!output.contains("RELAY FETCH SUMMARY"));
+        assert!(!output.contains("ACTIVITY GRID"));
+        assert!(output.contains("GENERAL STATISTICS"));
+        assert!(!output.contains("RECOMMENDATIONS"));
+    }
+
+    /// 003 FR-008: `SectionFilter::all()` (the omitted-flag default) renders every
+    /// section, matching current behavior.
+    #[test]
+    fn render_shows_every_section_with_the_default_unfiltered_section_set() {
+        let report = empty_report();
+
+        let output = rendered(|out| render(out, &report, &SectionFilter::all()));
+
+        assert!(output.contains("NODE IDENTITY"));
+        assert!(output.contains("RELAY FETCH SUMMARY"));
+        assert!(output.contains("ACTIVITY GRID"));
+        assert!(output.contains("GENERAL STATISTICS"));
+        assert!(output.contains("RECOMMENDATIONS"));
     }
 }
