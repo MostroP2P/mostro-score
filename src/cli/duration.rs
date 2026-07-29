@@ -1,15 +1,12 @@
-//! 003 FR-004: pure parsing and calendar arithmetic for `--since`/`--until` values. No
-//! I/O and no clock reads of its own — the caller always supplies `now` explicitly, so
-//! every function here stays unit-testable without a subprocess, matching this module's
-//! sibling `cli::options`.
+//! Parsing and calendar arithmetic for `--since`/`--until` values. No I/O and no clock
+//! reads of its own — the caller always supplies `now` explicitly, so every function
+//! here stays unit-testable without a subprocess.
 
 use crate::error::AppError;
 use chrono::{Datelike, NaiveDate};
 
-/// 003 FR-004: parses either an ISO 8601 calendar date (`YYYY-MM-DD`) or a relative
-/// duration shorthand (`Nd`/`Nmo`/`Ny`, `N` a positive integer), resolved relative to
-/// `now`. Rejects `0`, a negative count, or an unrecognized unit/format as
-/// `AppError::UsageError`, naming the offending value.
+/// Parses either an ISO 8601 date (`YYYY-MM-DD`) or a relative shorthand (`Nd`/`Nmo`/`Ny`,
+/// `N` a positive integer), resolved relative to `now`.
 pub fn parse_date_bound(input: &str, now: NaiveDate) -> Result<NaiveDate, AppError> {
     if let Ok(date) = NaiveDate::parse_from_str(input, "%Y-%m-%d") {
         return Ok(date);
@@ -17,7 +14,7 @@ pub fn parse_date_bound(input: &str, now: NaiveDate) -> Result<NaiveDate, AppErr
     parse_shorthand(input, now)
 }
 
-/// 003 FR-004: `--since` resolves to `00:00:00` UTC on the resolved day (inclusive).
+/// `--since` resolves to `00:00:00` UTC on the resolved day (inclusive).
 pub fn since_bound_seconds(date: NaiveDate) -> i64 {
     date.and_hms_opt(0, 0, 0)
         .unwrap_or_default()
@@ -25,9 +22,8 @@ pub fn since_bound_seconds(date: NaiveDate) -> i64 {
         .timestamp()
 }
 
-/// 003 FR-004: `--until` resolves to the last whole second of the resolved day
-/// (inclusive) — this project has no sub-second timestamp precision anywhere else, so
-/// `23:59:59.999` is treated as `23:59:59`.
+/// `--until` resolves to the last whole second of the resolved day (inclusive) — no
+/// sub-second precision, so `23:59:59.999` is treated as `23:59:59`.
 pub fn until_bound_seconds(date: NaiveDate) -> i64 {
     date.and_hms_opt(23, 59, 59)
         .unwrap_or_default()
@@ -51,10 +47,8 @@ fn parse_shorthand(input: &str, now: NaiveDate) -> Result<NaiveDate, AppError> {
         return Err(invalid_date_bound(input));
     }
 
-    // Every arithmetic step below is checked, never panicking or silently wrapping on an
-    // extreme `count` (Principle VI: no panics on a user-facing path, and `--since`/
-    // `--until` accept arbitrary command-line input) — an unrepresentable result is
-    // exactly as much a usage error as a malformed string.
+    // Checked arithmetic throughout: an extreme count must produce a usage error, never
+    // a panic or a silent wraparound.
     let resolved = match unit {
         "d" => {
             chrono::TimeDelta::try_days(count - 1).and_then(|delta| now.checked_sub_signed(delta))
@@ -73,10 +67,9 @@ fn invalid_date_bound(input: &str) -> AppError {
     ))
 }
 
-/// 003 FR-004: subtracts `months` full calendar months from `date`, clamping to the last
-/// valid day of the resulting month when `date`'s day-of-month does not exist there
-/// (e.g. March 31 minus 1 month has no "February 31"). `None` when the arithmetic
-/// overflows or lands outside a representable calendar date, never a panic.
+/// Subtracts `months` full calendar months from `date`, clamping to the last valid day
+/// of the resulting month when `date`'s day-of-month doesn't exist there (e.g. March 31
+/// minus 1 month has no "February 31"). `None` on overflow, never a panic.
 fn subtract_months_clamped(date: NaiveDate, months: i64) -> Option<NaiveDate> {
     let total_months = (date.year() as i64)
         .checked_mul(12)?
@@ -89,9 +82,8 @@ fn subtract_months_clamped(date: NaiveDate, months: i64) -> Option<NaiveDate> {
         .or_else(|| last_day_of_month(target_year, target_month))
 }
 
-/// 003 FR-004: subtracts `years` full calendar years from `date`, clamping February 29
-/// to February 28 when the resulting year is not a leap year. `None` on overflow or an
-/// unrepresentable calendar date, never a panic.
+/// Subtracts `years` full calendar years from `date`, clamping February 29 to February
+/// 28 when the resulting year isn't a leap year. `None` on overflow, never a panic.
 fn subtract_years_clamped(date: NaiveDate, years: i64) -> Option<NaiveDate> {
     let target_year = i32::try_from((date.year() as i64).checked_sub(years)?).ok()?;
 
@@ -122,7 +114,7 @@ mod tests {
         assert_eq!(resolved, date(2026, 3, 15));
     }
 
-    /// FR-004: `Nd` means N calendar days *including* today, so `7d` with today = Jan 10
+    /// `Nd` means N calendar days *including* today, so `7d` with today = Jan 10
     /// resolves to Jan 4, not Jan 3.
     #[test]
     fn parse_date_bound_resolves_nd_shorthand_including_today() {
@@ -136,7 +128,7 @@ mod tests {
         assert_eq!(resolved, date(2026, 4, 15));
     }
 
-    /// FR-004: subtracting 1 month from March 31 has no "February 31" — clamps to the
+    /// Subtracting 1 month from March 31 has no "February 31" — clamps to the
     /// last valid day of February.
     #[test]
     fn parse_date_bound_clamps_nmo_shorthand_to_the_last_day_of_a_shorter_month() {
@@ -150,7 +142,7 @@ mod tests {
         assert_eq!(resolved, date(2025, 6, 1));
     }
 
-    /// FR-004: subtracting 1 year from February 29 in a leap year lands on a non-leap
+    /// Subtracting 1 year from February 29 in a leap year lands on a non-leap
     /// year — clamps to February 28.
     #[test]
     fn parse_date_bound_clamps_ny_shorthand_landing_on_a_non_leap_year() {
@@ -170,7 +162,7 @@ mod tests {
         assert!(matches!(error, AppError::UsageError(_)));
     }
 
-    /// Principle VI: an astronomically large but syntactically valid positive shorthand
+    /// An astronomically large but syntactically valid positive shorthand
     /// (overflowing chrono's representable date range, or the arithmetic used to compute
     /// it) is a usage error, never a panic or a silently wrapped/wrong date.
     #[test]

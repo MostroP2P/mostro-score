@@ -1,28 +1,18 @@
-//! PR 9: the CLI argument-parsing surface (003 FR-001..FR-003, FR-010..FR-013a), moved
-//! here from `main.rs` per this module's original stub scaffolding note. `main.rs` stays
-//! the thin wiring root: it parses `Args`, resolves them through `cli::options`, and
-//! dispatches into `mostro_score::run`.
+//! CLI argument parsing. `main.rs` parses `Args`, resolves them through `cli::options`,
+//! and dispatches into `mostro_score::run`.
 
 use clap::{ArgAction, Parser, ValueEnum};
 
 use crate::report::render::Format;
 use crate::stats::grid::Granularity;
 
-// Every flag below carries two layers of documentation on purpose: the `///` doc
-// comment is internal, architecture-facing notes for whoever maintains this file next
-// (spec references, precedence chains, why a type was chosen); the explicit `help`
-// attribute is the plain, user-facing text clap actually prints for `-h`/`--help`.
-// clap's derive macro prefers an explicit `help` attribute over text extracted from the
-// doc comment, so the two never mix in the rendered output.
+// Each flag has an explicit `help` attribute for the `-h`/`--help` text; clap prefers
+// that over text extracted from the `///` doc comment, so the two never mix.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// Mostro Pubkey (npub or hex) to analyze. Falls back to `MOSTRO_SCORE_PUBKEY` when
-    /// omitted (003 FR-001/FR-003). Not required when `--init-config` is present (003
-    /// FR-017); `main.rs` enforces its requiredness itself, as a usage error (exit code
-    /// `2`, 003 FR-013a) for every other invocation, since clap's own native
-    /// required-argument handling cannot express "required unless another flag is
-    /// present".
+    /// Not required when `--init-config` is present; `main.rs` enforces requiredness
+    /// itself since clap can't express "required unless another flag is present".
     #[arg(
         short,
         long,
@@ -33,13 +23,9 @@ pub struct Args {
     )]
     pub pubkey: Option<String>,
 
-    /// Relays to connect to (comma separated). Precedence: this flag, then
-    /// `MOSTRO_SCORE_RELAYS`, then the configuration file's `relays` value (003
-    /// FR-016), then the compiled-in default `config::paths_defaults::DEFAULT_RELAY`
-    /// (003 FR-002/FR-003). Omitted means "not explicitly set" — no `default_value`
-    /// here, since a config-file value must be able to slot in between the
-    /// environment variable and the compiled default (`cli::options::resolve_relays`
-    /// composes the full chain).
+    /// No `default_value`: a config-file value needs to slot in between the
+    /// environment variable and the compiled default, so `cli::options::resolve_relays`
+    /// composes the full precedence chain instead.
     #[arg(
         short,
         long,
@@ -50,9 +36,8 @@ pub struct Args {
     )]
     pub relays: Option<String>,
 
-    /// Output format: `console`, `plain`, or `json` (003 FR-010). Omitted means "not
-    /// explicitly set" so `cli::options` can distinguish an explicit choice from the
-    /// automatic default.
+    /// Omitted means "not explicitly set", so `cli::options` can tell an explicit
+    /// choice apart from the automatic default.
     #[arg(
         long,
         value_enum,
@@ -62,8 +47,7 @@ pub struct Args {
     )]
     pub format: Option<CliFormat>,
 
-    /// Force color output on for console format (003 FR-011). Mutually exclusive with
-    /// `--no-color`.
+    /// Mutually exclusive with `--no-color`.
     #[arg(
         long,
         action = ArgAction::SetTrue,
@@ -72,7 +56,7 @@ pub struct Args {
     )]
     pub color: bool,
 
-    /// Force color output off (003 FR-011). Mutually exclusive with `--color`.
+    /// Mutually exclusive with `--color`.
     #[arg(
         long = "no-color",
         action = ArgAction::SetTrue,
@@ -80,7 +64,6 @@ pub struct Args {
     )]
     pub no_color: bool,
 
-    /// Suppress progress indicators and transient status narration (003 FR-012).
     #[arg(
         short,
         long,
@@ -89,10 +72,8 @@ pub struct Args {
     )]
     pub quiet: bool,
 
-    /// Scopes the activity grid's requested range to start on or after this date (003
-    /// FR-004). Accepts an ISO 8601 calendar date or a relative shorthand (`30d`, `6mo`,
-    /// `1y`), parsed later by `cli::duration`/`cli::options` — never validated here,
-    /// since resolution needs a `now` value this flag-only layer has no business owning.
+    /// Raw string, parsed later by `cli::duration`/`cli::options`, which have the `now`
+    /// value this layer doesn't.
     #[arg(
         long,
         help = "Only include activity on or after this date. Accepts YYYY-MM-DD or a \
@@ -100,17 +81,15 @@ pub struct Args {
     )]
     pub since: Option<String>,
 
-    /// Scopes the activity grid's requested range to end on or before this date (003
-    /// FR-004). Same raw-string, parse-later contract as `--since`.
+    /// Same raw-string, parse-later contract as `--since`.
     #[arg(
         long,
         help = "Only include activity on or before this date. Same format as --since."
     )]
     pub until: Option<String>,
 
-    /// Selects the activity grid's time-bucket granularity (003 FR-006). Omitted means
-    /// "not explicitly set" so `cli::options` can distinguish an explicit choice from
-    /// configuration-sourced or automatic selection.
+    /// Omitted means "not explicitly set", so `cli::options` can tell an explicit
+    /// choice apart from a configuration-sourced or automatic one.
     #[arg(
         long,
         value_enum,
@@ -119,11 +98,7 @@ pub struct Args {
     )]
     pub view: Option<CliGranularity>,
 
-    /// Restricts console/plain-text rendering to a comma-separated subset of the 4
-    /// filterable section names (003 FR-008/FR-009): `fetch`, `activity`, `stats`,
-    /// `recommendations`. Omitted means every section renders, matching current
-    /// behavior. Has no effect on `--format json` (003 FR-008). Raw string, parsed and
-    /// validated later by `cli::options`, matching `--since`/`--until`'s contract.
+    /// Raw string, parsed and validated later by `cli::options`.
     #[arg(
         long,
         help = "Only show these report sections, comma separated with no spaces: \
@@ -132,11 +107,8 @@ pub struct Args {
     )]
     pub sections: Option<String>,
 
-    /// Overrides the directory the tool reads its configuration file from (003
-    /// FR-014). When omitted, the platform-standard user configuration directory is
-    /// used (`config::paths_defaults::default_config_path`). `PathBuf`, not `String`:
-    /// a filesystem path is not guaranteed to be valid UTF-8 on Linux, and clap would
-    /// reject an otherwise-valid non-UTF-8 path with a usage error if this were a
+    /// `PathBuf`, not `String`: a filesystem path isn't guaranteed to be valid UTF-8 on
+    /// Linux, and clap would reject an otherwise-valid non-UTF-8 path if this were a
     /// `String`.
     #[arg(
         short = 'd',
@@ -146,9 +118,7 @@ pub struct Args {
     )]
     pub config_dir: Option<std::path::PathBuf>,
 
-    /// Writes a starter configuration file to the resolved config path and exits `0`
-    /// without generating a report (003 FR-017/FR-019). Takes precedence over every
-    /// report-generating flag passed alongside it in the same invocation.
+    /// Takes precedence over every report-generating flag passed alongside it.
     #[arg(
         long = "init-config",
         action = ArgAction::SetTrue,
@@ -158,8 +128,7 @@ pub struct Args {
     )]
     pub init_config: bool,
 
-    /// Allows `--init-config` to overwrite an existing configuration file (003
-    /// FR-018). Rejected as a usage error when passed without `--init-config`.
+    /// Rejected as a usage error when passed without `--init-config`.
     #[arg(
         long,
         action = ArgAction::SetTrue,
@@ -167,15 +136,10 @@ pub struct Args {
     )]
     pub force: bool,
 
-    /// Writes the rendered report to this file instead of standard output (003
-    /// FR-020). Only valid when the resolved format is `plain` or `json` — a resolved
-    /// `console` format (whether from an explicit `--format console` flag or a
-    /// configuration-sourced `format = "console"` value, which carries the same
-    /// precedence per FR-016) combined with this flag is a usage error, and omitting
-    /// `--format`/a configuration-sourced value entirely resolves straight to `plain`
-    /// instead of performing specs/002-cli-report-design FR-010's terminal-detection
-    /// automatic default. `PathBuf`, not `String`, for the same non-UTF-8-safety reason
-    /// `--config-dir` already uses `PathBuf`.
+    /// A resolved `console` format (explicit or configuration-sourced) combined with
+    /// this flag is a usage error. When neither an explicit `--format` nor a config
+    /// value picks one, resolution goes straight to `plain` instead of doing terminal
+    /// detection.
     #[arg(
         short = 'o',
         long,
@@ -185,10 +149,8 @@ pub struct Args {
     pub output: Option<std::path::PathBuf>,
 }
 
-/// clap's own `ValueEnum`-derived mirror of `report::render::Format` (003 FR-010):
-/// kept as a distinct type, rather than deriving `ValueEnum` on `Format` itself, so the
-/// presentation-layer `report::render` module never depends on `clap` — `cli` is the
-/// legitimate consumer of `report::render::Format`, not the other way around.
+/// Mirrors `report::render::Format` as a distinct type so `report::render` doesn't
+/// depend on `clap`.
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CliFormat {
     Console,
@@ -206,9 +168,7 @@ impl From<CliFormat> for Format {
     }
 }
 
-/// clap's own `ValueEnum`-derived mirror of `stats::grid::Granularity` (003 FR-006),
-/// kept as a distinct type for the same reason `CliFormat` is kept distinct from
-/// `report::render::Format`: `stats::grid` never depends on `clap`.
+/// Mirrors `stats::grid::Granularity`, same reason as `CliFormat`.
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CliGranularity {
     Daily,

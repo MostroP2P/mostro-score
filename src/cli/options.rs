@@ -1,10 +1,7 @@
-//! PR 8's explicit-format-override skeleton (002 FR-010) extended in PR 9 (003
-//! FR-001..FR-013a) into the full CLI resolution/validation surface: relay well-
-//! formedness, `--format`/`--color`/`--no-color` resolution, and their mutual-exclusion
-//! validation. Every function here is pure — no `clap` parsing, no process environment —
-//! so `main.rs` stays the only place that touches `Args`, `std::env`, or `std::io`
-//! directly, and every resolution/validation rule stays unit-testable without a
-//! subprocess.
+//! The CLI resolution/validation surface: relay well-formedness, `--format`/`--color`/
+//! `--no-color` resolution, and their mutual-exclusion validation. Every function here
+//! is pure — no `clap` parsing, no process environment — so `main.rs` stays the CLI
+//! orchestration boundary, and every rule stays unit-testable without a subprocess.
 
 use crate::cli::duration::{parse_date_bound, since_bound_seconds, until_bound_seconds};
 use crate::config::file::ConfigFile;
@@ -16,19 +13,15 @@ use crate::stats::grid::Granularity;
 use chrono::{DateTime, Datelike, Utc};
 use nostr_sdk::prelude::*;
 
-/// 002 FR-010: an explicit format choice always overrides the context-based default,
-/// exactly like `resolve_color_enabled` does for the color override.
+/// An explicit format choice always overrides the context-based default.
 pub fn resolve_format(explicit: Option<Format>, context_default: Format) -> Format {
     explicit.unwrap_or(context_default)
 }
 
-/// 003 FR-020: the context-based default format, aware of `--output`'s presence.
-/// `--output` skips specs/002-cli-report-design FR-010's terminal-detection automatic
-/// default entirely (writing colored console escape codes to a file has no benefit),
-/// resolving straight to `Format::Plain` instead. Both `main.rs`'s `error_render_format`
-/// computation and `resolve_run_options` below call this single function rather than
-/// each independently calling `select_format_for_context`, so the two call sites can
-/// never drift apart on this rule.
+/// The context-based default format, aware of `--output`'s presence: writing colored
+/// console escape codes to a file has no benefit, so `--output` resolves straight to
+/// `Format::Plain` instead of doing terminal detection. `main.rs` and
+/// `resolve_run_options` below both call this instead of duplicating the check.
 pub fn resolve_context_default(stdout_is_terminal: bool, output_present: bool) -> Format {
     if output_present {
         Format::Plain
@@ -37,17 +30,11 @@ pub fn resolve_context_default(stdout_is_terminal: bool, output_present: bool) -
     }
 }
 
-/// 003 FR-011/FR-020: the format `resolve_format` falls back to when there is no
-/// explicit `--format` flag -- a configuration-sourced `format` value wins first (same
-/// precedence an explicit flag would have); otherwise, when `--output` is present, the
-/// `--color` upgrade is skipped entirely (it only exists to make an interactive
-/// terminal's automatic default nicer to look at, which has no bearing on a file
-/// destination, and upgrading `context_default` back to `Console` here would only be
-/// rejected moments later by `validate_output_format`); otherwise the ordinary
-/// `--color` upgrade applies. `main.rs`'s `error_render_format` computation and
-/// `resolve_run_options` below both call this single function rather than each
-/// duplicating the same three-way precedence independently, so the two call sites can
-/// never drift apart on this rule.
+/// The format `resolve_format` falls back to when there's no explicit `--format` flag:
+/// a configuration-sourced value wins first, then (if `--output` is present) the
+/// `--color` upgrade is skipped since it has no bearing on a file destination, then the
+/// ordinary `--color` upgrade. `main.rs` and `resolve_run_options` below both call this
+/// instead of duplicating the precedence.
 pub fn resolve_format_before_explicit(
     config_format: Option<Format>,
     output_present: bool,
@@ -61,9 +48,8 @@ pub fn resolve_format_before_explicit(
     }
 }
 
-/// 003 FR-020: `--output` is only valid when the resolved format is `plain` or `json`;
-/// an explicit (or configuration-sourced) `--format console` combined with `--output`
-/// is rejected as a usage error before any relay is queried.
+/// `--output` is only valid with `plain`/`json`; a resolved `console` format combined
+/// with `--output` is rejected before any relay is queried.
 pub fn validate_output_format(output_present: bool, format: Format) -> Result<(), AppError> {
     if output_present && format == Format::Console {
         return Err(AppError::UsageError(
@@ -73,16 +59,9 @@ pub fn validate_output_format(output_present: bool, format: Format) -> Result<()
     Ok(())
 }
 
-/// 003 FR-011: `--color` implies console format only when format resolution reaches the
-/// fully automatic step — no explicit `--format` flag and no configuration-file value
-/// (PR 12: `resolve_run_options` only falls back to this function when the persisted
-/// configuration file carries no `format` value of its own, so by the time this
-/// function runs, both of those higher-precedence sources are already known absent) —
-/// overriding an automatic *plain* default to *console* so piping into a color-aware
-/// pager works as intended. Has no effect when the automatic default is already
-/// `console`, and callers must not apply this when `--format` was explicit:
-/// `resolve_format` already gives an explicit choice full precedence regardless of what
-/// this function returns.
+/// `--color` upgrades an automatic *plain* default to *console* so piping into a
+/// color-aware pager works as intended. Only applies at the fully automatic step: no
+/// explicit `--format` flag and no configuration-sourced value.
 pub fn apply_color_format_override(context_default: Format, color_flag: bool) -> Format {
     if color_flag && context_default == Format::Plain {
         Format::Console
@@ -91,10 +70,9 @@ pub fn apply_color_format_override(context_default: Format, color_flag: bool) ->
     }
 }
 
-/// 003 FR-011: `--no-color` forces color off, `--color` forces it on, and neither
-/// defers to the automatic tty/`NO_COLOR`/`TERM=dumb` policy (`report::format::
-/// color_enabled_for_stdout`). Only `Format::Console` ever consults this; it is
-/// harmless, but not meaningful, for `Format::Plain`/`Format::Json`.
+/// `--no-color` forces off, `--color` forces on, neither defers to the automatic
+/// policy. Only `Format::Console` ever consults this; harmless but meaningless for
+/// `Format::Plain`/`Format::Json`.
 pub fn resolve_color_override(color: bool, no_color: bool) -> Option<bool> {
     if no_color {
         Some(false)
@@ -105,9 +83,8 @@ pub fn resolve_color_override(color: bool, no_color: bool) -> Option<bool> {
     }
 }
 
-/// 003 FR-011 Edge Case: `--color` and `--no-color` together is a contradictory
-/// combination, rejected as a usage error (exit code `2`, 003 FR-013a) rather than
-/// silently letting one win.
+/// Rejects `--color`/`--no-color` together as a contradiction rather than silently
+/// letting one win.
 pub fn validate_color_flags(color: bool, no_color: bool) -> Result<(), AppError> {
     if color && no_color {
         return Err(AppError::UsageError(
@@ -117,10 +94,8 @@ pub fn validate_color_flags(color: bool, no_color: bool) -> Result<(), AppError>
     Ok(())
 }
 
-/// 003 FR-008/FR-009: resolves the raw `--sections` flag value into a `SectionFilter`,
-/// rejecting any unrecognized token as a usage error naming every invalid token and
-/// listing the 4 valid names, before any relay is queried. Omitted input resolves to
-/// `SectionFilter::all()` (003 FR-008's unfiltered default).
+/// Resolves the raw `--sections` value into a `SectionFilter`, naming every
+/// unrecognized token in the error. Omitted input means every section.
 pub fn resolve_sections(raw: Option<&str>) -> Result<SectionFilter, AppError> {
     match raw {
         None => Ok(SectionFilter::all()),
@@ -134,13 +109,9 @@ pub fn resolve_sections(raw: Option<&str>) -> Result<SectionFilter, AppError> {
     }
 }
 
-/// 003 FR-002/FR-003 Edge Case, FR-013a: rejects a malformed `--relays`/
-/// `MOSTRO_SCORE_RELAYS` entry with an actionable message naming the exact malformed
-/// string, before any connection attempt. Reuses `nostr_sdk::RelayUrl::parse` — the same
-/// well-formedness check `fetch::client::RelayEventSource::connect` already performs
-/// internally via `Client::add_relay` — so the two layers can never disagree on what
-/// counts as well-formed; this function only runs earlier, before a `RelayEventSource`
-/// is ever constructed.
+/// Rejects a malformed relay entry before any connection attempt, naming the exact
+/// string. Reuses `nostr_sdk::RelayUrl::parse`, the same check `fetch::client` performs
+/// internally, so the two layers never disagree on what's well-formed.
 pub fn validate_relay_urls(relays: &[String]) -> Result<(), AppError> {
     for relay in relays {
         if let Err(error) = RelayUrl::parse(relay) {
@@ -152,11 +123,9 @@ pub fn validate_relay_urls(relays: &[String]) -> Result<(), AppError> {
     Ok(())
 }
 
-/// 003 FR-002/FR-016: resolves `--relays`' full precedence chain — explicit CLI flag or
-/// `MOSTRO_SCORE_RELAYS` (both already collapsed into `explicit_raw` by clap's own
-/// `env` attribute, so this function only sees "explicit or not"), then the
-/// configuration file's `relays` value, then the compiled-in default
-/// `config::paths_defaults::DEFAULT_RELAY`.
+/// Resolves `--relays`' full precedence: explicit flag/env var (already collapsed into
+/// `explicit_raw` by clap), then the config file's `relays` value, then the compiled-in
+/// default.
 pub fn resolve_relays(explicit_raw: Option<&str>, config_relays: Option<&[String]>) -> Vec<String> {
     if let Some(explicit_raw) = explicit_raw {
         return explicit_raw.split(',').map(|s| s.to_string()).collect();
@@ -167,24 +136,17 @@ pub fn resolve_relays(explicit_raw: Option<&str>, config_relays: Option<&[String
     vec![DEFAULT_RELAY.to_string()]
 }
 
-/// 003 FR-010..FR-013a, FR-004..FR-007, FR-016: the top-level resolution/validation
-/// entry point `main.rs` calls once flags are parsed — composes every pure function
-/// above into the final `RunOptions` a report-generating invocation needs. Fails on
-/// `--color`/`--no-color` contradiction, or on any of `resolve_time_range`'s own
-/// validation failures (FR-005's since-later-than-until check, FR-006's
-/// explicit-`--view` alignment check); relay well-formedness (`validate_relay_urls`) is
-/// a separate, independent check `main.rs` runs on the parsed `--relays` list.
+/// The top-level entry point `main.rs` calls once flags are parsed — composes every
+/// pure function above into the final `RunOptions`. Relay well-formedness is a
+/// separate, independent check `main.rs` runs on its own.
 ///
-/// `config` carries the persisted configuration file's already-validated values (003
-/// FR-016): a present `format`/`view`/`color` value slots in between the explicit CLI
-/// flag/environment variable and the automatic/compiled default at each of the three
-/// respective resolution points. `None` (no config file, or one that failed to load)
-/// behaves exactly as if PR 12 did not exist.
+/// `config` carries the persisted configuration file's already-validated values: a
+/// present `format`/`view`/`color` value slots in between the explicit flag/env var and
+/// the automatic/compiled default. `None` (no config file, or one that failed to load)
+/// behaves as if it were absent.
 ///
-/// `output_present` is 003 FR-020's `--output` flag presence: it both skips FR-010's
-/// terminal-detection automatic default (`resolve_context_default`) and rejects a
-/// resolved `Format::Console` as a usage error (`validate_output_format`), before any
-/// relay is queried.
+/// `output_present` is `--output`'s presence: it both skips terminal-detection and
+/// rejects a resolved `Format::Console`, before any relay is queried.
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_run_options(
     explicit_format: Option<Format>,
@@ -234,10 +196,9 @@ pub fn resolve_run_options(
     })
 }
 
-/// 003 FR-004/FR-006: the raw, unparsed `--since`/`--until`/`--view` flag values, plus
-/// `now`-independent `--view` conversion already done by `CliGranularity::into()`. Holds
-/// exactly what `cli::args::Args` carries for this concern, kept separate from `Args`
-/// itself so this module never depends on `clap`.
+/// The raw, unparsed `--since`/`--until` flag values, plus the already-converted
+/// `--view` value. Kept separate from `cli::args::Args` so this module never depends on
+/// `clap`.
 #[derive(Debug, Clone)]
 pub struct TimeRangeInputs {
     pub since_raw: Option<String>,
@@ -245,14 +206,12 @@ pub struct TimeRangeInputs {
     pub view: Option<Granularity>,
 }
 
-/// 003 FR-004/FR-006: the fully resolved parts of the activity grid's time range.
-/// `since` is `None` when either both flags were omitted, or `--until` was given alone —
-/// defaulting `--since` to the node's earliest available history, a data-dependent value
-/// only `run()` can resolve once it has real order data. `until` is `None` when either
-/// both flags were omitted, or `--since` was given alone — deliberately deferred to
-/// `run()`'s own `report_generated_at`, captured after connecting/fetching, rather than
-/// resolved here against an earlier `now` read before any relay is even queried (the two
-/// instants could otherwise diverge by however long the fetch takes).
+/// The fully resolved parts of the activity grid's time range. `since` is `None` when
+/// defaulting to the node's earliest history, a data-dependent value only `run()` can
+/// resolve once it has real order data. `until` is `None` when deferred to `run()`'s own
+/// `report_generated_at`, captured after fetching, rather than an earlier `now` read
+/// here before any relay is even queried (the two could otherwise diverge by however
+/// long the fetch takes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResolvedTimeRange {
     pub since: Option<i64>,
@@ -260,10 +219,9 @@ pub struct ResolvedTimeRange {
     pub view: Option<Granularity>,
 }
 
-/// 003 FR-004/FR-005/FR-006: resolves `--since`/`--until`/`--view` into their final
-/// values, performing every validation that must happen before querying any relay
-/// (FR-005's since-later-than-until check, FR-006's explicit-`--view` alignment check).
-/// Pure aside from the injected `now` — no clock read, no I/O.
+/// Resolves `--since`/`--until`/`--view` into their final values, performing every
+/// validation that must happen before querying any relay. Pure aside from the injected
+/// `now`.
 pub fn resolve_time_range(
     inputs: TimeRangeInputs,
     now: DateTime<Utc>,
@@ -281,15 +239,11 @@ pub fn resolve_time_range(
         .map(|raw| parse_date_bound(raw, today).map(until_bound_seconds))
         .transpose()?;
 
-    // `--until` stays deferred (`None`) in the since-only case, exactly like `--since`
-    // already stays deferred in the until-only case: `run()` resolves it against its own
-    // `report_generated_at`, captured after connecting/fetching, not against this `now`
-    // captured here in `cli::options` before any relay is even queried. Resolving it
-    // here instead would let the two diverge by however long the fetch takes, so an
-    // event created in that gap could count toward general statistics (measured against
-    // the later instant) while being silently excluded from the activity grid (measured
-    // against this earlier one) -- the same "report-generation instant" is supposed to
-    // mean one single instant everywhere in the report, per FR-004.
+    // `--until` stays deferred (`None`) in the since-only case, like `--since` already
+    // does in the until-only case: `run()` resolves it against its own
+    // `report_generated_at`, captured after fetching, not against this earlier `now` —
+    // otherwise an event created in the gap between the two could count toward general
+    // statistics but be silently excluded from the activity grid.
     let (since, until) = match (since_explicit, until_explicit) {
         (None, None) => (None, None),
         (Some(since), None) => (Some(since), None),
@@ -297,15 +251,9 @@ pub fn resolve_time_range(
         (Some(since), Some(until)) => (Some(since), Some(until)),
     };
 
-    // FR-005: applies whenever `--since` was explicitly given, regardless of whether
-    // `--until` was too or stays deferred to the report-generation instant above -- an
-    // explicit `--since` later than either kind of `--until` is the same actionable
-    // mistake, and this validation must happen before querying any relay (FR-005), so it
-    // uses `now` here as its own stand-in for the eventual until-default -- a deliberately
-    // separate concern from the resolved `until` value above, which stays deferred to
-    // `run()`'s own, more precise instant. Only a *defaulted* `--since` (the data-
-    // dependent earliest-history case, resolved later in `run()`) is exempt, per
-    // FR-004/FR-005's own text.
+    // Applies whenever `--since` was explicitly given, using `now` as a stand-in for the
+    // eventual until-default (a separate concern from `until` above, which stays
+    // deferred to `run()`'s own instant). A *defaulted* `--since` is exempt.
     if let Some(since) = since {
         let effective_until = until.unwrap_or_else(|| now.timestamp());
         if since > effective_until {
@@ -327,10 +275,10 @@ pub fn resolve_time_range(
     })
 }
 
-/// 003 FR-006: with an explicit `--view` flag, an explicitly given `--since` must land on
-/// the first day of a calendar month/year and an explicitly given `--until` must land on
-/// the last day of one. Only applies to values the caller actually typed — a defaulted
-/// `--since`/`--until` is snapped instead, inside `stats::grid`, never rejected here.
+/// With an explicit `--view` flag, an explicit `--since` must land on the first day of
+/// a calendar month/year and `--until` on the last day of one. Only applies to values
+/// the caller actually typed — a defaulted `--since`/`--until` is snapped instead,
+/// inside `stats::grid`, never rejected here.
 fn validate_explicit_view_alignment(
     view: Granularity,
     since_explicit: Option<i64>,
@@ -418,7 +366,7 @@ mod tests {
         assert_eq!(resolve_format(None, Format::Plain), Format::Plain);
     }
 
-    // ---- 003 FR-020: `resolve_context_default`/`validate_output_format` ----
+    // ---- `resolve_context_default`/`validate_output_format` ----
 
     #[test]
     fn resolve_context_default_uses_the_terminal_based_default_when_output_is_absent() {
@@ -426,7 +374,7 @@ mod tests {
         assert_eq!(resolve_context_default(false, false), Format::Plain);
     }
 
-    /// 003 FR-020: `--output`'s presence skips terminal detection entirely, always
+    /// `--output`'s presence skips terminal detection entirely, always
     /// resolving to plain, regardless of whether stdout happens to be a terminal.
     #[test]
     fn resolve_context_default_resolves_to_plain_when_output_is_present() {
@@ -453,7 +401,7 @@ mod tests {
         assert!(validate_output_format(false, Format::Json).is_ok());
     }
 
-    /// 003 FR-020: with `--output` present and no explicit `--format`, resolution skips
+    /// with `--output` present and no explicit `--format`, resolution skips
     /// the terminal-based automatic default and resolves to plain, even when stdout
     /// would otherwise be a terminal.
     #[test]
@@ -475,7 +423,7 @@ mod tests {
         assert_eq!(options.format, Format::Plain);
     }
 
-    /// 003 FR-020: `--output` combined with `--color` and no explicit `--format` still
+    /// `--output` combined with `--color` and no explicit `--format` still
     /// resolves to plain, never console -- regression test for a bug where `--color`'s
     /// automatic plain-to-console upgrade ran unconditionally, undoing `--output`'s own
     /// forced-plain default and causing `--output --color` to fail
@@ -499,7 +447,7 @@ mod tests {
         assert_eq!(options.format, Format::Plain);
     }
 
-    /// 003 FR-020: an explicit `--format console` combined with `--output` is rejected
+    /// an explicit `--format console` combined with `--output` is rejected
     /// as a usage error before any relay is queried.
     #[test]
     fn resolve_run_options_rejects_explicit_console_format_with_output_present() {
@@ -519,7 +467,7 @@ mod tests {
         assert!(matches!(result, Err(AppError::UsageError(_))));
     }
 
-    /// 003 FR-020: explicit `--format json` with `--output` is valid.
+    /// explicit `--format json` with `--output` is valid.
     #[test]
     fn resolve_run_options_accepts_explicit_json_format_with_output_present() {
         let options = resolve_run_options(
@@ -539,7 +487,7 @@ mod tests {
         assert_eq!(options.format, Format::Json);
     }
 
-    /// 002 FR-010: an explicit format choice always overrides the context-based default,
+    /// an explicit format choice always overrides the context-based default,
     /// in every direction.
     #[test]
     fn resolve_format_honors_an_explicit_override_over_the_context_default() {
@@ -557,7 +505,7 @@ mod tests {
         );
     }
 
-    /// 003 FR-011: `--color` upgrades an automatic *plain* default to *console*.
+    /// `--color` upgrades an automatic *plain* default to *console*.
     #[test]
     fn apply_color_format_override_upgrades_an_automatic_plain_default_to_console() {
         assert_eq!(
@@ -566,7 +514,7 @@ mod tests {
         );
     }
 
-    /// 003 FR-011: `--color` has no effect when the automatic default is already
+    /// `--color` has no effect when the automatic default is already
     /// console, or when `--color` was not passed at all.
     #[test]
     fn apply_color_format_override_is_a_no_op_outside_the_plain_plus_color_case() {
@@ -617,8 +565,8 @@ mod tests {
         assert!(validate_relay_urls(&relays).is_ok());
     }
 
-    /// 003's `--relays` Edge Case: a malformed entry is rejected naming the exact
-    /// malformed string, not a generic message.
+    /// A malformed entry is rejected naming the exact malformed string, not a generic
+    /// message.
     #[test]
     fn validate_relay_urls_rejects_a_malformed_relay_naming_it_in_the_message() {
         let relays = vec!["wss://good.example".to_string(), "not-a-url".to_string()];
@@ -671,7 +619,7 @@ mod tests {
         assert!(matches!(result, Err(AppError::UsageError(_))));
     }
 
-    /// 003 FR-010/FR-011: with no explicit `--format`, `--color` upgrades the automatic
+    /// with no explicit `--format`, `--color` upgrades the automatic
     /// plain (non-terminal) default to console, and forces the color override on.
     #[test]
     fn resolve_run_options_applies_the_color_format_upgrade_and_override() {
@@ -703,7 +651,7 @@ mod tests {
         );
     }
 
-    /// 003 FR-011: `--color` has no effect on an explicit `--format plain`/`--format
+    /// `--color` has no effect on an explicit `--format plain`/`--format
     /// json` choice — the format resolution ignores `--color` entirely once an explicit
     /// format is present.
     #[test]
@@ -765,7 +713,7 @@ mod tests {
         assert!(matches!(result, Err(AppError::UsageError(_))));
     }
 
-    // ---- 003 FR-008/FR-009: `resolve_sections` ----
+    // ---- `resolve_sections` ----
 
     #[test]
     fn resolve_sections_defaults_to_all_sections_when_omitted() {
@@ -782,7 +730,7 @@ mod tests {
         assert!(!sections.recommendations);
     }
 
-    /// 003 FR-009: an unrecognized `--sections` token is rejected as a usage error
+    /// an unrecognized `--sections` token is rejected as a usage error
     /// naming the invalid token and listing the 4 valid names, before any relay is
     /// queried.
     #[test]
@@ -798,7 +746,7 @@ mod tests {
         assert!(message.contains("recommendations"));
     }
 
-    /// 003 FR-009: this validation must happen before any relay is queried —
+    /// this validation must happen before any relay is queried —
     /// `resolve_run_options` is itself the pre-relay validation entry point, so a
     /// rejection here proves the check runs in the same place as the other pre-relay
     /// validations (color contradiction, time range).
@@ -839,9 +787,9 @@ mod tests {
         assert!(!options.sections.fetch);
     }
 
-    // ---- 003 FR-004/FR-005/FR-006: `resolve_time_range` ----
+    // ---- `resolve_time_range` ----
 
-    /// FR-004: omitting both `--since`/`--until` covers the node's full available
+    /// omitting both `--since`/`--until` covers the node's full available
     /// history, matching current tool behavior — no restriction at all.
     #[test]
     fn resolve_time_range_with_both_flags_omitted_covers_full_history() {
@@ -851,7 +799,7 @@ mod tests {
         assert_eq!(resolved.until, None);
     }
 
-    /// FR-004: `--since` alone leaves `--until` deferred (`None`) here -- `run()` resolves
+    /// `--since` alone leaves `--until` deferred (`None`) here -- `run()` resolves
     /// it against its own, later-captured `report_generated_at`, not against `now` as
     /// read in `cli::options` before any relay is even queried, so the two never diverge
     /// by however long the fetch takes (a real bug found and fixed during review).
@@ -870,7 +818,7 @@ mod tests {
         assert!(resolved.since.is_some());
     }
 
-    /// FR-004: `--until` alone leaves `--since` unresolved (`None`) — the node's
+    /// `--until` alone leaves `--since` unresolved (`None`) — the node's
     /// earliest history is a data-dependent default only `run()` can resolve.
     #[test]
     fn resolve_time_range_with_only_until_leaves_since_unresolved() {
@@ -886,7 +834,7 @@ mod tests {
         assert!(resolved.until.is_some());
     }
 
-    /// FR-005: an explicitly given `--since` resolving later than `--until` is rejected
+    /// an explicitly given `--since` resolving later than `--until` is rejected
     /// before ever querying a relay.
     #[test]
     fn resolve_time_range_rejects_an_explicit_since_later_than_until() {
@@ -900,7 +848,7 @@ mod tests {
         assert!(matches!(error, AppError::UsageError(_)));
     }
 
-    /// FR-005: an explicit `--since` later than `--until` is rejected even when
+    /// an explicit `--since` later than `--until` is rejected even when
     /// `--until` was never given itself and defaults to the report-generation instant --
     /// the check is not limited to the case where both flags were explicitly typed.
     #[test]
@@ -916,7 +864,7 @@ mod tests {
         assert!(matches!(error, AppError::UsageError(_)));
     }
 
-    /// FR-005: a *defaulted* `--since` (the earliest-history default, still `None` at
+    /// a *defaulted* `--since` (the earliest-history default, still `None` at
     /// this layer) later than `--until` is not an error here — that emptiness is only
     /// knowable once `run()` resolves the actual earliest order timestamp.
     #[test]
@@ -931,7 +879,7 @@ mod tests {
         assert_eq!(resolved.since, None);
     }
 
-    /// FR-006: `--view` threads through unchanged when the resolved range does not
+    /// `--view` threads through unchanged when the resolved range does not
     /// conflict with it (or is entirely defaulted).
     #[test]
     fn resolve_time_range_threads_an_explicit_view_through_unchanged() {
@@ -945,7 +893,7 @@ mod tests {
         assert_eq!(resolved.view, Some(Granularity::Monthly));
     }
 
-    /// FR-006: with an explicit `--view monthly`, an explicit `--since` must resolve to
+    /// with an explicit `--view monthly`, an explicit `--since` must resolve to
     /// the first day of a calendar month.
     #[test]
     fn resolve_time_range_rejects_a_since_misaligned_with_an_explicit_monthly_view() {
@@ -960,7 +908,7 @@ mod tests {
         assert!(matches!(error, AppError::UsageError(_)));
     }
 
-    /// FR-006: with an explicit `--view monthly`, an explicit `--until` must resolve to
+    /// with an explicit `--view monthly`, an explicit `--until` must resolve to
     /// the last day of a calendar month.
     #[test]
     fn resolve_time_range_rejects_an_until_misaligned_with_an_explicit_monthly_view() {
@@ -975,7 +923,7 @@ mod tests {
         assert!(matches!(error, AppError::UsageError(_)));
     }
 
-    /// FR-006: an explicit `--view monthly` accepts a `--since`/`--until` already
+    /// an explicit `--view monthly` accepts a `--since`/`--until` already
     /// aligned to calendar month boundaries.
     #[test]
     fn resolve_time_range_accepts_an_explicit_monthly_view_with_aligned_bounds() {
@@ -989,7 +937,7 @@ mod tests {
         assert_eq!(resolved.view, Some(Granularity::Monthly));
     }
 
-    /// FR-006: an explicit `--view yearly` requires `--since`/`--until` on calendar year
+    /// an explicit `--view yearly` requires `--since`/`--until` on calendar year
     /// boundaries.
     #[test]
     fn resolve_time_range_rejects_bounds_misaligned_with_an_explicit_yearly_view() {
@@ -1004,7 +952,7 @@ mod tests {
         assert!(matches!(error, AppError::UsageError(_)));
     }
 
-    /// FR-006: a `--since` left to its data-dependent default (`--until` given alone,
+    /// a `--since` left to its data-dependent default (`--until` given alone,
     /// `--since` omitted) is never checked for alignment here — there is no resolved
     /// value yet to check; only `--until`'s own explicit alignment is validated, and
     /// only `stats::grid` later snaps whatever the defaulted `--since` turns out to be.
@@ -1022,7 +970,7 @@ mod tests {
         assert_eq!(resolved.view, Some(Granularity::Monthly));
     }
 
-    // ---- 003 FR-002/FR-016: `resolve_relays` ----
+    // ---- `resolve_relays` ----
 
     #[test]
     fn resolve_relays_uses_the_explicit_value_when_present() {
@@ -1059,7 +1007,7 @@ mod tests {
         assert_eq!(relays, vec!["wss://explicit.example".to_string()]);
     }
 
-    // ---- 003 FR-016: config-sourced values slot between explicit and automatic ----
+    // ---- config-sourced values slot between explicit and automatic ----
 
     fn config_with(
         format: Option<Format>,
@@ -1076,8 +1024,8 @@ mod tests {
         }
     }
 
-    /// T222/T223: a config-sourced `format` value is honored when there is no explicit
-    /// `--format` flag, sitting between explicit and automatic default.
+    /// A config-sourced `format` value is honored when there is no explicit `--format`
+    /// flag, sitting between explicit and automatic default.
     #[test]
     fn resolve_run_options_honors_a_config_sourced_format_over_the_automatic_default() {
         let config = config_with(Some(Format::Json), None, None);
@@ -1184,7 +1132,7 @@ mod tests {
         assert_eq!(options.color_override, Some(true));
     }
 
-    /// 003 FR-016 (amended 2026-07-26): a config-sourced `sections` value is honored
+    /// a config-sourced `sections` value is honored
     /// when there is no explicit `--sections` flag, sitting between explicit and the
     /// unfiltered `SectionFilter::all()` default.
     #[test]
