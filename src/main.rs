@@ -1,8 +1,8 @@
 use clap::Parser;
 use mostro_score::cli::args::Args;
 use mostro_score::cli::options::{
-    apply_color_format_override, resolve_format, resolve_relays, resolve_run_options,
-    validate_relay_urls, TimeRangeInputs,
+    apply_color_format_override, resolve_context_default, resolve_format, resolve_relays,
+    resolve_run_options, validate_relay_urls, TimeRangeInputs,
 };
 use mostro_score::config;
 use mostro_score::error::exit_code::exit_code_for;
@@ -19,7 +19,13 @@ async fn main() {
     let args = Args::parse();
 
     let stdout_is_terminal = std::io::stdout().is_terminal();
+    // 003 FR-020: `--output`'s presence is irrelevant to `--init-config`'s own
+    // scaffold-only error format below (the two flags have no interaction), so that
+    // path keeps using the plain terminal-based default; the report-generating path's
+    // `error_render_format`/`resolve_run_options` below consult `output_present`
+    // through `resolve_context_default` instead.
     let context_default = select_format_for_context(stdout_is_terminal);
+    let output_present = args.output.is_some();
     let explicit_format = args.format.map(Format::from);
 
     // PR 12 (003 FR-014): resolves the config file's path once, up front — needed both
@@ -62,9 +68,19 @@ async fn main() {
     // (upgrading an automatic plain default to console) never depends on whether
     // `--color`/`--no-color` are contradictory, so it is always safe to compute here,
     // ahead of that validation.
+    // 003 FR-020: `--output`'s presence skips FR-010's terminal-detection automatic
+    // default, resolving straight to plain instead -- the same rule
+    // `resolve_run_options` applies below, kept consistent via the shared
+    // `resolve_context_default` helper rather than each duplicating its own branch.
+    let context_default_for_report = resolve_context_default(stdout_is_terminal, output_present);
+    // 003 FR-020: skips the `--color` upgrade entirely when `--output` is present, same
+    // as `resolve_run_options` does below -- otherwise `--output --color` with no
+    // explicit `--format` would upgrade the forced `Plain` default back to `Console`
+    // and immediately fail `resolve_run_options`'s own `validate_output_format` check.
     let format_before_explicit = match config_file.as_ref().and_then(|config| config.format) {
         Some(config_format) => config_format,
-        None => apply_color_format_override(context_default, args.color),
+        None if output_present => context_default_for_report,
+        None => apply_color_format_override(context_default_for_report, args.color),
     };
     let error_render_format = resolve_format(explicit_format, format_before_explicit);
 
@@ -98,17 +114,24 @@ async fn main() {
         time_range_now,
         args.sections.clone(),
         config_file.as_ref(),
+        output_present,
     ) {
         Ok(options) => options,
         Err(usage_error) => exit_with_error(usage_error, error_render_format),
     };
 
-    // 003 FR-001/FR-017: `--pubkey` is required for every report-generating invocation
-    // (the `--init-config` short-circuit above already returned before this point), but
-    // not for `--init-config` itself — so this check, not clap's native
+    // 003 FR-001/FR-016/FR-017: `--pubkey` is required for every report-generating
+    // invocation (the `--init-config` short-circuit above already returned before this
+    // point), but not for `--init-config` itself — so this check, not clap's native
     // required-argument handling, enforces it, still as a usage error (exit code `2`,
-    // 003 FR-013a).
-    let pubkey_raw = match args.pubkey.as_deref() {
+    // 003 FR-013a). Precedence, amended 2026-07-26: explicit flag/environment variable
+    // (already collapsed by clap), then the config file's `pubkey` value (already
+    // validated as well-formed at config-load time), then this usage error.
+    let pubkey_raw = match args
+        .pubkey
+        .as_deref()
+        .or_else(|| config_file.as_ref().and_then(|c| c.pubkey.as_deref()))
+    {
         Some(pubkey) => pubkey,
         None => exit_with_error(
             AppError::UsageError("--pubkey (or MOSTRO_SCORE_PUBKEY) is required".to_string()),
@@ -149,20 +172,49 @@ async fn main() {
     );
     let now = chrono::Utc::now;
 
-    let mut stdout = std::io::stdout();
     let mut stderr = std::io::stderr();
+
+    // 003 FR-020: `--output` writes the report to the given file instead of standard
+    // output -- opened/created/truncated before any relay connection, so a bad path or
+    // permissions error is caught here, before any relay is queried, and surfaces as an
+    // `AppError::Other` (exit `1`) via `AppError`'s existing `#[from] std::io::Error`
+    // conversion, rendered through the same pre-relay `exit_with_error` pattern every
+    // other pre-relay failure already uses.
+    let mut stdout;
+    let mut output_file;
+    let mut out: &mut dyn std::io::Write = match args.output.as_ref() {
+        Some(path) => match std::fs::File::create(path) {
+            Ok(file) => {
+                output_file = file;
+                &mut output_file
+            }
+            Err(io_error) => exit_with_error(AppError::from(io_error), options.format),
+        },
+        None => {
+            stdout = std::io::stdout();
+            &mut stdout
+        }
+    };
 
     if let Err(err) = mostro_score::run(
         public_key,
         event_source,
         &now,
-        &mut stdout,
+        &mut out,
         &mut stderr,
         &options,
     )
     .await
     {
         exit_with_error(err, options.format);
+    }
+
+    // 003 FR-020: a diagnostic fact naming the exact written path, never suppressed by
+    // `--quiet` -- matching the existing precedent set by the relay-failure warnings
+    // and the no-dev-fee-anchor warning in `lib.rs::run`, neither of which `--quiet`
+    // suppresses either.
+    if let Some(path) = args.output.as_ref() {
+        eprintln!("Report written to {}", path.display());
     }
 }
 

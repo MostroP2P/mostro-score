@@ -27,7 +27,7 @@ fn rendered_plain(report: &Report) -> String {
 /// present) -- covers all 5 sections with representative, non-degenerate data.
 fn rich_node_report() -> Report {
     Report {
-        schema_version: "1.0.0".to_string(),
+        schema_version: "2.0.0".to_string(),
         generated_at: "2026-07-24T10:15:00Z".to_string(),
         node: ReportNode {
             pubkey_hex: "f8f1e7ffc4d2886f9424523f82da8e295e99fd506d1e43753093da5eefe6b14"

@@ -533,7 +533,7 @@ mod tests {
 
     fn empty_report() -> Report {
         crate::report::model::Report {
-            schema_version: "1.0.0".to_string(),
+            schema_version: "2.0.0".to_string(),
             node: ReportNode {
                 pubkey_hex: "abcd".to_string(),
                 pubkey_npub: "npub1abcd".to_string(),

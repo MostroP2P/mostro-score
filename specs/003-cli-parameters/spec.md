@@ -137,8 +137,9 @@ priority because omitting it does not block any report from being generated.
 
 **Independent Test**: Run `mostro-score --init-config` with no existing configuration file
 present; verify a TOML file is written at the resolved path setting `relays` to its compiled-in
-default, with `format`, `view`, and color mode present only as commented-out examples (not
-active values), and that the command exits `0` without attempting to fetch any report data.
+default, with `pubkey`, `format`, `view`, `color`, and `sections` present only as commented-out
+examples (not active values), and that the command exits `0` without attempting to fetch any
+report data.
 
 **Acceptance Scenarios**:
 
@@ -163,7 +164,8 @@ active values), and that the command exits `0` without attempting to fetch any r
 - What happens when `--init-config` is combined with `--pubkey` or another report-generating
   flag? `--init-config` MUST take precedence and short-circuit report generation entirely, per
   FR-019.
-- What happens when `--pubkey` is omitted and no fallback environment variable is set? The tool
+- What happens when `--pubkey` is omitted, its fallback environment variable is unset, and no
+  configuration file supplies a `pubkey` value either (FR-016, amended 2026-07-26)? The tool
   MUST reject with a usage error (exit code `2`, per FR-013a) before attempting any relay
   connection; this is a missing required argument, distinct from specs/002-cli-report-design
   FR-019's exit code `5` for a syntactically-provided but invalid pubkey value.
@@ -188,11 +190,12 @@ active values), and that the command exits `0` without attempting to fetch any r
   returns the complete, stable structure specs/002-cli-report-design FR-012 requires, so
   automated consumers get a predictable schema independent of any display preference.
 - What happens when a configuration file is syntactically valid TOML but contains a
-  semantically invalid value (a malformed relay URL, an unrecognized `--format`/`--view` value,
-  or contradictory color settings)? The tool MUST treat this the same as a parse failure per
-  FR-015a: warn to standard error identifying the file, the offending key, and the problem, then
-  ignore the file entirely and fall back to the environment-variable/compiled-default chain,
-  never a fatal error and never a partial application of the file's other, valid values.
+  semantically invalid value (a malformed `pubkey` or relay URL, an unrecognized
+  `--format`/`--view` value, an unrecognized `--sections` name, or contradictory color
+  settings)? The tool MUST treat this the same as a parse failure per FR-015a: warn to standard
+  error identifying the file, the offending key, and the problem, then ignore the file entirely
+  and fall back to the environment-variable/compiled-default chain, never a fatal error and
+  never a partial application of the file's other, valid values.
 
 ## Requirements *(mandatory)*
 
@@ -201,9 +204,10 @@ active values), and that the command exits `0` without attempting to fetch any r
 **Connection**
 
 - **FR-001**: `-p`/`--pubkey` MUST identify the node to analyze, accepted as either npub or hex
-  format, matching the tool's current behavior. It MUST be provided via the flag or via its
-  environment-variable fallback (FR-003); the tool MUST reject with a usage error before any
-  relay connection when neither is present.
+  format, matching the tool's current behavior. It MUST be provided via the flag, via its
+  environment-variable fallback (FR-003), or via a configuration-file value (FR-016, amended
+  2026-07-26); the tool MUST reject with a usage error before any relay connection when none of
+  the three is present.
 - **FR-002**: `-r`/`--relays` MUST accept a comma-separated list of relay URLs. When omitted, it
   MUST fall back to its environment variable (FR-003), then to the compiled-in default
   `wss://relay.mostro.network`.
@@ -211,8 +215,9 @@ active values), and that the command exits `0` without attempting to fetch any r
   (`MOSTRO_SCORE_PUBKEY`, `MOSTRO_SCORE_RELAYS`). Precedence, evaluated independently per flag,
   MUST be: explicit CLI flag, then environment variable, then compiled-in default when one
   exists. `--relays` has a compiled-in default and follows the full chain. `--pubkey` has no
-  compiled-in default: per FR-001, when neither the flag nor its environment variable is
-  present, the tool MUST reject with a usage error rather than falling back further.
+  compiled-in default: per FR-001, when neither the flag, its environment variable, nor a
+  configuration-file value (FR-016) is present, the tool MUST reject with a usage error rather
+  than falling back further.
 
 **Time range and grouping**
 
@@ -277,7 +282,8 @@ active values), and that the command exits `0` without attempting to fetch any r
   specs/002-cli-report-design FR-001 sections, addressed by the exact, case-sensitive tokens
   `fetch`, `activity`, `stats`, `recommendations` (in that same order). The node identity header
   is not a valid token and is not affected by this flag: it always renders, per the Assumptions
-  below. When `--sections` is omitted, all 5 sections render, matching current tool behavior.
+  below. When `--sections` is omitted and no configuration-file `sections` value is present
+  either (FR-016, amended 2026-07-26), all 5 sections render, matching current tool behavior.
   This flag controls **console and plain-text display only** and MUST NOT alter
   section content or computation; it has no effect on `--format json`, whose complete structure
   MUST always be returned regardless of `--sections`, preserving specs/002-cli-report-design
@@ -356,32 +362,41 @@ active values), and that the command exits `0` without attempting to fetch any r
 - **FR-015a**: When a configuration file is present at the resolved path but cannot be read (a
   permissions error, a broken symlink, or another I/O error), fails to parse (malformed TOML), or
   contains a value that would fail the same validation the equivalent CLI flag requires (a
-  malformed relay URL, an unrecognized `--format`/`--view` value, or contradictory color
-  settings), the tool MUST warn to standard error identifying the file's
-  path and the specific problem, then ignore the file **entirely** (never applying only its
-  valid keys) and fall back fully to the flag/environment-variable/compiled-default chain,
-  consistent with the project constitution's graceful-degradation principle (Principle VI)
-  already applied to relay failures. This MUST NOT be treated as a fatal error, since `--pubkey`
-  is never sourced from the configuration file (FR-016), so an invalid file can never leave a
-  required value unresolved.
-- **FR-016**: A present configuration value for `--relays`, `--format`, `--view`, or
-  `--no-color`/`--color` MUST be honored, extending FR-003's chain to: CLI flag, then
-  environment variable (`--relays` only), then configuration file. When absent from the file,
-  `--relays` falls back to its compiled-in default; `--format`, `--view`, and color mode fall
-  back to their own automatic resolution (specs/002-cli-report-design FR-010, this spec's
-  FR-006, specs/002-cli-report-design FR-015). `--pubkey` MUST NOT be sourced from the
-  configuration file.
-- **FR-016a**: The configuration file's top-level keys MUST be: `relays` (array of strings, MUST
+  malformed relay URL, an unrecognized `--format`/`--view` value, a malformed `--pubkey` value,
+  an unrecognized `--sections` name, or contradictory color settings), the tool MUST warn to
+  standard error identifying the file's path and the specific problem, then ignore the file
+  **entirely** (never applying only its valid keys) and fall back fully to the
+  flag/environment-variable/compiled-default chain, consistent with the project constitution's
+  graceful-degradation principle (Principle VI) already applied to relay failures. This MUST NOT
+  be treated as a fatal error: a config-sourced `--pubkey` value is validated at this point using
+  the same check as an explicit `--pubkey` flag, so an invalid one is caught and ignored here,
+  before it could otherwise surface later as specs/002-cli-report-design FR-019's exit-`5`
+  invalid-pubkey error; if no `--pubkey`/`MOSTRO_SCORE_PUBKEY`/config value is present at all,
+  that remains FR-001's existing missing-value usage error, unaffected by this amendment.
+- **FR-016** *(amended 2026-07-26 to add `--pubkey` and `--sections` — see Clarifications)*: A
+  present configuration value for `--pubkey`, `--relays`, `--format`, `--view`,
+  `--no-color`/`--color`, or `--sections` MUST be honored, extending FR-003's chain to: CLI flag,
+  then environment variable (`--pubkey` and `--relays` only), then configuration file. When
+  absent from the file, `--pubkey` falls back to FR-001's existing requiredness rule; `--relays`
+  falls back to its compiled-in default; `--format`, `--view`, and color mode fall back to their
+  own automatic resolution (specs/002-cli-report-design FR-010, this spec's FR-006,
+  specs/002-cli-report-design FR-015); `--sections` falls back to FR-008's unfiltered default
+  (every section renders).
+- **FR-016a**: The configuration file's top-level keys MUST be: `pubkey` (string, npub or hex,
+  validated the same way an explicit `--pubkey` flag is), `relays` (array of strings, MUST
   be non-empty when present — an empty array MUST be treated as absent, falling back through
   FR-016's chain, not as "no relays to query"), `format` (string: `console`/`plain`/`json`),
   `view` (string: `daily`/`monthly`/`yearly`), `color` (string: `always`/`never`; absent means
-  automatic). Any other value is a semantic
-  validation failure under FR-015a.
+  automatic), `sections` (array of strings, each one of FR-008's 4 filterable section names —
+  same case-sensitive validation as `--sections`; an empty array MUST be treated as absent,
+  same rule as `relays`, falling back to FR-008's unfiltered default rather than "show nothing").
+  Any other value is a semantic validation failure under FR-015a.
 - **FR-017**: `--init-config` MUST write a starter configuration file to the resolved config
   path (creating the directory if needed) and exit `0` without generating a report. It MUST set
-  `relays` to its compiled-in default, and MUST include `format`, `view`, and `color` as
-  commented-out examples, not active values, since none of the three has a fixed default to
-  freeze. `--pubkey` is not required for `--init-config`.
+  `relays` to its compiled-in default, and MUST include `pubkey`, `format`, `view`, `color`, and
+  `sections` as commented-out examples, not active values, since none of the five has a fixed
+  default to freeze. Each key in the written file MUST be preceded by a short comment explaining
+  what it does and which values it accepts. `--pubkey` is not required for `--init-config`.
 - **FR-018**: `--init-config` MUST NOT silently overwrite an existing configuration file at the
   resolved path; when one already exists, the tool MUST refuse, report the existing file's
   path, and exit non-zero, requiring an explicit `--force` companion flag to overwrite it
@@ -396,6 +411,30 @@ active values), and that the command exits `0` without attempting to fetch any r
   only `--init-config`'s own overwrite check (FR-018) applies. Basic argument-syntax parsing
   (e.g., rejecting an unparseable value type) still applies to every flag regardless.
 
+**Report output destination** *(added 2026-07-26 — see Clarifications)*
+
+- **FR-020**: `-o`/`--output <PATH>` MUST write the rendered report to the given file instead of
+  standard output. Valid only when the resolved format is `plain` or `json`: whenever format
+  resolution lands on `console` — whether from an explicit `--format console` flag or from a
+  configuration-sourced `format = "console"` value (FR-016, which gives that value the same
+  precedence as an explicit flag) — combining it with `--output` MUST be rejected as a usage
+  error before querying any relay. When `--output` is present and neither an explicit flag nor a
+  configuration-sourced value selects a format, resolution MUST default to `plain` rather than
+  performing specs/002-cli-report-design FR-010's terminal-based automatic detection, since
+  writing colored console escape codes to a file has no benefit. On
+  success, the tool MUST print a confirmation message naming the written path to standard
+  error; this message is a diagnostic fact, not transient progress narration, so it MUST NOT be
+  suppressed by `--quiet` (FR-012). The report's content MUST be written only to the specified
+  file, never additionally to standard output.
+- **FR-021**: A successfully rendered `--format json` **report** MUST be pretty-printed
+  (multi-line, indented) rather than a single-line/minified document, whether written to standard
+  output or to an `--output` file. This applies to the report body only: it does not alter
+  specs/002-cli-report-design FR-012's completeness contract, this spec's own FR-013a's separate
+  parser-level usage-error text (which remains plain and unaffected), nor
+  specs/002-cli-report-design FR-011's fatal-error envelope, which MUST remain a single-line
+  document — one JSON object per line is a deliberate, machine-log-friendly convention for a
+  fatal condition, distinct from the multi-line report a successful run produces.
+
 ### Key Entities
 
 - **CLI Flag**: A named, user-supplied parameter controlling one aspect of report generation
@@ -405,8 +444,8 @@ active values), and that the command exits `0` without attempting to fetch any r
 - **Report Section Name**: One of the 5 fixed section identifiers from
   specs/002-cli-report-design FR-001, used as the vocabulary `--sections` filters against.
 - **Configuration File**: An optional, platform-located TOML file supplying persisted user
-  preferences for `--relays`, `--format`, `--view`, and color mode, per FR-014 through FR-016,
-  created via `--init-config` per FR-017 through FR-019.
+  preferences for `--pubkey`, `--relays`, `--format`, `--view`, color mode, and `--sections`, per
+  FR-014 through FR-016a, created via `--init-config` per FR-017 through FR-019.
 
 ## Success Criteria *(mandatory)*
 
@@ -478,3 +517,33 @@ active values), and that the command exits `0` without attempting to fetch any r
   do? → A: Warn to standard error identifying the file and the problem, ignore it entirely, and
   fall back fully to the environment-variable/compiled-default chain — never a fatal error,
   matching the constitution's graceful-degradation precedent for relay failures. See FR-015a.
+
+### Session 2026-07-26
+
+- Q: FR-016 originally excluded `--pubkey` from the configuration file specifically to guarantee
+  that a broken or stale config file could never leave a trader analyzing the wrong node
+  silently. Should that protection be removed? → A: Yes, surgically amended: `--pubkey` may now
+  be sourced from the configuration file, validated the same way an explicit `--pubkey` flag is,
+  at config-load time. The original protection's goal (never let an invalid config value produce
+  a wrong-node analysis) is preserved by that same-time validation, not by excluding the field
+  outright. `--sections` gains the same config-sourced precedence at the same time, for
+  consistency with every other filterable/display flag already in FR-016. See FR-016, FR-016a,
+  FR-017.
+- Q: Should the persisted configuration file's generated content stay a bare list of keys, or
+  say more? → A: Each key in the file `--init-config` writes MUST be preceded by a short comment
+  explaining what it does and which values it accepts, without introducing nested TOML tables —
+  the file stays a flat list of commented, individually-documented keys. See FR-017.
+- Q: The report always printed to standard output; is there a way to send it to a file instead?
+  → A: Added `-o`/`--output`, valid for `plain`/`json` only (not `console`, since colored escape
+  codes in a file provide no benefit); omitting `--format` alongside it resolves to `plain`
+  rather than performing terminal detection. See FR-020.
+- Q: Should `--format json`'s output stay single-line? → A: No, changed to pretty-printed
+  (multi-line, indented) unconditionally, for both standard output and `--output` files. See
+  FR-021.
+- Q: Now that pretty-printed JSON is actually readable, is the `metric_definitions` table (a
+  static, 34-entry block explaining every metric's label/meaning/unit) still worth carrying in
+  every JSON document? → A: No, removed. specs/002-cli-report-design FR-008b's underlying
+  documentation commitment is satisfied by console/plain-text's own inline explanations; JSON's
+  typical consumer is a script or another program, not a trader reading the raw output, so it
+  does not need a parallel documentation table to satisfy that same commitment. See the amended
+  specs/002-cli-report-design FR-008b.

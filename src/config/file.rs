@@ -5,6 +5,7 @@
 //! only, never for the first (FR-015 is explicit that a missing file is silent).
 
 use crate::cli::options::validate_relay_urls;
+use crate::report::content::SectionFilter;
 use crate::report::render::Format;
 use crate::stats::grid::Granularity;
 use serde::Deserialize;
@@ -18,22 +19,35 @@ use std::path::Path;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawConfigFile {
+    pubkey: Option<String>,
     relays: Option<Vec<String>>,
     format: Option<String>,
     view: Option<String>,
     color: Option<String>,
+    sections: Option<Vec<String>>,
 }
 
 /// The validated, semantically-typed result of a successfully loaded and validated
-/// configuration file (003 FR-016).
+/// configuration file (003 FR-016/FR-016a).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigFile {
+    /// A config-sourced `--pubkey` value (003 FR-016/FR-016a, amended 2026-07-26),
+    /// validated at load time with the same check `nostr_sdk::PublicKey::parse`
+    /// performs for an explicit `--pubkey` flag, so a value reaching this field is
+    /// always well-formed -- kept as the original `String`, not a parsed `PublicKey`,
+    /// since the flag-based path already re-parses it at its own usage point and this
+    /// module has no other reason to depend on `nostr_sdk`'s `PublicKey` type.
+    pub pubkey: Option<String>,
     pub relays: Option<Vec<String>>,
     pub format: Option<Format>,
     pub view: Option<Granularity>,
     /// `Some(true)` for `color = "always"`, `Some(false)` for `color = "never"`, `None`
     /// when absent (automatic), per FR-016a.
     pub color_override: Option<bool>,
+    /// A config-sourced `--sections` value (003 FR-016/FR-016a, amended 2026-07-26),
+    /// validated at load time via `SectionFilter::from_tokens`. An empty array is
+    /// treated as absent, same rule as `relays`.
+    pub sections: Option<SectionFilter>,
 }
 
 /// Every way a configuration file fails to supply a usable value, distinguished
@@ -112,6 +126,15 @@ fn load_config_file_inner(path: &Path) -> Result<ConfigFile, LoadFailure> {
 }
 
 fn validate(raw: RawConfigFile) -> Result<ConfigFile, String> {
+    let pubkey = match raw.pubkey {
+        None => None,
+        Some(pubkey) => {
+            nostr_sdk::PublicKey::parse(&pubkey)
+                .map_err(|error| format!("'pubkey' is invalid: {error}"))?;
+            Some(pubkey)
+        }
+    };
+
     let relays = match raw.relays {
         Some(relays) if relays.is_empty() => None,
         Some(relays) => {
@@ -156,11 +179,28 @@ fn validate(raw: RawConfigFile) -> Result<ConfigFile, String> {
         }
     };
 
+    let sections = match raw.sections {
+        Some(sections) if sections.is_empty() => None,
+        Some(sections) => {
+            let filter = SectionFilter::from_tokens(&sections).map_err(|invalid_tokens| {
+                format!(
+                    "'sections' has unrecognized value(s): {}. Valid section names are: \
+                     fetch, activity, stats, recommendations",
+                    invalid_tokens.join(", ")
+                )
+            })?;
+            Some(filter)
+        }
+        None => None,
+    };
+
     Ok(ConfigFile {
+        pubkey,
         relays,
         format,
         view,
         color_override,
+        sections,
     })
 }
 
@@ -222,28 +262,41 @@ mod tests {
         assert!(err.is_empty());
     }
 
+    const TEST_PUBKEY_HEX: &str =
+        "82fa8cb978b43c79b2156585bac2c011176a21d2aead6d9f7c575c005be88390";
+
     #[test]
     fn valid_file_with_every_key_present_is_loaded() {
         let dir = tempfile_shim::TempDir::new();
         let path = write_file(
             &dir,
             "config.toml",
-            r#"
+            &format!(
+                r#"
+            pubkey = "{TEST_PUBKEY_HEX}"
             relays = ["wss://relay.example"]
             format = "plain"
             view = "monthly"
             color = "always"
-            "#,
+            sections = ["activity", "stats"]
+            "#
+            ),
         );
         let mut err: Vec<u8> = Vec::new();
 
         let config = load_config_file(&path, &mut err).expect("valid file loads");
 
         assert!(err.is_empty());
+        assert_eq!(config.pubkey, Some(TEST_PUBKEY_HEX.to_string()));
         assert_eq!(config.relays, Some(vec!["wss://relay.example".to_string()]));
         assert_eq!(config.format, Some(Format::Plain));
         assert_eq!(config.view, Some(Granularity::Monthly));
         assert_eq!(config.color_override, Some(true));
+        let sections = config.sections.expect("sections present");
+        assert!(sections.activity);
+        assert!(sections.stats);
+        assert!(!sections.fetch);
+        assert!(!sections.recommendations);
     }
 
     #[test]
@@ -254,10 +307,89 @@ mod tests {
 
         let config = load_config_file(&path, &mut err).expect("valid file loads");
 
+        assert_eq!(config.pubkey, None);
         assert_eq!(config.relays, Some(vec!["wss://relay.example".to_string()]));
         assert_eq!(config.format, None);
         assert_eq!(config.view, None);
         assert_eq!(config.color_override, None);
+        assert_eq!(config.sections, None);
+    }
+
+    /// FR-016/FR-016a (amended 2026-07-26): a valid config-sourced `pubkey` value loads
+    /// successfully.
+    #[test]
+    fn valid_pubkey_value_is_loaded() {
+        let dir = tempfile_shim::TempDir::new();
+        let path = write_file(
+            &dir,
+            "config.toml",
+            &format!(r#"pubkey = "{TEST_PUBKEY_HEX}""#),
+        );
+        let mut err: Vec<u8> = Vec::new();
+
+        let config = load_config_file(&path, &mut err).expect("valid file loads");
+
+        assert!(err.is_empty());
+        assert_eq!(config.pubkey, Some(TEST_PUBKEY_HEX.to_string()));
+    }
+
+    /// FR-015a/FR-016a: an invalid config-sourced `pubkey` value is a semantic
+    /// validation failure, same tier as an invalid `format`/`view`/`color` value --
+    /// warn and ignore the entire file.
+    #[test]
+    fn invalid_pubkey_value_is_a_semantic_validation_failure() {
+        let dir = tempfile_shim::TempDir::new();
+        let path = write_file(&dir, "config.toml", r#"pubkey = "not-a-valid-pubkey""#);
+        let mut err: Vec<u8> = Vec::new();
+
+        let result = load_config_file(&path, &mut err);
+
+        assert!(result.is_none());
+        assert!(!err.is_empty());
+    }
+
+    /// FR-016a: a valid config-sourced `sections` value loads successfully.
+    #[test]
+    fn valid_sections_value_is_loaded() {
+        let dir = tempfile_shim::TempDir::new();
+        let path = write_file(&dir, "config.toml", r#"sections = ["fetch", "stats"]"#);
+        let mut err: Vec<u8> = Vec::new();
+
+        let config = load_config_file(&path, &mut err).expect("valid file loads");
+
+        assert!(err.is_empty());
+        let sections = config.sections.expect("sections present");
+        assert!(sections.fetch);
+        assert!(sections.stats);
+        assert!(!sections.activity);
+        assert!(!sections.recommendations);
+    }
+
+    /// FR-016a: an unrecognized `sections` name is a semantic validation failure.
+    #[test]
+    fn unrecognized_sections_name_is_a_semantic_validation_failure() {
+        let dir = tempfile_shim::TempDir::new();
+        let path = write_file(&dir, "config.toml", r#"sections = ["bogus"]"#);
+        let mut err: Vec<u8> = Vec::new();
+
+        let result = load_config_file(&path, &mut err);
+
+        assert!(result.is_none());
+        assert!(!err.is_empty());
+    }
+
+    /// FR-016a: an empty `sections` array is treated as absent, same rule as `relays`,
+    /// not an error and not "show nothing".
+    #[test]
+    fn empty_sections_array_is_treated_as_absent() {
+        let dir = tempfile_shim::TempDir::new();
+        let path = write_file(&dir, "config.toml", "sections = []");
+        let mut err: Vec<u8> = Vec::new();
+
+        let config = load_config_file(&path, &mut err).expect("empty sections is not an error");
+
+        assert!(err.is_empty());
+        assert_eq!(config.sections, None);
     }
 
     #[test]
