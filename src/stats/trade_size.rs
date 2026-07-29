@@ -1,17 +1,17 @@
-/// Trade-size statistics (Section 4.1.3, 001 FR-003, FR-010). `min_trade_sats`,
-/// `max_trade_sats`, `mean_trade_sats`, and `median_trade_sats` are `None` only when the
-/// amt-restricted set (001 FR-002) is empty. `std_dev_trade_sats` follows that same
-/// empty-set rule. `coefficient_of_variation` has its own, stricter not-applicable rule
-/// (FR-010): `None` when fewer than 2 orders exist, or when `median_trade_sats` is
-/// exactly `0`, since dividing by a zero median is undefined regardless of sample size.
-/// `median_trade_sats` is `f64`, not `u64`: an even-sized set's median is the average of
-/// its two middle values, which is legitimately fractional (e.g. `[0, 1]` medians to
-/// `0.5`), and truncating it to an integer would both misreport the value and corrupt
-/// `coefficient_of_variation`'s division. `amt` comes from an untrusted relay event
-/// (`models::order`'s `saturating_add` on the same field carries the identical caveat):
-/// converting it to `f64` loses precision above 2^53, but that threshold is already over
-/// 4x the entire 21M BTC supply in sats, so no realistic `amt` value is affected — only a
-/// deliberately crafted, physically impossible one.
+/// Trade-size statistics. `min_trade_sats`, `max_trade_sats`, `mean_trade_sats`, and
+/// `median_trade_sats` are `None` only when the amt-restricted set is empty.
+/// `std_dev_trade_sats` follows that same empty-set rule. `coefficient_of_variation` has
+/// its own, stricter not-applicable rule: `None` when fewer than 2 orders exist, or when
+/// `median_trade_sats` is exactly `0`, since dividing by a zero median is undefined
+/// regardless of sample size. `median_trade_sats` is `f64`, not `u64`: an even-sized
+/// set's median is the average of its two middle values, which is legitimately
+/// fractional (e.g. `[0, 1]` medians to `0.5`), and truncating it to an integer would
+/// both misreport the value and corrupt `coefficient_of_variation`'s division. `amt`
+/// comes from an untrusted relay event (`models::order`'s `saturating_add` on the same
+/// field carries the identical caveat): converting it to `f64` loses precision above
+/// 2^53, but that threshold is already over 4x the entire 21M BTC supply in sats, so no
+/// realistic `amt` value is affected — only a deliberately crafted, physically
+/// impossible one.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct TradeSizeStats {
     pub min_trade_sats: Option<u64>,
@@ -31,7 +31,7 @@ const NOT_APPLICABLE: TradeSizeStats = TradeSizeStats {
     coefficient_of_variation: None,
 };
 
-/// Compute trade amount statistics (Section 4.1.3)
+/// Computes trade amount statistics.
 pub fn compute_trade_stats(amounts: &[u64]) -> TradeSizeStats {
     if amounts.is_empty() {
         return NOT_APPLICABLE;
@@ -51,8 +51,8 @@ pub fn compute_trade_stats(amounts: &[u64]) -> TradeSizeStats {
         sorted[sorted.len() / 2] as f64
     };
 
-    // Population standard deviation (divide by N, not N-1, per FR-010): this
-    // amt-restricted set is the node's complete historical record, not a sample.
+    // Population standard deviation (divide by N, not N-1): this amt-restricted set is
+    // the node's complete historical record, not a sample.
     let variance = amounts
         .iter()
         .map(|&v| {
@@ -104,7 +104,7 @@ mod tests {
         assert_eq!(stats.mean_trade_sats, Some(100.0));
         assert_eq!(stats.median_trade_sats, Some(100.0));
         assert_eq!(stats.std_dev_trade_sats, Some(0.0));
-        // FR-010: fewer than 2 orders -> not applicable, even though std_dev is defined.
+        // Fewer than 2 orders -> not applicable, even though std_dev is defined.
         assert_eq!(stats.coefficient_of_variation, None);
     }
 
@@ -128,10 +128,10 @@ mod tests {
 
     /// Regression: an even-sized set whose middle two values average to a fraction
     /// (e.g. 0 and 1) must report that fraction exactly, not truncate it to an integer
-    /// — plan.md's JSON output contract explicitly states `median_trade_sats` over an
-    /// even-sized set is legitimately fractional, and truncating it would also corrupt
-    /// `coefficient_of_variation`'s division (a truncated-to-zero median would wrongly
-    /// report CV as not applicable instead of a real value).
+    /// — `median_trade_sats` over an even-sized set is legitimately fractional, and
+    /// truncating it would also corrupt `coefficient_of_variation`'s division (a
+    /// truncated-to-zero median would wrongly report CV as not applicable instead of a
+    /// real value).
     #[test]
     fn compute_trade_stats_even_count_fractional_median_is_not_truncated() {
         let stats = compute_trade_stats(&[0, 1]);
