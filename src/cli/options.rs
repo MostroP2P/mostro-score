@@ -37,6 +37,30 @@ pub fn resolve_context_default(stdout_is_terminal: bool, output_present: bool) -
     }
 }
 
+/// 003 FR-011/FR-020: the format `resolve_format` falls back to when there is no
+/// explicit `--format` flag -- a configuration-sourced `format` value wins first (same
+/// precedence an explicit flag would have); otherwise, when `--output` is present, the
+/// `--color` upgrade is skipped entirely (it only exists to make an interactive
+/// terminal's automatic default nicer to look at, which has no bearing on a file
+/// destination, and upgrading `context_default` back to `Console` here would only be
+/// rejected moments later by `validate_output_format`); otherwise the ordinary
+/// `--color` upgrade applies. `main.rs`'s `error_render_format` computation and
+/// `resolve_run_options` below both call this single function rather than each
+/// duplicating the same three-way precedence independently, so the two call sites can
+/// never drift apart on this rule.
+pub fn resolve_format_before_explicit(
+    config_format: Option<Format>,
+    output_present: bool,
+    context_default: Format,
+    color: bool,
+) -> Format {
+    match config_format {
+        Some(config_format) => config_format,
+        None if output_present => context_default,
+        None => apply_color_format_override(context_default, color),
+    }
+}
+
 /// 003 FR-020: `--output` is only valid when the resolved format is `plain` or `json`;
 /// an explicit (or configuration-sourced) `--format console` combined with `--output`
 /// is rejected as a usage error before any relay is queried.
@@ -187,19 +211,8 @@ pub fn resolve_run_options(
     let config_color_override = config.and_then(|config| config.color_override);
 
     let context_default = resolve_context_default(stdout_is_terminal, output_present);
-    // 003 FR-011: a configuration-sourced `format` value is a saved preference and
-    // takes precedence over the automatic color-format upgrade, same as an explicit
-    // `--format` flag would — so the upgrade only ever applies when there is neither
-    // an explicit format nor a config-sourced one. 003 FR-020: `--output`'s presence
-    // forces `context_default` to `Plain` specifically so `--color` cannot upgrade it
-    // back to `Console` -- the upgrade only ever exists to make an interactive
-    // terminal's automatic default nicer to look at, which has no bearing on a file
-    // destination, so it is skipped entirely whenever `--output` is present.
-    let format_before_explicit = match config_format {
-        Some(config_format) => config_format,
-        None if output_present => context_default,
-        None => apply_color_format_override(context_default, color),
-    };
+    let format_before_explicit =
+        resolve_format_before_explicit(config_format, output_present, context_default, color);
     let format = resolve_format(explicit_format, format_before_explicit);
     validate_output_format(output_present, format)?;
 

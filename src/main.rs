@@ -1,8 +1,9 @@
 use clap::Parser;
 use mostro_score::cli::args::Args;
 use mostro_score::cli::options::{
-    apply_color_format_override, resolve_context_default, resolve_format, resolve_relays,
-    resolve_run_options, validate_relay_urls, TimeRangeInputs,
+    apply_color_format_override, resolve_context_default, resolve_format,
+    resolve_format_before_explicit, resolve_relays, resolve_run_options, validate_relay_urls,
+    TimeRangeInputs,
 };
 use mostro_score::config;
 use mostro_score::error::exit_code::exit_code_for;
@@ -73,15 +74,13 @@ async fn main() {
     // `resolve_run_options` applies below, kept consistent via the shared
     // `resolve_context_default` helper rather than each duplicating its own branch.
     let context_default_for_report = resolve_context_default(stdout_is_terminal, output_present);
-    // 003 FR-020: skips the `--color` upgrade entirely when `--output` is present, same
-    // as `resolve_run_options` does below -- otherwise `--output --color` with no
-    // explicit `--format` would upgrade the forced `Plain` default back to `Console`
-    // and immediately fail `resolve_run_options`'s own `validate_output_format` check.
-    let format_before_explicit = match config_file.as_ref().and_then(|config| config.format) {
-        Some(config_format) => config_format,
-        None if output_present => context_default_for_report,
-        None => apply_color_format_override(context_default_for_report, args.color),
-    };
+    let config_format = config_file.as_ref().and_then(|config| config.format);
+    let format_before_explicit = resolve_format_before_explicit(
+        config_format,
+        output_present,
+        context_default_for_report,
+        args.color,
+    );
     let error_render_format = resolve_format(explicit_format, format_before_explicit);
 
     // PR 12 (003 FR-018): `--force` without `--init-config` has no meaning on its own
@@ -206,6 +205,15 @@ async fn main() {
     )
     .await
     {
+        // 003 FR-020: `File::create` above already truncated `--output`'s destination;
+        // if the run fails afterward, that leaves a stray empty file with no
+        // confirmation message, which could be mistaken for real (empty) output.
+        // Removing it here keeps failure and file-creation atomic from the user's
+        // point of view -- best-effort, since the failure being reported already
+        // takes priority over a cleanup error.
+        if let Some(path) = args.output.as_ref() {
+            let _ = std::fs::remove_file(path);
+        }
         exit_with_error(err, options.format);
     }
 

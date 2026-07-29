@@ -186,3 +186,34 @@ fn output_to_an_uncreatable_path_is_a_fatal_error_before_any_relay_is_queried() 
     assert_eq!(output.status.code(), Some(1));
     assert!(!output_path.exists());
 }
+
+/// 003 FR-020: when `mostro_score::run` fails after the destination file was already
+/// created (truncated by `File::create`), the stray empty file is removed rather than
+/// left behind -- otherwise it could be mistaken for real (empty) output, since no
+/// confirmation message is printed on a failed run. A deliberately unreachable relay
+/// guarantees a run failure (exit `3`) that happens after the file has already been
+/// opened for writing.
+#[test]
+fn output_file_is_removed_when_the_run_fails_after_it_was_created() {
+    let dir = TempDir::new("output-cleanup-on-failure");
+    let output_path = dir.path().join("report.txt");
+
+    let output = isolated_command()
+        .args([
+            "--pubkey",
+            TEST_PUBKEY_HEX,
+            "--output",
+            output_path.to_str().unwrap(),
+            "--relays",
+            "ws://127.0.0.1:1",
+        ])
+        .env_remove("MOSTRO_SCORE_RELAYS")
+        .output()
+        .expect("binary runs");
+
+    assert_eq!(output.status.code(), Some(3));
+    assert!(
+        !output_path.exists(),
+        "a failed run must not leave a stray empty output file behind"
+    );
+}

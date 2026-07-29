@@ -357,6 +357,7 @@ fn config_file_pubkey_value_is_honored_when_no_flag_or_env_var_is_present() {
         .unwrap()
         .args(["--config-dir", dir.path().to_str().unwrap()])
         .env_remove("MOSTRO_SCORE_PUBKEY")
+        .env_remove("MOSTRO_SCORE_RELAYS")
         .output()
         .expect("binary runs");
 
