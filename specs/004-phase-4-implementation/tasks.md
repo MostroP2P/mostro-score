@@ -282,10 +282,10 @@ work they described no longer applies.
 - [x] T155 [GREEN] Implement the plain-text renderer per 002 FR-009 in `src/report/render/plain.rs`.
 - [x] T156 [RED] Failing tests for context-based format auto-selection (tty vs. piped) in `src/report/render/mod.rs`.
 - [x] T157 [GREEN] Implement the `Renderer` trait + format auto-selection per 002 FR-010 in `src/report/render/mod.rs`.
-- [x] T158 [RED] Failing tests for the JSON top-level shape (`schema_version`, `generated_at`, `node`, `fetch`, `activity`, `stats`, `recommendations`, `metric_definitions`, all keys always present) in `src/report/render/json.rs`.
+- [x] T158 [RED] Failing tests for the JSON top-level shape (`schema_version`, `generated_at`, `node`, `fetch`, `activity`, `stats`, `recommendations`, `metric_definitions`, all keys always present) in `src/report/render/json.rs`. **Superseded 2026-07-26**: `metric_definitions` was later removed (see specs/002-cli-report-design FR-008b, amended); the shape is now 7 keys, `schema_version` bumped to `2.0.0`.
 - [x] T159 [GREEN] Implement the JSON top-level shape per the plan's contract in `src/report/render/json.rs`.
-- [x] T160 [RED] Failing test: `metric_definitions`'s key set matches the plan's exhaustive list exactly — all `stats` sub-object fields, `activity.granularity`, `buckets[].median_trade_sats`, `fetch.relays[].status`, `fetch.relays[].error` — no more, no fewer.
-- [x] T161 [GREEN] Author the static `metric_definitions` table (`label`/`meaning`/`unit_and_direction`) in `src/report/model.rs`.
+- [x] T160 [RED] Failing test: `metric_definitions`'s key set matches the plan's exhaustive list exactly — all `stats` sub-object fields, `activity.granularity`, `buckets[].median_trade_sats`, `fetch.relays[].status`, `fetch.relays[].error` — no more, no fewer. **Superseded 2026-07-26**: field removed, see T158's note.
+- [x] T161 [GREEN] Author the static `metric_definitions` table (`label`/`meaning`/`unit_and_direction`) in `src/report/model.rs`. **Superseded 2026-07-26**: table removed, see T158's note.
 - [x] T162 [RED] Failing tests for `MetricValue::Computed(T) | NotApplicable` `null` serialization, guarding against NaN/infinity, in `src/models/core.rs`.
 - [x] T163 [GREEN] Ensure every `stats/` computation returns `NotApplicable` at its guard rather than a degenerate float.
 - [x] T164 [RED] Failing test for the fatal-error envelope shape and the 5 `code`/exit-code pairs in `src/error/exit_code.rs`.

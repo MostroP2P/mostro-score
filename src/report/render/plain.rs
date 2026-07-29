@@ -28,8 +28,8 @@ fn render_node_section(out: &mut impl Write, node: &ReportNode) -> std::io::Resu
 
 /// 002 FR-003: which relays succeeded or failed, plus the deduplicated per-kind event
 /// counts backing every other section of the report. Each relay's URL identifies its
-/// record (it is not itself a `metric_definitions` entry, unlike `status`/`error`), and
-/// every metric gets its own `label: value` line per FR-009, not combined with others.
+/// record, and every metric gets its own `label: value` line per FR-009, not combined
+/// with others.
 fn render_fetch_section(out: &mut impl Write, fetch: &ReportFetch) -> std::io::Result<()> {
     writeln!(out, "RELAY FETCH SUMMARY")?;
 
@@ -82,8 +82,7 @@ fn render_fetch_section(out: &mut impl Write, fetch: &ReportFetch) -> std::io::R
 /// 002 FR-004/FR-005: one line group per time bucket. A node with zero successful orders
 /// has no order timestamp to anchor a range on (002 FR-019's zero-order Edge Case), so
 /// this shows an explicit message instead of an empty grid. Each bucket's start time
-/// identifies its record (it is not itself a `metric_definitions` entry, unlike
-/// `median_trade_sats`), and every metric gets its own line per FR-009.
+/// identifies its record, and every metric gets its own line per FR-009.
 fn render_activity_section(out: &mut impl Write, activity: &ReportActivity) -> std::io::Result<()> {
     writeln!(out, "ACTIVITY GRID")?;
 
@@ -568,7 +567,7 @@ mod tests {
 
     fn empty_report() -> Report {
         crate::report::model::Report {
-            schema_version: "1.0.0".to_string(),
+            schema_version: "2.0.0".to_string(),
             node: ReportNode {
                 pubkey_hex: "abcd".to_string(),
                 pubkey_npub: "npub1abcd".to_string(),

@@ -240,16 +240,22 @@ report contains the same 5 sections and content as the console mode, with no ANS
   a cross-node baseline MUST be presented with informative context (e.g., sample size) instead of
   an unsupported elevated/low/normal label, and no metric's plain-language translation may overstate
   or alter what the underlying data actually supports.
-- **FR-008b**: Every section and every metric shown in the report MUST carry enough labeling or
-  inline explanation that a trader can understand what it means and how it was computed without
-  leaving the tool or consulting external documentation, per the Summer of Bitcoin proposal's Phase
-  2 commitment to "provide documentation explaining each section and the meaning of every metric."
-  This is a property of the report's own structure and content (what this spec defines), not of a
-  separate `--help` flag or user manual (Phase 3's concern, see Assumptions). A metric name alone
-  (for example, a bare "Premium Signal" label) does not satisfy this requirement; the report MUST
-  also convey, at minimum, what the number represents and, where relevant, what direction is
-  favorable, consistent with each metric's "Meaning" and "Unit and direction" as defined in the
-  Phase 1 metric spec and its companion decisions document.
+- **FR-008b**: Every section and every metric shown in the **console and plain-text** report MUST
+  carry enough labeling or inline explanation that a trader can understand what it means and how
+  it was computed without leaving the tool or consulting external documentation, per the Summer of
+  Bitcoin proposal's Phase 2 commitment to "provide documentation explaining each section and the
+  meaning of every metric." This is a property of the report's own structure and content (what
+  this spec defines), not of a separate `--help` flag or user manual (Phase 3's concern, see
+  Assumptions). A metric name alone (for example, a bare "Premium Signal" label) does not satisfy
+  this requirement; the report MUST also convey, at minimum, what the number represents and, where
+  relevant, what direction is favorable, consistent with each metric's "Meaning" and "Unit and
+  direction" as defined in the Phase 1 metric spec and its companion decisions document.
+  *(Amended 2026-07-26 — see specs/003-cli-parameters/spec.md's Clarifications: this requirement
+  is scoped to console and plain-text output specifically. `--format json`'s consumer is
+  typically an automated script or another program, not a trader reading the output directly, so
+  JSON output is a stable, machine-readable data structure only — it MUST NOT carry a parallel
+  `metric_definitions`-style documentation table; this requirement's human-facing documentation
+  commitment is satisfied by console/plain-text alone.)*
 
 **Output format**
 

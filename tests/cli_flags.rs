@@ -327,8 +327,7 @@ async fn sections_filter_narrows_console_output_while_the_node_header_always_ren
 
 /// 003 FR-008: `--format json` always emits all 5 section keys regardless of
 /// `--sections` -- the JSON carve-out this spec explicitly requires. The full document
-/// also carries `schema_version`/`generated_at`/`metric_definitions`, unaffected by
-/// this test's scope.
+/// also carries `schema_version`/`generated_at`, unaffected by this test's scope.
 #[tokio::test]
 async fn json_format_always_emits_all_five_section_keys_regardless_of_sections() {
     let node_keys = Keys::generate();

@@ -28,7 +28,8 @@ pub struct Args {
         long,
         env = "MOSTRO_SCORE_PUBKEY",
         help = "The node's public key to look up (npub or hex). Can also be set via the \
-                MOSTRO_SCORE_PUBKEY environment variable. Not required when using --init-config."
+                MOSTRO_SCORE_PUBKEY environment variable or a saved configuration file. Not \
+                required when using --init-config."
     )]
     pub pubkey: Option<String>,
 
@@ -152,8 +153,8 @@ pub struct Args {
         long = "init-config",
         action = ArgAction::SetTrue,
         help = "Create a starter configuration file (with the default relay active and \
-                format/view/color shown as commented-out examples), then exit without \
-                generating a report."
+                pubkey/format/view/color/sections shown as commented-out examples), \
+                then exit without generating a report."
     )]
     pub init_config: bool,
 
@@ -165,6 +166,23 @@ pub struct Args {
         help = "Allow --init-config to overwrite an existing configuration file."
     )]
     pub force: bool,
+
+    /// Writes the rendered report to this file instead of standard output (003
+    /// FR-020). Only valid when the resolved format is `plain` or `json` — a resolved
+    /// `console` format (whether from an explicit `--format console` flag or a
+    /// configuration-sourced `format = "console"` value, which carries the same
+    /// precedence per FR-016) combined with this flag is a usage error, and omitting
+    /// `--format`/a configuration-sourced value entirely resolves straight to `plain`
+    /// instead of performing specs/002-cli-report-design FR-010's terminal-detection
+    /// automatic default. `PathBuf`, not `String`, for the same non-UTF-8-safety reason
+    /// `--config-dir` already uses `PathBuf`.
+    #[arg(
+        short = 'o',
+        long,
+        help = "Write the report to this file instead of printing it. Not compatible \
+                with the console format; defaults to plain text when --format is omitted."
+    )]
+    pub output: Option<std::path::PathBuf>,
 }
 
 /// clap's own `ValueEnum`-derived mirror of `report::render::Format` (003 FR-010):

@@ -135,6 +135,17 @@ impl SectionFilter {
     /// encountered, not just the first, so a caller can report the complete list in
     /// one validation error.
     pub fn parse(raw: &str) -> Result<SectionFilter, Vec<String>> {
+        let tokens: Vec<String> = raw.split(',').map(|token| token.to_string()).collect();
+        Self::from_tokens(&tokens)
+    }
+
+    /// 003 FR-016a: the same per-token matching logic as `parse`, over an already-split
+    /// slice of tokens rather than a single comma-separated string. Configuration files
+    /// naturally represent this as a TOML array (unlike the CLI flag's comma-separated
+    /// string), so this is the entry point the configuration-file loader consults
+    /// (`config::file::validate`); `parse` builds on top of this to avoid duplicating
+    /// the match arms.
+    pub fn from_tokens(tokens: &[String]) -> Result<SectionFilter, Vec<String>> {
         let mut filter = SectionFilter {
             fetch: false,
             activity: false,
@@ -143,8 +154,8 @@ impl SectionFilter {
         };
         let mut invalid_tokens = Vec::new();
 
-        for token in raw.split(',') {
-            match token {
+        for token in tokens {
+            match token.as_str() {
                 "fetch" => filter.fetch = true,
                 "activity" => filter.activity = true,
                 "stats" => filter.stats = true,
@@ -438,5 +449,26 @@ mod tests {
         let error = SectionFilter::parse(" stats ,fetch").expect_err("whitespace is not trimmed");
 
         assert_eq!(error, vec![" stats ".to_string()]);
+    }
+
+    // ---- 003 FR-016a: `SectionFilter::from_tokens` ----
+
+    #[test]
+    fn from_tokens_accepts_valid_tokens() {
+        let filter = SectionFilter::from_tokens(&["activity".to_string(), "stats".to_string()])
+            .expect("valid tokens");
+
+        assert!(filter.activity);
+        assert!(filter.stats);
+        assert!(!filter.fetch);
+        assert!(!filter.recommendations);
+    }
+
+    #[test]
+    fn from_tokens_rejects_an_unrecognized_token() {
+        let error =
+            SectionFilter::from_tokens(&["bogus".to_string()]).expect_err("unrecognized token");
+
+        assert_eq!(error, vec!["bogus".to_string()]);
     }
 }

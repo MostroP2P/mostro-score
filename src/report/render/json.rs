@@ -1,7 +1,11 @@
 //! The JSON renderer (002 FR-001, FR-011, FR-012, FR-012a; plan.md's JSON output
-//! contract): the machine-readable format — the 5 sections plus `schema_version`,
-//! `generated_at`, and `metric_definitions` always present, per FR-012's stable-field-set
-//! contract — and a distinct fatal-error envelope (002 FR-011) for the failure path.
+//! contract): the machine-readable format — the 5 sections plus `schema_version` and
+//! `generated_at` always present, per FR-012's stable-field-set contract — and a
+//! distinct fatal-error envelope (002 FR-011) for the failure path. `metric_definitions`
+//! (a per-metric label/meaning/unit documentation table) was removed 2026-07-26: 002
+//! FR-008b's documentation commitment is now scoped to console/plain-text only, whose
+//! own inline explanations already satisfy it -- JSON's typical consumer is a script or
+//! another program, not a trader reading the raw output.
 //! `--format`/`--sections` CLI flag wiring belongs to PR 9/PR 11; this module only builds
 //! and unit-tests the JSON shape in isolation.
 //!
@@ -16,8 +20,8 @@ use crate::fetch::client::RelayConnectFailure;
 use crate::models::core::MetricValue;
 use crate::report::content::ReportRecommendations;
 use crate::report::model::{
-    metric_definitions, MetricDefinition, Report, ReportActivity, ReportActivityBucket,
-    ReportFetch, ReportLiveness, ReportLongevity, ReportNode, ReportStats, SCHEMA_VERSION,
+    Report, ReportActivity, ReportActivityBucket, ReportFetch, ReportLiveness, ReportLongevity,
+    ReportNode, ReportStats, SCHEMA_VERSION,
 };
 use crate::stats::context::{
     FiatBreakdown, FiatCurrencyShare, PaymentMethodBreakdown, PaymentMethodShare, PremiumSignal,
@@ -28,7 +32,6 @@ use crate::stats::lifecycle::CumulativePerformance;
 use crate::stats::trade_size::TradeSizeStats;
 use crate::stats::{ActivityConsistency, BondPolicy};
 use serde::Serialize;
-use std::collections::BTreeMap;
 use std::io::Write;
 
 /// Converts an `Option<f64>` into `MetricValue<f64>` — the JSON renderer's own defensive
@@ -247,7 +250,6 @@ struct JsonReport<'a> {
     activity: JsonActivity,
     stats: JsonStats,
     recommendations: &'a ReportRecommendations,
-    metric_definitions: BTreeMap<&'static str, MetricDefinition>,
 }
 
 impl<'a> From<&'a Report> for JsonReport<'a> {
@@ -260,24 +262,28 @@ impl<'a> From<&'a Report> for JsonReport<'a> {
             activity: (&report.activity).into(),
             stats: (&report.stats).into(),
             recommendations: &report.recommendations,
-            metric_definitions: metric_definitions(),
         }
     }
 }
 
 /// Serializes a `Report` into its JSON `serde_json::Value`, per plan.md's JSON output
-/// contract: all 8 top-level keys always present, and every not-applicable `stats`/
+/// contract: all 7 top-level keys always present, and every not-applicable `stats`/
 /// `activity` field routed through `MetricValue` so a `null` can only ever mean "not
 /// applicable", never a slipped-through NaN/infinity.
 pub fn to_value(report: &Report) -> serde_json::Value {
     serde_json::to_value(JsonReport::from(report)).expect("a Report always serializes")
 }
 
-/// Renders a `Report` as a single-line JSON document to `out`. The success-path
-/// counterpart to `error_envelope` below.
+/// Renders a `Report` as a pretty-printed (multi-line, indented) JSON document to
+/// `out` (003 FR-021), followed by a trailing newline. `to_value` always builds from a
+/// `Serialize`-derived struct with no custom serialization that could fail, matching
+/// this module's own `to_value`'s existing `.expect("a Report always serializes")`
+/// precedent, so `to_string_pretty` is likewise expected to always succeed here rather
+/// than propagating a `serde_json::Error` this call site could never realistically hit.
 pub fn render(out: &mut impl Write, report: &Report) -> std::io::Result<()> {
     let value = to_value(report);
-    writeln!(out, "{value}")
+    let pretty = serde_json::to_string_pretty(&value).expect("a Report always serializes");
+    writeln!(out, "{pretty}")
 }
 
 #[derive(Serialize)]
@@ -343,7 +349,7 @@ mod tests {
 
     fn sample_report() -> Report {
         Report {
-            schema_version: "1.0.0".to_string(),
+            schema_version: "2.0.0".to_string(),
             generated_at: "2026-07-24T10:15:00Z".to_string(),
             node: ReportNode {
                 pubkey_hex: "abcd".to_string(),
@@ -423,12 +429,13 @@ mod tests {
         }
     }
 
-    /// plan.md's JSON output contract: all 8 top-level keys are always present,
+    /// plan.md's JSON output contract: all 7 top-level keys are always present,
     /// regardless of a node's data completeness or PR 11's `--sections` flag, which
     /// filters console/plain-text rendering only (003 FR-008) and never reaches this
-    /// module.
+    /// module. `metric_definitions` was removed 2026-07-26 (002 FR-008b's
+    /// documentation commitment is now console/plain-text-only).
     #[test]
-    fn to_value_includes_all_eight_top_level_keys_always() {
+    fn to_value_includes_all_seven_top_level_keys_always() {
         let value = to_value(&sample_report());
         let object = value.as_object().expect("a report serializes as an object");
         let mut keys: Vec<&str> = object.keys().map(|key| key.as_str()).collect();
@@ -440,7 +447,6 @@ mod tests {
                 "activity",
                 "fetch",
                 "generated_at",
-                "metric_definitions",
                 "node",
                 "recommendations",
                 "schema_version",
@@ -514,7 +520,7 @@ mod tests {
 
         let value = error_envelope(&error);
 
-        assert_eq!(value["schema_version"], serde_json::json!("1.0.0"));
+        assert_eq!(value["schema_version"], serde_json::json!("2.0.0"));
         assert_eq!(
             value["error"]["code"],
             serde_json::json!("relays_unreachable")
@@ -549,6 +555,22 @@ mod tests {
             let value = error_envelope(&error);
             assert_eq!(value["error"]["relays"], serde_json::Value::Null);
         }
+    }
+
+    /// 003 FR-021: `render`'s output is pretty-printed (multi-line, indented), not a
+    /// single-line/minified document.
+    #[test]
+    fn render_writes_pretty_printed_multiline_json_with_a_trailing_newline() {
+        let mut out: Vec<u8> = Vec::new();
+
+        render(&mut out, &sample_report()).expect("renders");
+
+        let rendered = String::from_utf8(out).expect("valid utf8");
+        assert!(rendered.lines().count() > 1);
+        assert!(rendered.ends_with('\n'));
+        let parsed: serde_json::Value =
+            serde_json::from_str(&rendered).expect("still valid, parseable JSON");
+        assert_eq!(parsed["schema_version"], serde_json::json!("2.0.0"));
     }
 
     /// plan.md's fatal error envelope table: each of the 5 `AppError` variants maps to

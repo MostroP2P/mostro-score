@@ -528,6 +528,12 @@ number has no other way to learn them.
 
 #### Top-level shape
 
+> **Amended 2026-07-26**: `metric_definitions` (described below) was later removed —
+> specs/002-cli-report-design FR-008b's documentation commitment is now scoped to
+> console/plain-text only, and `schema_version` bumped to `2.0.0` accordingly. This
+> subsection is kept as a historical record of PR 8's original design; it no longer
+> matches the current JSON shape.
+
 ```json
 {
   "schema_version": "1.0.0",
@@ -772,7 +778,7 @@ A fatal error is a different document, not a report with fields nulled out:
 
 ```json
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "error": {
     "code": "relays_unreachable",
     "message": "None of the configured relays could be reached.",

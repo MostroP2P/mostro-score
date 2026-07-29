@@ -339,6 +339,112 @@ fn config_sourced_json_format_governs_the_missing_pubkey_fatal_error() {
     assert_eq!(json["error"]["code"], "usage_error");
 }
 
+/// 003 FR-016/FR-016a (amended 2026-07-26): a config-sourced `pubkey` value is honored
+/// when neither `--pubkey` nor `MOSTRO_SCORE_PUBKEY` are present -- reaching relay
+/// connection with the config file's own pubkey proves it was actually used (a
+/// deliberately unreachable local relay makes the run fail fast at exit `3`, rather
+/// than depending on a real network connection to the compiled default relay).
+#[test]
+fn config_file_pubkey_value_is_honored_when_no_flag_or_env_var_is_present() {
+    let dir = TempDir::new("config-pubkey");
+    std::fs::write(
+        dir.path().join("config.toml"),
+        format!("pubkey = \"{TEST_PUBKEY_HEX}\"\nrelays = [\"ws://127.0.0.1:1\"]\n"),
+    )
+    .unwrap();
+
+    let output = assert_cmd::Command::cargo_bin("mostro-score")
+        .unwrap()
+        .args(["--config-dir", dir.path().to_str().unwrap()])
+        .env_remove("MOSTRO_SCORE_PUBKEY")
+        .env_remove("MOSTRO_SCORE_RELAYS")
+        .output()
+        .expect("binary runs");
+
+    assert_eq!(output.status.code(), Some(3));
+}
+
+/// 003 FR-016: an explicit `--pubkey` flag overrides the config file's value.
+#[test]
+fn explicit_pubkey_flag_overrides_the_config_file_value() {
+    let dir = TempDir::new("config-pubkey-override");
+    std::fs::write(
+        dir.path().join("config.toml"),
+        format!("pubkey = \"{TEST_PUBKEY_HEX}\"\n"),
+    )
+    .unwrap();
+
+    let output = assert_cmd::Command::cargo_bin("mostro-score")
+        .unwrap()
+        .args([
+            "--config-dir",
+            dir.path().to_str().unwrap(),
+            "--pubkey",
+            "not-a-valid-pubkey",
+        ])
+        .env_remove("MOSTRO_SCORE_PUBKEY")
+        .output()
+        .expect("binary runs");
+
+    assert_eq!(output.status.code(), Some(5));
+}
+
+/// 003 FR-015a: an invalid config-sourced `pubkey` value invalidates the whole file
+/// and is never applied -- the invocation falls through to `--pubkey`'s existing
+/// missing-value usage error when neither the flag nor its environment variable is
+/// present either.
+#[test]
+fn invalid_config_pubkey_falls_back_to_the_missing_pubkey_usage_error() {
+    let dir = TempDir::new("config-pubkey-invalid");
+    std::fs::write(
+        dir.path().join("config.toml"),
+        "pubkey = \"not-a-pubkey\"\n",
+    )
+    .unwrap();
+
+    let output = assert_cmd::Command::cargo_bin("mostro-score")
+        .unwrap()
+        .args(["--config-dir", dir.path().to_str().unwrap()])
+        .env_remove("MOSTRO_SCORE_PUBKEY")
+        .output()
+        .expect("binary runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("config.toml"));
+}
+
+/// 003 FR-016/FR-016a (amended 2026-07-26): a config-sourced `sections` value narrows
+/// console/plain-text output the same way `--sections` would.
+#[test]
+fn config_file_sections_value_is_honored_when_flag_is_absent() {
+    let dir = TempDir::new("config-sections");
+    std::fs::write(dir.path().join("config.toml"), "sections = [\"stats\"]\n").unwrap();
+
+    let output = assert_cmd::Command::cargo_bin("mostro-score")
+        .unwrap()
+        .args([
+            "--pubkey",
+            TEST_PUBKEY_HEX,
+            "--config-dir",
+            dir.path().to_str().unwrap(),
+            "--relays",
+            "ws://127.0.0.1:1",
+        ])
+        .env_remove("MOSTRO_SCORE_RELAYS")
+        .output()
+        .expect("binary runs");
+
+    // The relay is deliberately unreachable so the run fails fast (exit 3) rather than
+    // depending on a real network connection; a non-2 exit code and no config-parsing
+    // warning together prove the `sections` key loaded and validated cleanly, which is
+    // this test's actual concern -- `cli::options`'s own unit tests cover the
+    // rendering-narrowing precedence itself.
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("config.toml"));
+}
+
 /// FR-018: refusing to overwrite an existing config file must be atomic, not a
 /// `path.exists()` check followed by a separate write -- a file created between those
 /// two steps must still be refused rather than silently overwritten. This test cannot

@@ -22,6 +22,57 @@ pub fn resolve_format(explicit: Option<Format>, context_default: Format) -> Form
     explicit.unwrap_or(context_default)
 }
 
+/// 003 FR-020: the context-based default format, aware of `--output`'s presence.
+/// `--output` skips specs/002-cli-report-design FR-010's terminal-detection automatic
+/// default entirely (writing colored console escape codes to a file has no benefit),
+/// resolving straight to `Format::Plain` instead. Both `main.rs`'s `error_render_format`
+/// computation and `resolve_run_options` below call this single function rather than
+/// each independently calling `select_format_for_context`, so the two call sites can
+/// never drift apart on this rule.
+pub fn resolve_context_default(stdout_is_terminal: bool, output_present: bool) -> Format {
+    if output_present {
+        Format::Plain
+    } else {
+        crate::report::render::select_format_for_context(stdout_is_terminal)
+    }
+}
+
+/// 003 FR-011/FR-020: the format `resolve_format` falls back to when there is no
+/// explicit `--format` flag -- a configuration-sourced `format` value wins first (same
+/// precedence an explicit flag would have); otherwise, when `--output` is present, the
+/// `--color` upgrade is skipped entirely (it only exists to make an interactive
+/// terminal's automatic default nicer to look at, which has no bearing on a file
+/// destination, and upgrading `context_default` back to `Console` here would only be
+/// rejected moments later by `validate_output_format`); otherwise the ordinary
+/// `--color` upgrade applies. `main.rs`'s `error_render_format` computation and
+/// `resolve_run_options` below both call this single function rather than each
+/// duplicating the same three-way precedence independently, so the two call sites can
+/// never drift apart on this rule.
+pub fn resolve_format_before_explicit(
+    config_format: Option<Format>,
+    output_present: bool,
+    context_default: Format,
+    color: bool,
+) -> Format {
+    match config_format {
+        Some(config_format) => config_format,
+        None if output_present => context_default,
+        None => apply_color_format_override(context_default, color),
+    }
+}
+
+/// 003 FR-020: `--output` is only valid when the resolved format is `plain` or `json`;
+/// an explicit (or configuration-sourced) `--format console` combined with `--output`
+/// is rejected as a usage error before any relay is queried.
+pub fn validate_output_format(output_present: bool, format: Format) -> Result<(), AppError> {
+    if output_present && format == Format::Console {
+        return Err(AppError::UsageError(
+            "--output is only valid with --format plain or --format json, not console".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// 003 FR-011: `--color` implies console format only when format resolution reaches the
 /// fully automatic step — no explicit `--format` flag and no configuration-file value
 /// (PR 12: `resolve_run_options` only falls back to this function when the persisted
@@ -129,6 +180,11 @@ pub fn resolve_relays(explicit_raw: Option<&str>, config_relays: Option<&[String
 /// flag/environment variable and the automatic/compiled default at each of the three
 /// respective resolution points. `None` (no config file, or one that failed to load)
 /// behaves exactly as if PR 12 did not exist.
+///
+/// `output_present` is 003 FR-020's `--output` flag presence: it both skips FR-010's
+/// terminal-detection automatic default (`resolve_context_default`) and rejects a
+/// resolved `Format::Console` as a usage error (`validate_output_format`), before any
+/// relay is queried.
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_run_options(
     explicit_format: Option<Format>,
@@ -140,25 +196,25 @@ pub fn resolve_run_options(
     now: DateTime<Utc>,
     sections_raw: Option<String>,
     config: Option<&ConfigFile>,
+    output_present: bool,
 ) -> Result<crate::report::render::RunOptions, AppError> {
     validate_color_flags(color, no_color)?;
 
-    let sections = resolve_sections(sections_raw.as_deref())?;
+    let config_sections = config.and_then(|config| config.sections);
+    let sections = match sections_raw {
+        Some(raw) => resolve_sections(Some(raw.as_str()))?,
+        None => config_sections.unwrap_or_else(SectionFilter::all),
+    };
 
     let config_format = config.and_then(|config| config.format);
     let config_view = config.and_then(|config| config.view);
     let config_color_override = config.and_then(|config| config.color_override);
 
-    let context_default = crate::report::render::select_format_for_context(stdout_is_terminal);
-    // 003 FR-011: a configuration-sourced `format` value is a saved preference and
-    // takes precedence over the automatic color-format upgrade, same as an explicit
-    // `--format` flag would — so the upgrade only ever applies when there is neither
-    // an explicit format nor a config-sourced one.
-    let format_before_explicit = match config_format {
-        Some(config_format) => config_format,
-        None => apply_color_format_override(context_default, color),
-    };
+    let context_default = resolve_context_default(stdout_is_terminal, output_present);
+    let format_before_explicit =
+        resolve_format_before_explicit(config_format, output_present, context_default, color);
     let format = resolve_format(explicit_format, format_before_explicit);
+    validate_output_format(output_present, format)?;
 
     let mut time_range = resolve_time_range(time_range_inputs, now)?;
     if time_range.view.is_none() {
@@ -362,6 +418,127 @@ mod tests {
         assert_eq!(resolve_format(None, Format::Plain), Format::Plain);
     }
 
+    // ---- 003 FR-020: `resolve_context_default`/`validate_output_format` ----
+
+    #[test]
+    fn resolve_context_default_uses_the_terminal_based_default_when_output_is_absent() {
+        assert_eq!(resolve_context_default(true, false), Format::Console);
+        assert_eq!(resolve_context_default(false, false), Format::Plain);
+    }
+
+    /// 003 FR-020: `--output`'s presence skips terminal detection entirely, always
+    /// resolving to plain, regardless of whether stdout happens to be a terminal.
+    #[test]
+    fn resolve_context_default_resolves_to_plain_when_output_is_present() {
+        assert_eq!(resolve_context_default(true, true), Format::Plain);
+        assert_eq!(resolve_context_default(false, true), Format::Plain);
+    }
+
+    #[test]
+    fn validate_output_format_accepts_plain_and_json_when_output_is_present() {
+        assert!(validate_output_format(true, Format::Plain).is_ok());
+        assert!(validate_output_format(true, Format::Json).is_ok());
+    }
+
+    #[test]
+    fn validate_output_format_rejects_console_when_output_is_present() {
+        let error = validate_output_format(true, Format::Console).expect_err("console is rejected");
+        assert!(matches!(error, AppError::UsageError(_)));
+    }
+
+    #[test]
+    fn validate_output_format_accepts_any_format_when_output_is_absent() {
+        assert!(validate_output_format(false, Format::Console).is_ok());
+        assert!(validate_output_format(false, Format::Plain).is_ok());
+        assert!(validate_output_format(false, Format::Json).is_ok());
+    }
+
+    /// 003 FR-020: with `--output` present and no explicit `--format`, resolution skips
+    /// the terminal-based automatic default and resolves to plain, even when stdout
+    /// would otherwise be a terminal.
+    #[test]
+    fn resolve_run_options_output_present_resolves_to_plain_over_terminal_detection() {
+        let options = resolve_run_options(
+            None,
+            false,
+            false,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            None,
+            None,
+            true,
+        )
+        .expect("plain is valid with --output");
+
+        assert_eq!(options.format, Format::Plain);
+    }
+
+    /// 003 FR-020: `--output` combined with `--color` and no explicit `--format` still
+    /// resolves to plain, never console -- regression test for a bug where `--color`'s
+    /// automatic plain-to-console upgrade ran unconditionally, undoing `--output`'s own
+    /// forced-plain default and causing `--output --color` to fail
+    /// `validate_output_format` for no good reason.
+    #[test]
+    fn resolve_run_options_output_present_with_color_flag_still_resolves_to_plain() {
+        let options = resolve_run_options(
+            None,
+            true,
+            false,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            None,
+            None,
+            true,
+        )
+        .expect("--output --color is valid, not console");
+
+        assert_eq!(options.format, Format::Plain);
+    }
+
+    /// 003 FR-020: an explicit `--format console` combined with `--output` is rejected
+    /// as a usage error before any relay is queried.
+    #[test]
+    fn resolve_run_options_rejects_explicit_console_format_with_output_present() {
+        let result = resolve_run_options(
+            Some(Format::Console),
+            false,
+            false,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            None,
+            None,
+            true,
+        );
+
+        assert!(matches!(result, Err(AppError::UsageError(_))));
+    }
+
+    /// 003 FR-020: explicit `--format json` with `--output` is valid.
+    #[test]
+    fn resolve_run_options_accepts_explicit_json_format_with_output_present() {
+        let options = resolve_run_options(
+            Some(Format::Json),
+            false,
+            false,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            None,
+            None,
+            true,
+        )
+        .expect("json is valid with --output");
+
+        assert_eq!(options.format, Format::Json);
+    }
+
     /// 002 FR-010: an explicit format choice always overrides the context-based default,
     /// in every direction.
     #[test]
@@ -489,6 +666,7 @@ mod tests {
             fixed_now(),
             None,
             None,
+            false,
         );
         assert!(matches!(result, Err(AppError::UsageError(_))));
     }
@@ -507,6 +685,7 @@ mod tests {
             fixed_now(),
             None,
             None,
+            false,
         )
         .expect("color alone is not contradictory");
 
@@ -539,6 +718,7 @@ mod tests {
             fixed_now(),
             None,
             None,
+            false,
         )
         .expect("color alone is not contradictory");
 
@@ -557,6 +737,7 @@ mod tests {
             fixed_now(),
             None,
             None,
+            false,
         )
         .expect("no validation failure");
         assert!(options.quiet);
@@ -579,6 +760,7 @@ mod tests {
             fixed_now(),
             None,
             None,
+            false,
         );
         assert!(matches!(result, Err(AppError::UsageError(_))));
     }
@@ -632,6 +814,7 @@ mod tests {
             fixed_now(),
             Some("bogus".to_string()),
             None,
+            false,
         );
         assert!(matches!(result, Err(AppError::UsageError(_))));
     }
@@ -648,6 +831,7 @@ mod tests {
             fixed_now(),
             Some("stats".to_string()),
             None,
+            false,
         )
         .expect("valid sections value");
 
@@ -883,10 +1067,12 @@ mod tests {
         color_override: Option<bool>,
     ) -> ConfigFile {
         ConfigFile {
+            pubkey: None,
             relays: None,
             format,
             view,
             color_override,
+            sections: None,
         }
     }
 
@@ -905,6 +1091,7 @@ mod tests {
             fixed_now(),
             None,
             Some(&config),
+            false,
         )
         .expect("no validation failure");
 
@@ -925,6 +1112,7 @@ mod tests {
             fixed_now(),
             None,
             Some(&config),
+            false,
         )
         .expect("no validation failure");
 
@@ -944,6 +1132,7 @@ mod tests {
             fixed_now(),
             None,
             Some(&config),
+            false,
         )
         .expect("no validation failure");
 
@@ -968,6 +1157,7 @@ mod tests {
             fixed_now(),
             None,
             Some(&config),
+            false,
         )
         .expect("no validation failure");
 
@@ -987,10 +1177,59 @@ mod tests {
             fixed_now(),
             None,
             Some(&config),
+            false,
         )
         .expect("no validation failure");
 
         assert_eq!(options.color_override, Some(true));
+    }
+
+    /// 003 FR-016 (amended 2026-07-26): a config-sourced `sections` value is honored
+    /// when there is no explicit `--sections` flag, sitting between explicit and the
+    /// unfiltered `SectionFilter::all()` default.
+    #[test]
+    fn resolve_run_options_honors_a_config_sourced_sections_value_when_flag_is_absent() {
+        let mut config = config_with(None, None, None);
+        config.sections = Some(SectionFilter::parse("stats").unwrap());
+        let options = resolve_run_options(
+            None,
+            false,
+            false,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            None,
+            Some(&config),
+            false,
+        )
+        .expect("no validation failure");
+
+        assert!(options.sections.stats);
+        assert!(!options.sections.fetch);
+    }
+
+    /// An explicit `--sections` flag still overrides a config-sourced value.
+    #[test]
+    fn resolve_run_options_explicit_sections_overrides_a_config_sourced_value() {
+        let mut config = config_with(None, None, None);
+        config.sections = Some(SectionFilter::parse("stats").unwrap());
+        let options = resolve_run_options(
+            None,
+            false,
+            false,
+            false,
+            true,
+            no_time_range_inputs(),
+            fixed_now(),
+            Some("fetch".to_string()),
+            Some(&config),
+            false,
+        )
+        .expect("no validation failure");
+
+        assert!(options.sections.fetch);
+        assert!(!options.sections.stats);
     }
 
     #[test]
@@ -1006,6 +1245,7 @@ mod tests {
             fixed_now(),
             None,
             Some(&config),
+            false,
         )
         .expect("no validation failure");
 
