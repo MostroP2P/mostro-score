@@ -1,8 +1,7 @@
 //! The CLI resolution/validation surface: relay well-formedness, `--format`/`--color`/
 //! `--no-color` resolution, and their mutual-exclusion validation. Every function here
-//! is pure — no `clap` parsing, no process environment — so `main.rs` stays the only
-//! place that touches `Args`, `std::env`, or `std::io` directly, and every rule stays
-//! unit-testable without a subprocess.
+//! is pure — no `clap` parsing, no process environment — so `main.rs` stays the CLI
+//! orchestration boundary, and every rule stays unit-testable without a subprocess.
 
 use crate::cli::duration::{parse_date_bound, since_bound_seconds, until_bound_seconds};
 use crate::config::file::ConfigFile;
