@@ -1,11 +1,10 @@
-//! Per-kind Nostr filters for a node's four scoped event kinds (001 FR-015), and
-//! `RelayFetchOutcome` — the fetch-result summary those four kinds produce (002 FR-003).
-//! Each `RelayFetchOutcome` field follows its own semantic rule rather than a single
-//! generic id-dedup helper: `dev_fee_events`/`order_events` are raw event-id dedup
-//! counts, `unique_orders` applies `models::order`'s full qualifying-order procedure,
-//! `dispute_events` applies `models::dispute`'s dedup-by-`d`-tag classification, and
-//! `instance_status_found` reflects `models::instance_status`'s actual valid-instance
-//! selection.
+//! Per-kind Nostr filters for a node's four scoped event kinds, and `RelayFetchOutcome`
+//! -- the fetch-result summary those four kinds produce. Each `RelayFetchOutcome` field
+//! follows its own semantic rule rather than a single generic id-dedup helper:
+//! `dev_fee_events`/`order_events` are raw event-id dedup counts, `unique_orders`
+//! applies `models::order`'s full qualifying-order procedure, `dispute_events` applies
+//! `models::dispute`'s dedup-by-`d`-tag classification, and `instance_status_found`
+//! reflects `models::instance_status`'s actual valid-instance selection.
 
 use crate::models::core::scope_events_to_node;
 use crate::models::dispute::DisputeAggregate;
@@ -32,9 +31,9 @@ fn scoped_filter(public_key: PublicKey, kind: u16, expected_z: &str) -> Filter {
         .custom_tag(SingleLetterTag::lowercase(Alphabet::Y), "mostro")
 }
 
-/// FR-015: the four kind-scoped filters a relay fetch issues for one node's report —
-/// dev-fee (`8383`), order (`38383`), instance-status (`38385`), and dispute (`38386`),
-/// each scoped to the node's own pubkey as author, its kind's expected `z` value, and
+/// The four kind-scoped filters a relay fetch issues for one node's report -- dev-fee
+/// (`8383`), order (`38383`), instance-status (`38385`), and dispute (`38386`), each
+/// scoped to the node's own pubkey as author, its kind's expected `z` value, and
 /// `y=mostro`.
 pub fn build_scoped_filters(public_key: PublicKey) -> [Filter; 4] {
     [
@@ -46,8 +45,8 @@ pub fn build_scoped_filters(public_key: PublicKey) -> [Filter; 4] {
 }
 
 /// A node's raw fetched events (all four scoped kinds, concatenated), routed into
-/// per-kind buckets and scoped to the node's own author/z/y per FR-015. Events of any
-/// other kind, or that fail scoping for their kind, are silently excluded (FR-013).
+/// per-kind buckets and scoped to the node's own author/z/y. Events of any other kind,
+/// or that fail scoping for their kind, are silently excluded.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PartitionedEvents {
     pub dev_fee_events: Vec<Event>,
@@ -80,20 +79,19 @@ pub fn partition_scoped_events(events: Vec<Event>, node_pubkey: &PublicKey) -> P
     }
 }
 
-/// 002 FR-003's per-kind fetch-result summary. Each field follows its own semantic rule,
-/// not one generic id-dedup helper:
+/// Per-kind fetch-result summary. Each field follows its own semantic rule, not one
+/// generic id-dedup helper:
 /// - `dev_fee_events`/`order_events`: raw event-id dedup count, guarding against the same
 ///   relay-delivered event being double-counted when multiple relays return it.
-/// - `unique_orders`: `models::order`'s full qualifying-order procedure (001 FR-002).
+/// - `unique_orders`: `models::order`'s full qualifying-order procedure.
 /// - `has_valid_orders`: whether at least one deduplicated order carries a recognized
 ///   `s` status, independent of whether that status is `success` — an order missing its
-///   `d` tag, or missing/carrying an unrecognized `s` value entirely, is malformed
-///   (FR-013) and must not count as usable data on its own, even though it still
-///   increments the raw `order_events` count above.
-/// - `dispute_events`: `models::dispute`'s dedup-by-`d`-tag count (001 FR-006).
+///   `d` tag, or missing/carrying an unrecognized `s` value entirely, is malformed and
+///   must not count as usable data on its own, even though it still increments the raw
+///   `order_events` count above.
+/// - `dispute_events`: `models::dispute`'s dedup-by-`d`-tag count.
 /// - `instance_status_found`: whether `models::instance_status`'s actual valid-instance
-///   selection succeeded (001 FR-012), not merely whether a kind-`38385` event was
-///   fetched.
+///   selection succeeded, not merely whether a kind-`38385` event was fetched.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RelayFetchOutcome {
     pub dev_fee_events: usize,
@@ -105,11 +103,11 @@ pub struct RelayFetchOutcome {
 }
 
 impl RelayFetchOutcome {
-    /// 002 FR-019 exit code `4`'s gate: true only when none of the four scoped kinds
-    /// yielded any usable data at all. Orders are gated on `has_valid_orders`, not the
-    /// raw `order_events` count: an order fetched but missing its `d` tag is discarded
-    /// entirely by `models::order`'s qualifying-order procedure and must not, on its
-    /// own, count as "this node has usable order data."
+    /// True only when none of the four scoped kinds yielded any usable data at all.
+    /// Orders are gated on `has_valid_orders`, not the raw `order_events` count: an
+    /// order fetched but missing its `d` tag is discarded entirely by `models::order`'s
+    /// qualifying-order procedure and must not, on its own, count as "this node has
+    /// usable order data."
     pub fn has_no_usable_events(&self) -> bool {
         self.dev_fee_events == 0
             && !self.has_valid_orders
@@ -129,10 +127,9 @@ pub(crate) fn dedup_by_event_id_count(events: &[Event]) -> usize {
 /// Computes a `RelayFetchOutcome` from a node's already-partitioned, already-scoped
 /// event buckets. Takes already-computed dev-fee/order counts, the `OrderAggregate`,
 /// the `InstanceStatusAggregate`, and the `DisputeAggregate` rather than raw event
-/// vectors for those: `run()` needs the deduplicated dev-fee count, the full order
-/// aggregate, the full instance-status aggregate (PR 6's bond policy), and the full
-/// dispute aggregate for its own reporting regardless (stats included, PR 5/PR 6), so
-/// recomputing any of them here would rescan the same event set for no new information.
+/// vectors for those: `run()` needs each of these aggregates for its own reporting
+/// regardless, so recomputing any of them here would rescan the same event set for no
+/// new information.
 pub fn compute_relay_fetch_outcome(
     dev_fee_event_count: usize,
     order_event_count: usize,
@@ -191,9 +188,9 @@ mod tests {
         assert_eq!(filters.len(), 4);
     }
 
-    /// Regression: a filter-count assertion alone would still pass for four wrong or
-    /// duplicate filters. Assert each filter's actual kind, author, and expected `z`
-    /// value, per FR-015.
+    /// A filter-count assertion alone would still pass for four wrong or duplicate
+    /// filters, so this asserts each filter's actual kind, author, and expected `z`
+    /// value.
     #[test]
     fn build_scoped_filters_each_filter_has_the_expected_kind_author_and_z_value() {
         let public_key = Keys::generate().public_key();
@@ -281,9 +278,9 @@ mod tests {
         assert!(outcome.has_valid_orders);
     }
 
-    /// Regression: an order missing its `d` tag is discarded entirely by the qualifying-
-    /// order procedure (FR-013), so it must not count as usable order data even though it
-    /// still increments the raw `order_events` count.
+    /// An order missing its `d` tag is discarded entirely by the qualifying-order
+    /// procedure, so it must not count as usable order data even though it still
+    /// increments the raw `order_events` count.
     #[test]
     fn compute_relay_fetch_outcome_has_valid_orders_is_false_for_a_d_tagless_order() {
         let node_pubkey = Keys::generate().public_key();
@@ -303,10 +300,10 @@ mod tests {
         assert!(outcome.has_no_usable_events());
     }
 
-    /// Regression: an order with a `d` tag but no `s` tag at all survives `d`-tag dedup
-    /// (it has a valid dedup key), but real Mostro order events always publish a status
-    /// — a missing one is malformed data (FR-013), not evidence of order history, and
-    /// must not count toward `has_valid_orders`.
+    /// An order with a `d` tag but no `s` tag at all survives `d`-tag dedup (it has a
+    /// valid dedup key), but real Mostro order events always publish a status -- a
+    /// missing one is malformed data, not evidence of order history, and must not count
+    /// toward `has_valid_orders`.
     #[test]
     fn compute_relay_fetch_outcome_has_valid_orders_is_false_for_an_order_missing_its_s_tag() {
         let node_pubkey = Keys::generate().public_key();
