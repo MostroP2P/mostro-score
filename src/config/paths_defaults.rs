@@ -1,28 +1,28 @@
-//! PR 12 (003 FR-014): compiled-in defaults and platform config-directory resolution.
-//! `resolve_config_path` is the pure, unit-testable function implementing FR-014's Linux
-//! rule directly from explicit inputs, following this codebase's existing
-//! injected-parameter pattern (`now`, tty state, and every other process-dependent input
-//! elsewhere in this codebase is threaded in rather than read directly, so the resolution
-//! logic itself stays testable without touching real process state). `default_config_path`
-//! is the real wiring-root function `main.rs` calls, reading the actual environment and
-//! delegating to `resolve_config_path` for the Linux case.
+//! Compiled-in defaults and platform config-directory resolution. `resolve_config_path`
+//! is the pure, unit-testable function implementing the Linux rule directly from explicit
+//! inputs, following this codebase's existing injected-parameter pattern (every
+//! process-dependent input elsewhere in this codebase is threaded in rather than read
+//! directly, so the resolution logic itself stays testable without touching real process
+//! state). `default_config_path` is the real wiring-root function `main.rs` calls,
+//! reading the actual environment and delegating to `resolve_config_path` for the Linux
+//! case.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 /// The single compiled-default source of truth for the relay used when no explicit
 /// `--relays` flag, `MOSTRO_SCORE_RELAYS` environment variable, or configuration-file
-/// `relays` value is present (003 FR-002/FR-016).
+/// `relays` value is present.
 pub const DEFAULT_RELAY: &str = "wss://relay.mostro.network";
 
 const CONFIG_FILE_NAME: &str = "config.toml";
 const APP_NAME: &str = "mostro-score";
 
-/// 003 FR-014's Linux rule as a pure function: `$XDG_CONFIG_HOME/mostro-score/config.toml`
-/// when `xdg_config_home` is set, else `{home_dir}/.config/mostro-score/config.toml`. When
-/// `config_dir_override` is `Some`, it always wins regardless of the other two inputs,
-/// bypassing platform resolution entirely — this is `-d`/`--config-dir`'s override
-/// behavior (003 FR-014), which is platform-independent.
+/// The Linux config-directory rule as a pure function:
+/// `$XDG_CONFIG_HOME/mostro-score/config.toml` when `xdg_config_home` is set, else
+/// `{home_dir}/.config/mostro-score/config.toml`. When `config_dir_override` is `Some`,
+/// it always wins regardless of the other two inputs -- this is `-d`/`--config-dir`'s
+/// override behavior, which is platform-independent.
 ///
 /// Takes `&OsStr`, not `&str`: a real home directory or `$XDG_CONFIG_HOME` value is not
 /// guaranteed to be valid UTF-8 on Linux, and lossily converting through `String` (e.g.
@@ -58,16 +58,13 @@ pub fn resolve_config_path(
 /// `resolve_config_path` for the Linux case. `--config-dir`'s override always wins,
 /// matching `resolve_config_path`'s own override-first behavior.
 ///
-/// macOS/Windows behavior below is written to the spec's literal path descriptions (003
-/// FR-014: `~/Library/Application Support/mostro-score/config.toml` on macOS,
-/// `%APPDATA%\mostro-score\config.toml` on Windows) but is untested in this Linux
-/// sandbox. Both use `directories::BaseDirs::config_dir()` (the base per-user config
-/// directory: `~/Library/Application Support` on macOS, `{FOLDERID_RoamingAppData}` i.e.
-/// `%APPDATA%` on Windows) with `mostro-score/config.toml` appended manually, the same
-/// two-step construction the Linux branch above already uses -- deliberately not
-/// `directories::ProjectDirs`, whose derived subpaths add an extra qualifier/org-based
-/// path segment on some platforms (e.g. an extra `\config` component on Windows) that
-/// FR-014's literal single-level `mostro-score/config.toml` layout does not call for.
+/// macOS/Windows resolve to `~/Library/Application Support/mostro-score/config.toml` and
+/// `%APPDATA%\mostro-score\config.toml` respectively, untested in this Linux sandbox.
+/// Both use `directories::BaseDirs::config_dir()` with `mostro-score/config.toml`
+/// appended manually, the same two-step construction the Linux branch above uses --
+/// deliberately not `directories::ProjectDirs`, whose derived subpaths add an extra
+/// qualifier/org-based path segment on some platforms (e.g. an extra `\config` component
+/// on Windows) that this single-level layout does not call for.
 pub fn default_config_path(config_dir_override: Option<&Path>) -> PathBuf {
     if let Some(override_dir) = config_dir_override {
         return override_dir.join(CONFIG_FILE_NAME);
