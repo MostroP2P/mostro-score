@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Rust 1.94.0 or later (pinned via `rust-toolchain.toml`)
+- Rust 1.94.0 or later
 - Network access to a Nostr relay
 
 ## Build from source
