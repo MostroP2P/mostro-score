@@ -1,0 +1,7 @@
+[book]
+title = "mostro-score"
+authors = ["MostroP2P"]
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/MostroP2P/mostro-score"
