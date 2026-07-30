@@ -1,7 +1,5 @@
-//! PR 2 (T062-T063): `AppError` -> process exit-code mapping per 002 FR-019. Exit code `0`
-//! has no entry here since it is simply the absence of an `AppError` (the default success
-//! exit). PR 3 (T096) adds exit code `4` (`no_usable_events`), now that the four-kind
-//! event scoping it depends on exists.
+//! `AppError` -> process exit-code mapping. Exit code `0` has no entry here since it is
+//! simply the absence of an `AppError` (the default success exit).
 
 use crate::error::AppError;
 
@@ -15,9 +13,9 @@ pub fn exit_code_for(error: &AppError) -> i32 {
     }
 }
 
-/// PR 8: the JSON fatal-error envelope's `code` string (002 FR-011, plan.md's JSON output
-/// contract), one per `AppError` variant, kept in this same file so a new variant cannot
-/// be added without naming its JSON code beside its exit code.
+/// The JSON fatal-error envelope's `code` string, one per `AppError` variant, kept in
+/// this same file so a new variant cannot be added without naming its JSON code beside
+/// its exit code.
 pub fn json_error_code_for(error: &AppError) -> &'static str {
     match error {
         AppError::Other(_) => "general_error",
@@ -61,8 +59,6 @@ mod tests {
         assert_eq!(exit_code_for(&AppError::from(source)), 1);
     }
 
-    /// plan.md's JSON output contract table: each of the 5 `AppError` variants pairs its
-    /// own exit code with its own JSON `code` string, one to one.
     #[test]
     fn json_error_code_and_exit_code_match_the_contract_table_for_every_variant() {
         let source: Box<dyn std::error::Error> = "boom".into();
