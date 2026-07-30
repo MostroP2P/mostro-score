@@ -1,20 +1,19 @@
-//! PR 12 (003 FR-017/FR-018): `--init-config` scaffolding. Writes a starter configuration
-//! file with `relays` set to the compiled-in default as an active value, and
-//! `pubkey`/`format`/`view`/`color`/`sections` as commented-out examples — none of the
-//! five has a fixed default to freeze, per FR-017. This module only performs the file
-//! write; the exit-`0`-without-a-report and `--force`-without-`--init-config` precedence
-//! wiring belong to `main.rs`/`cli::options`.
+//! `--init-config` scaffolding. Writes a starter configuration file with `relays` set to
+//! the compiled-in default as an active value, and `pubkey`/`format`/`view`/`color`/
+//! `sections` as commented-out examples -- none of the five has a fixed default to
+//! freeze. This module only performs the file write; the exit-without-a-report and
+//! `--force`-without-`--init-config` precedence wiring belong to `main.rs`/`cli::options`.
 
 use crate::config::paths_defaults::DEFAULT_RELAY;
 use crate::error::AppError;
 use std::path::Path;
 
-/// FR-017/FR-018: writes a starter configuration file to `path`, creating the parent
-/// directory if missing. Refuses to overwrite an existing file unless `force` is `true`,
-/// naming the existing file's exact path in the returned error. The non-`force` path
-/// uses `OpenOptions::create_new` rather than a `path.exists()` check followed by a
-/// separate write, so a file created by another process between the two steps still
-/// causes this call to fail atomically instead of silently overwriting it.
+/// Writes a starter configuration file to `path`, creating the parent directory if
+/// missing. Refuses to overwrite an existing file unless `force` is `true`, naming the
+/// existing file's exact path in the returned error. The non-`force` path uses
+/// `OpenOptions::create_new` rather than a `path.exists()` check followed by a separate
+/// write, so a file created by another process between the two steps still causes this
+/// call to fail atomically instead of silently overwriting it.
 pub fn scaffold_config_file(path: &Path, force: bool) -> Result<(), AppError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -47,10 +46,10 @@ pub fn scaffold_config_file(path: &Path, force: bool) -> Result<(), AppError> {
     }
 }
 
-/// FR-017 (amended 2026-07-26): every one of the file's 6 keys is preceded by a short,
-/// plain-language comment explaining what it does and which values it accepts. `relays`
-/// is the only active (non-commented) key, since it is the only one with a fixed
-/// compiled-in default to freeze; the other 5 are commented-out illustrative examples.
+/// Every one of the file's 6 keys is preceded by a short, plain-language comment
+/// explaining what it does and which values it accepts. `relays` is the only active
+/// (non-commented) key, since it is the only one with a fixed compiled-in default to
+/// freeze; the other 5 are commented-out illustrative examples.
 fn starter_contents() -> String {
     format!(
         "# The node's public key to look up (npub or hex). Same value --pubkey accepts.\n\
@@ -165,8 +164,6 @@ mod tests {
         assert!(contents.contains("# sections = "));
     }
 
-    /// 003 FR-017 (amended 2026-07-26): each of the file's 6 keys is preceded by a
-    /// short, plain-language explanatory comment.
     #[test]
     fn every_key_is_preceded_by_an_explanatory_comment() {
         let dir = TempDir::new();
