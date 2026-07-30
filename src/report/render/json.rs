@@ -1,18 +1,15 @@
-//! The JSON renderer (002 FR-001, FR-011, FR-012, FR-012a; plan.md's JSON output
-//! contract): the machine-readable format — the 5 sections plus `schema_version` and
-//! `generated_at` always present, per FR-012's stable-field-set contract — and a
-//! distinct fatal-error envelope (002 FR-011) for the failure path. `metric_definitions`
-//! (a per-metric label/meaning/unit documentation table) was removed 2026-07-26: 002
-//! FR-008b's documentation commitment is now scoped to console/plain-text only, whose
-//! own inline explanations already satisfy it -- JSON's typical consumer is a script or
-//! another program, not a trader reading the raw output.
-//! `--format`/`--sections` CLI flag wiring belongs to PR 9/PR 11; this module only builds
-//! and unit-tests the JSON shape in isolation.
+//! The JSON renderer: the machine-readable format — the 5 sections plus
+//! `schema_version` and `generated_at` always present — and a distinct fatal-error
+//! envelope for the failure path. `metric_definitions` (a per-metric label/meaning/unit
+//! documentation table) was removed 2026-07-26: that documentation commitment is now
+//! scoped to console/plain-text only, whose own inline explanations already satisfy it
+//! -- JSON's typical consumer is a script or another program, not a trader reading the
+//! raw output.
 //!
 //! `Report`/`ReportStats` keep their `Option<T>` fields for the console/plain-text
 //! renderers (which never touch this module); every field that can be not-applicable is
-//! converted into `MetricValue<T>` only here, at the JSON serialization boundary, per
-//! plan.md's "`null` must mean not-applicable and nothing else" rule.
+//! converted into `MetricValue<T>` only here, at the JSON serialization boundary, so a
+//! `null` can only ever mean not-applicable, never anything else.
 
 use crate::error::exit_code::json_error_code_for;
 use crate::error::AppError;
@@ -36,8 +33,8 @@ use std::io::Write;
 
 /// Converts an `Option<f64>` into `MetricValue<f64>` — the JSON renderer's own defensive
 /// boundary, since every `stats/` computation is already audited to guard NaN/infinity at
-/// its own not-applicable condition (PR 8) rather than let a degenerate float reach here.
-/// A non-finite `Some` is coerced to `NotApplicable` unconditionally, in every build
+/// its own not-applicable condition rather than let a degenerate float reach here. A
+/// non-finite `Some` is coerced to `NotApplicable` unconditionally, in every build
 /// profile, so this guarantee never depends on whether debug assertions are enabled.
 fn checked_f64(value: Option<f64>) -> MetricValue<f64> {
     MetricValue::from(value.filter(|v| v.is_finite()))
@@ -266,16 +263,16 @@ impl<'a> From<&'a Report> for JsonReport<'a> {
     }
 }
 
-/// Serializes a `Report` into its JSON `serde_json::Value`, per plan.md's JSON output
-/// contract: all 7 top-level keys always present, and every not-applicable `stats`/
-/// `activity` field routed through `MetricValue` so a `null` can only ever mean "not
-/// applicable", never a slipped-through NaN/infinity.
+/// Serializes a `Report` into its JSON `serde_json::Value`: all 7 top-level keys always
+/// present, and every not-applicable `stats`/`activity` field routed through
+/// `MetricValue` so a `null` can only ever mean "not applicable", never a
+/// slipped-through NaN/infinity.
 pub fn to_value(report: &Report) -> serde_json::Value {
     serde_json::to_value(JsonReport::from(report)).expect("a Report always serializes")
 }
 
 /// Renders a `Report` as a pretty-printed (multi-line, indented) JSON document to
-/// `out` (003 FR-021), followed by a trailing newline. `to_value` always builds from a
+/// `out`, followed by a trailing newline. `to_value` always builds from a
 /// `Serialize`-derived struct with no custom serialization that could fail, matching
 /// this module's own `to_value`'s existing `.expect("a Report always serializes")`
 /// precedent, so `to_string_pretty` is likewise expected to always succeed here rather
@@ -316,12 +313,12 @@ struct JsonErrorEnvelope {
     error: JsonErrorBody,
 }
 
-/// 002 FR-011's fatal error envelope: a distinct document, never a report-shaped one with
-/// its fields left `null`. The `relays` array uses the exact same `{ url, status, error }`
+/// The fatal error envelope: a distinct document, never a report-shaped one with its
+/// fields left `null`. The `relays` array uses the exact same `{ url, status, error }`
 /// record shape `fetch.relays` already uses (`status` is always `"failed"` here, since
 /// every relay in this array is one that failed) and is only present when `error` is
-/// `AppError::RelaysUnreachable` (002 FR-019 exit code `3`), extracted directly from the
-/// variant's own failed-relay list; `null` for every other code.
+/// `AppError::RelaysUnreachable`, extracted directly from the variant's own
+/// failed-relay list; `null` for every other code.
 pub fn error_envelope(error: &AppError) -> serde_json::Value {
     let relays = match error {
         AppError::RelaysUnreachable(failed) => {
@@ -429,11 +426,10 @@ mod tests {
         }
     }
 
-    /// plan.md's JSON output contract: all 7 top-level keys are always present,
-    /// regardless of a node's data completeness or PR 11's `--sections` flag, which
-    /// filters console/plain-text rendering only (003 FR-008) and never reaches this
-    /// module. `metric_definitions` was removed 2026-07-26 (002 FR-008b's
-    /// documentation commitment is now console/plain-text-only).
+    /// All 7 top-level keys are always present, regardless of a node's data
+    /// completeness or the `--sections` flag, which filters console/plain-text
+    /// rendering only and never reaches this module. `metric_definitions` was removed
+    /// 2026-07-26 (that documentation commitment is now console/plain-text-only).
     #[test]
     fn to_value_includes_all_seven_top_level_keys_always() {
         let value = to_value(&sample_report());
@@ -456,7 +452,7 @@ mod tests {
     }
 
     /// A report document never carries an `error` key — that is the fatal-error
-    /// envelope's own distinguishing key, per 002 FR-011.
+    /// envelope's own distinguishing key.
     #[test]
     fn to_value_never_carries_an_error_key() {
         let value = to_value(&sample_report());
@@ -557,7 +553,7 @@ mod tests {
         }
     }
 
-    /// 003 FR-021: `render`'s output is pretty-printed (multi-line, indented), not a
+    /// `render`'s output is pretty-printed (multi-line, indented), not a
     /// single-line/minified document.
     #[test]
     fn render_writes_pretty_printed_multiline_json_with_a_trailing_newline() {
@@ -573,8 +569,7 @@ mod tests {
         assert_eq!(parsed["schema_version"], serde_json::json!("2.0.0"));
     }
 
-    /// plan.md's fatal error envelope table: each of the 5 `AppError` variants maps to
-    /// its own JSON `code` string.
+    /// Each of the 5 `AppError` variants maps to its own JSON `code` string.
     #[test]
     fn error_envelope_code_matches_every_one_of_the_five_json_codes() {
         let source: Box<dyn std::error::Error> = "boom".into();

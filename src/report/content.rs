@@ -1,28 +1,24 @@
-//! The recommendations block's content assembly (002 FR-008, FR-008a, FR-008b).
+//! The recommendations block's content assembly.
 //!
-//! Scope note (see the PR7c decision in project history): only the 3 deterministic,
-//! existence-based triggers from plan.md's "Recommendation trigger rules" table are
-//! implemented here — zero successful trades, disputes present, bond policy not
-//! enabled. The 2 threshold-based triggers (premium dispersion, trade-size
-//! coefficient of variation) are deferred until real-node evidence picks their
-//! boundaries; `nothing_notable` is therefore scoped to these 3 triggers only, not the
-//! full set plan.md eventually calls for.
+//! Scope note: only 3 deterministic, existence-based triggers are implemented here —
+//! zero successful trades, disputes present, bond policy not enabled. Two
+//! threshold-based triggers (premium dispersion, trade-size coefficient of variation)
+//! are deferred until real-node evidence picks their boundaries; `nothing_notable` is
+//! therefore scoped to these 3 triggers only.
 //!
-//! Every trigger here reads data already computed and independently reviewed in
-//! earlier PRs (`NodeMetrics::cumulative`, `NodeMetrics::disputes`,
-//! `NodeMetrics::bond_policy`) — no new statistics are computed in this module, only
-//! plain-language messages assembled from them, per FR-008b's requirement that a
-//! trader understand each signal without leaving the tool.
+//! Every trigger here reads data already computed elsewhere (`NodeMetrics::cumulative`,
+//! `NodeMetrics::disputes`, `NodeMetrics::bond_policy`) — no new statistics are computed
+//! in this module, only plain-language messages assembled from them, so a trader can
+//! understand each signal without leaving the tool.
 
 use crate::stats::NodeMetrics;
 use serde::Serialize;
 
-/// One recommendation the block surfaces (002 FR-008/FR-008a schema).
+/// One recommendation the block surfaces.
 ///
-/// `metric` is the dotted path (matching `stats`'s own JSON structure) of the field
-/// the guidance refers to, or `None` for guidance that synthesizes several — every
-/// trigger implemented here points at exactly one field, so `metric` is always
-/// `Some` in this PR's output.
+/// `metric` is the dotted path (matching `stats`'s own JSON structure) of the field the
+/// guidance refers to, or `None` for guidance that synthesizes several — every trigger
+/// implemented here points at exactly one field, so `metric` is always `Some`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RecommendationItem {
     pub id: String,
@@ -30,20 +26,18 @@ pub struct RecommendationItem {
     pub message: String,
 }
 
-/// 002 FR-008: the recommendations block. `nothing_notable` is `true` only when none
-/// of the currently implemented triggers fire; `items` is empty in that case. FR-008
-/// requires this block to explicitly state there is nothing notable to flag rather
-/// than omitting itself — the console/plain-text renderers turn this boolean into
-/// that sentence for human readers.
+/// The recommendations block. `nothing_notable` is `true` only when none of the
+/// currently implemented triggers fire; `items` is empty in that case. This block must
+/// explicitly state there is nothing notable to flag rather than omitting itself — the
+/// console/plain-text renderers turn this boolean into that sentence for human readers.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ReportRecommendations {
     pub nothing_notable: bool,
     pub items: Vec<RecommendationItem>,
 }
 
-/// Zero completed trades (plan.md's deterministic trigger table, row 1): states
-/// plainly there is no completed-trade track record yet, no comparison implied since
-/// Cumulative Performance has no cross-node baseline (FR-008a).
+/// Zero completed trades: states plainly there is no completed-trade track record yet,
+/// no comparison implied since Cumulative Performance has no cross-node baseline.
 fn zero_trades_recommendation(metrics: &NodeMetrics) -> Option<RecommendationItem> {
     if metrics.cumulative.total_successful_trades != 0 {
         return None;
@@ -58,10 +52,9 @@ fn zero_trades_recommendation(metrics: &NodeMetrics) -> Option<RecommendationIte
     })
 }
 
-/// Disputes present (plan.md's deterministic trigger table, row 2): states the raw
-/// dispute and trade counts, deliberately without "high"/"many" or any other
-/// comparative language, since Dispute Signals has no cross-node baseline (FR-008a
-/// explicitly forbids that comparison here).
+/// Disputes present: states the raw dispute and trade counts, deliberately without
+/// "high"/"many" or any other comparative language, since Dispute Signals has no
+/// cross-node baseline.
 fn disputes_recommendation(metrics: &NodeMetrics) -> Option<RecommendationItem> {
     if metrics.disputes.total_disputes == 0 {
         return None;
@@ -78,13 +71,11 @@ fn disputes_recommendation(metrics: &NodeMetrics) -> Option<RecommendationItem> 
     })
 }
 
-/// Bond policy not enabled (plan.md's deterministic trigger table, row 3): states the
-/// exact status (`disabled` or `unknown`) neutrally, per 001 FR-012's requirement that
-/// Bond Policy never be reported as if unknown were equivalent to disabled, or as
-/// implying which status is safer (plan.md's recommendation-trigger table is explicit:
-/// "never implying which is safer"). The wording below states only the raw fact —
-/// whether a bond deposit is required, or whether that could be determined at all —
-/// with no claim about how protective or risky either status is.
+/// Bond policy not enabled: states the exact status (`disabled` or `unknown`)
+/// neutrally. Bond Policy must never be reported as if unknown were equivalent to
+/// disabled, or as implying which status is safer. The wording below states only the
+/// raw fact — whether a bond deposit is required, or whether that could be determined
+/// at all — with no claim about how protective or risky either status is.
 fn bond_policy_recommendation(metrics: &NodeMetrics) -> Option<RecommendationItem> {
     let message = match metrics.bond_policy.status {
         "enabled" => return None,
@@ -103,10 +94,10 @@ fn bond_policy_recommendation(metrics: &NodeMetrics) -> Option<RecommendationIte
     })
 }
 
-/// 003 FR-008/FR-009: which of the 4 filterable console/plain-text sections render.
-/// The node identity header is not represented here since 003 FR-008's Assumptions
-/// section states it always renders regardless of `--sections`. `--format json` never
-/// consults this: `report::render::json` always emits the complete structure.
+/// Which of the 4 filterable console/plain-text sections render. The node identity
+/// header is not represented here since it always renders regardless of `--sections`.
+/// `--format json` never consults this: `report::render::json` always emits the
+/// complete structure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SectionFilter {
     pub fetch: bool,
@@ -116,8 +107,7 @@ pub struct SectionFilter {
 }
 
 impl SectionFilter {
-    /// The omitted-`--sections`-flag default (003 FR-008): every section renders,
-    /// matching current tool behavior.
+    /// The omitted-`--sections`-flag default: every section renders.
     pub fn all() -> Self {
         SectionFilter {
             fetch: true,
@@ -127,20 +117,18 @@ impl SectionFilter {
         }
     }
 
-    /// 003 FR-008/FR-009: parses a comma-separated `--sections` value into a
-    /// `SectionFilter`, matching each token case-sensitively against the 4 valid
-    /// names. No trimming: a token with surrounding whitespace does not match any of
-    /// the 4 exact names, since the spec documents only those 4 exact tokens and this
-    /// function does not invent undocumented leniency. Collects every invalid token
-    /// encountered, not just the first, so a caller can report the complete list in
-    /// one validation error.
+    /// Parses a comma-separated `--sections` value into a `SectionFilter`, matching
+    /// each token case-sensitively against the 4 valid names. No trimming: a token
+    /// with surrounding whitespace does not match any of the 4 exact names. Collects
+    /// every invalid token encountered, not just the first, so a caller can report the
+    /// complete list in one validation error.
     pub fn parse(raw: &str) -> Result<SectionFilter, Vec<String>> {
         let tokens: Vec<String> = raw.split(',').map(|token| token.to_string()).collect();
         Self::from_tokens(&tokens)
     }
 
-    /// 003 FR-016a: the same per-token matching logic as `parse`, over an already-split
-    /// slice of tokens rather than a single comma-separated string. Configuration files
+    /// The same per-token matching logic as `parse`, over an already-split slice of
+    /// tokens rather than a single comma-separated string. Configuration files
     /// naturally represent this as a TOML array (unlike the CLI flag's comma-separated
     /// string), so this is the entry point the configuration-file loader consults
     /// (`config::file::validate`); `parse` builds on top of this to avoid duplicating
@@ -172,10 +160,9 @@ impl SectionFilter {
     }
 }
 
-/// 002 FR-008/FR-008a: assembles the recommendations block from `NodeMetrics`,
-/// scoped to this PR's 3 deterministic triggers (see this module's doc comment).
-/// Pure assembly over already-computed metrics, matching every other
-/// `assemble_*_section` function's pattern — no new statistics are computed here.
+/// Assembles the recommendations block from `NodeMetrics`, scoped to the 3
+/// deterministic triggers described in this module's doc comment. Pure assembly over
+/// already-computed metrics — no new statistics are computed here.
 pub fn assemble_recommendations_section(metrics: &NodeMetrics) -> ReportRecommendations {
     let items: Vec<RecommendationItem> = [
         zero_trades_recommendation(metrics),
@@ -256,7 +243,7 @@ mod tests {
         assert!(item.message.contains("10"));
     }
 
-    /// FR-008a forbids comparative language ("high"/"many"/"elevated") for Dispute
+    /// Comparative language ("high"/"many"/"elevated") is forbidden for Dispute
     /// Signals, since it has no cross-node baseline.
     #[test]
     fn disputes_recommendation_never_uses_comparative_language() {
@@ -306,9 +293,7 @@ mod tests {
         assert_eq!(bond_policy_recommendation(&metrics), None);
     }
 
-    /// Plan.md's recommendation-trigger table requires bond policy to be reported
-    /// neutrally, never implying which status is safer (per 001 FR-012 and FR-008a's
-    /// ban on comparative language without a cross-node baseline).
+    /// Bond policy must be reported neutrally, never implying which status is safer.
     #[test]
     fn bond_policy_recommendation_never_implies_which_status_is_safer() {
         for status in ["disabled", "unknown"] {
@@ -368,7 +353,7 @@ mod tests {
         );
     }
 
-    // ---- 003 FR-008/FR-009: `SectionFilter::parse` ----
+    // ---- SectionFilter::parse ----
 
     #[test]
     fn section_filter_all_enables_every_field() {
@@ -425,8 +410,8 @@ mod tests {
         assert_eq!(error, vec!["bogus".to_string(), "also-bogus".to_string()]);
     }
 
-    /// Case sensitivity matters (003 FR-008): a capitalized token must be rejected,
-    /// not silently accepted as its lowercase equivalent.
+    /// A capitalized token must be rejected, not silently accepted as its lowercase
+    /// equivalent.
     #[test]
     fn section_filter_parse_is_case_sensitive() {
         let error = SectionFilter::parse("Fetch").expect_err("capitalized token is invalid");
@@ -442,8 +427,7 @@ mod tests {
     }
 
     /// No trimming: a token with surrounding whitespace does not match any of the 4
-    /// exact names, since the spec documents only the exact tokens and this function
-    /// deliberately does not invent undocumented leniency.
+    /// exact names.
     #[test]
     fn section_filter_parse_does_not_trim_whitespace_around_tokens() {
         let error = SectionFilter::parse(" stats ,fetch").expect_err("whitespace is not trimmed");
@@ -451,7 +435,7 @@ mod tests {
         assert_eq!(error, vec![" stats ".to_string()]);
     }
 
-    // ---- 003 FR-016a: `SectionFilter::from_tokens` ----
+    // ---- SectionFilter::from_tokens ----
 
     #[test]
     fn from_tokens_accepts_valid_tokens() {

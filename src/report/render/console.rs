@@ -1,17 +1,8 @@
-//! The console renderer (002 FR-001, FR-013, FR-015): renders a fully assembled
-//! `Report`'s 5 ordered sections — node identity, relay fetch summary, activity grid,
-//! general statistics, recommendations — to an arbitrary writer, colored and
-//! width-adaptive when color is enabled and the destination is a real terminal.
-//! `--sections` (003 FR-008) may narrow the 4 filterable sections; the node identity
-//! header always renders.
-//!
-//! PR 7d supersedes PR 1 Step C's original ad hoc `render_*_section` functions entirely
-//! (they predated the `Report` model and never showed the fiat/payment-method
-//! breakdowns, premium signal, bond policy, disputes, or activity grid PR 5/PR 6/PR 7a-c
-//! already compute). The two pure debug/scaffolding blocks those functions printed
-//! (`=== SAMPLE EVENTS ===`, `=== DEBUG INFORMATION ===`) are removed outright, not
-//! migrated: they were PR1-era debugging aids, never part of spec 002's 5-section report
-//! (FR-001), and are superseded by this renderer's own fetch section (FR-003).
+//! The console renderer: renders a fully assembled `Report`'s 5 ordered sections — node
+//! identity, relay fetch summary, activity grid, general statistics, recommendations —
+//! to an arbitrary writer, colored and width-adaptive when color is enabled and the
+//! destination is a real terminal. `--sections` may narrow the 4 filterable sections;
+//! the node identity header always renders.
 
 use crate::report::content::{ReportRecommendations, SectionFilter};
 use crate::report::format::{
@@ -34,8 +25,8 @@ fn warning_style() -> Style {
 }
 
 /// Applies `style`'s ANSI codes around `text` only when `color_enabled` is true — the
-/// one place every colored line in this renderer goes through, so FR-015's "color
-/// disabled" case is a single code path rather than one per call site.
+/// one place every colored line in this renderer goes through, so the "color disabled"
+/// case is a single code path rather than one per call site.
 fn styled(text: &str, style: Style, color_enabled: bool) -> String {
     if color_enabled {
         format!("{style}{text}{style:#}")
@@ -56,8 +47,8 @@ fn heading(out: &mut impl Write, title: &str, color_enabled: bool) -> std::io::R
     writeln!(out, "{}", styled(title, heading_style(), color_enabled))
 }
 
-/// 002 FR-002: the node identity header — both pubkey encodings, so a trader can confirm
-/// they queried the intended node.
+/// The node identity header — both pubkey encodings, so a trader can confirm they
+/// queried the intended node.
 fn render_node_section(
     out: &mut impl Write,
     node: &ReportNode,
@@ -69,8 +60,8 @@ fn render_node_section(
     writeln!(out)
 }
 
-/// 002 FR-003: which relays succeeded or failed, plus the deduplicated per-kind event
-/// counts backing every other section of the report.
+/// Which relays succeeded or failed, plus the deduplicated per-kind event counts
+/// backing every other section of the report.
 fn render_fetch_section(
     out: &mut impl Write,
     fetch: &ReportFetch,
@@ -125,9 +116,8 @@ fn render_fetch_section(
     writeln!(out)
 }
 
-/// 002 FR-004/FR-005: one row per time bucket. A node with zero successful orders has no
-/// order timestamp to anchor a range on (002 FR-019's zero-order Edge Case), so this
-/// shows an explicit message instead of an empty table.
+/// One row per time bucket. A node with zero successful orders has no order timestamp
+/// to anchor a range on, so this shows an explicit message instead of an empty table.
 fn render_activity_section(
     out: &mut impl Write,
     activity: &ReportActivity,
@@ -171,9 +161,9 @@ fn render_activity_section(
     writeln!(out)
 }
 
-/// 002 FR-006/FR-007, FR-008b: the general statistics section — one sub-block per
-/// `ReportStats` field, each labeled with enough context that a trader unfamiliar with
-/// Mostro's reputation metrics understands what it measures without leaving the tool.
+/// The general statistics section — one sub-block per `ReportStats` field, each
+/// labeled with enough context that a trader unfamiliar with Mostro's reputation
+/// metrics understands what it measures without leaving the tool.
 fn render_stats_section(
     out: &mut impl Write,
     stats: &ReportStats,
@@ -434,8 +424,8 @@ fn render_stats_section(
     writeln!(out)
 }
 
-/// 002 FR-008/FR-008a: plain-language guidance, explicitly stating there is nothing
-/// notable to flag when no trigger fired, rather than omitting the block.
+/// Plain-language guidance, explicitly stating there is nothing notable to flag when
+/// no trigger fired, rather than omitting the block.
 fn render_recommendations_section(
     out: &mut impl Write,
     recommendations: &ReportRecommendations,
@@ -452,12 +442,11 @@ fn render_recommendations_section(
     writeln!(out)
 }
 
-/// The console renderer's public entry point (002 FR-001, FR-013, FR-015): renders every
-/// one of the `Report`'s 5 ordered sections to `out`, except that `sections` (003
-/// FR-008) may narrow the 4 filterable ones; the node identity header always renders,
-/// unaffected by `sections`. `force_color` threads PR 9's future `--color`/`--no-color`
-/// override through today; `None` defers to the automatic tty/`NO_COLOR`/`TERM=dumb`
-/// policy in `report::format::color_enabled_for_stdout`.
+/// The console renderer's public entry point: renders every one of the `Report`'s 5
+/// ordered sections to `out`, except that `sections` may narrow the 4 filterable ones;
+/// the node identity header always renders, unaffected by `sections`. `force_color`
+/// threads the `--color`/`--no-color` override through; `None` defers to the automatic
+/// tty/`NO_COLOR`/`TERM=dumb` policy in `report::format::color_enabled_for_stdout`.
 pub fn render(
     out: &mut impl Write,
     report: &Report,
@@ -609,8 +598,8 @@ mod tests {
         }
     }
 
-    /// 003 FR-008: the node identity header always renders regardless of `--sections`,
-    /// while a narrowed `SectionFilter` suppresses the excluded sections' output.
+    /// The node identity header always renders regardless of `--sections`, while a
+    /// narrowed `SectionFilter` suppresses the excluded sections' output.
     #[test]
     fn render_honors_a_narrowed_section_filter_while_the_node_header_always_renders() {
         let report = empty_report();
@@ -630,8 +619,6 @@ mod tests {
         assert!(!output.contains("=== RECOMMENDATIONS ==="));
     }
 
-    /// 003 FR-008: `SectionFilter::all()` (the omitted-flag default) renders every
-    /// section, matching current behavior.
     #[test]
     fn render_shows_every_section_with_the_default_unfiltered_section_set() {
         let report = empty_report();

@@ -1,7 +1,5 @@
-//! The report's top-level data model (002 FR-001, FR-002, FR-006, FR-007): the JSON-
-//! serializable `Report` struct this PR assembles from PR 3's `RelayFetchOutcome`/
-//! `RelayConnectionOutcome` and PR 6's now-complete `NodeMetrics`. Not yet wired into
-//! `run()` or any renderer — this PR only builds and unit-tests the model in isolation.
+//! The report's top-level data model: the JSON-serializable `Report` struct assembled
+//! from `RelayFetchOutcome`/`RelayConnectionOutcome` and the complete `NodeMetrics`.
 
 use crate::fetch::client::RelayConnectionOutcome;
 use crate::fetch::filters_summary::RelayFetchOutcome;
@@ -16,27 +14,26 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use nostr_sdk::prelude::*;
 use serde::Serialize;
 
-/// 002 FR-012a: shared by both the success-path `Report` and the JSON renderer's
-/// fatal-error envelope (`report::render::json`), since the envelope is versioned on the
-/// same schedule as the report. Bumped to `2.0.0` on 2026-07-26: removing the
+/// Shared by both the success-path `Report` and the JSON renderer's fatal-error
+/// envelope (`report::render::json`), since the envelope is versioned on the same
+/// schedule as the report. Bumped to `2.0.0` on 2026-07-26: removing the
 /// always-present `metric_definitions` field from the JSON shape is a breaking change
-/// (a consumer relying on that key's presence would break), which FR-012a's own
-/// semantic-versioning contract requires signaling with a major version bump, not a
-/// minor/patch one.
+/// (a consumer relying on that key's presence would break), signaled with a major
+/// version bump, not a minor/patch one.
 pub const SCHEMA_VERSION: &str = "2.0.0";
 
 /// Renders a stored epoch-second timestamp as an RFC 3339 UTC string (with a literal
-/// `Z` suffix, matching plan.md's JSON examples), rather than the bare epoch integer
-/// `NodeMetrics` stores it as. Pure formatting, not a new computation: every timestamp
-/// this report shows is already measured in UTC.
+/// `Z` suffix), rather than the bare epoch integer `NodeMetrics` stores it as. Pure
+/// formatting, not a new computation: every timestamp this report shows is already
+/// measured in UTC.
 fn rfc3339_from_epoch_seconds(timestamp: i64) -> String {
     DateTime::<Utc>::from_timestamp(timestamp, 0)
         .unwrap_or_default()
         .to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
-/// 002 FR-002: the node identity header. Neither field is ever `null`: a `Report` only
-/// exists once the pubkey has already parsed successfully.
+/// The node identity header. Neither field is ever `null`: a `Report` only exists once
+/// the pubkey has already parsed successfully.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportNode {
     pub pubkey_hex: String,
@@ -52,8 +49,8 @@ pub fn assemble_node_section(public_key: PublicKey) -> Result<ReportNode> {
     })
 }
 
-/// 002 FR-003: whether one configured relay succeeded or failed. Serializes as a
-/// lowercase JSON string (`"success"` / `"failed"`) per the schema's string-union type.
+/// Whether one configured relay succeeded or failed. Serializes as a lowercase JSON
+/// string (`"success"` / `"failed"`) per the schema's string-union type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RelayStatus {
@@ -61,7 +58,7 @@ pub enum RelayStatus {
     Failed,
 }
 
-/// One configured relay's fetch outcome (002 FR-003).
+/// One configured relay's fetch outcome.
 #[derive(Debug, Clone, Serialize)]
 pub struct RelaySummary {
     pub url: String,
@@ -69,8 +66,8 @@ pub struct RelaySummary {
     pub error: Option<String>,
 }
 
-/// 002 FR-003: the relay fetch summary — one `RelaySummary` per configured relay, plus
-/// the deduplicated per-kind event counts this report's other sections draw from.
+/// The relay fetch summary — one `RelaySummary` per configured relay, plus the
+/// deduplicated per-kind event counts this report's other sections draw from.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportFetch {
     pub relays: Vec<RelaySummary>,
@@ -81,7 +78,7 @@ pub struct ReportFetch {
     pub instance_status_found: bool,
 }
 
-/// 002 FR-003: one `RelaySummary` per configured relay, mapped one to one from
+/// One `RelaySummary` per configured relay, mapped one to one from
 /// `RelayConnectionOutcome::ordered` (already in the user's configured `--relays`
 /// order — no merge logic belongs here), plus `RelayFetchOutcome`'s already-computed
 /// per-kind counts, copied straight across with no new aggregation.
@@ -113,8 +110,8 @@ pub fn assemble_fetch_section(
     }
 }
 
-/// One row of `activity.buckets[]` (002 FR-004): `bucket_start` re-typed as an RFC 3339
-/// string, matching every other timestamp field in this schema, instead of
+/// One row of `activity.buckets[]`: `bucket_start` re-typed as an RFC 3339 string,
+/// matching every other timestamp field in this schema, instead of
 /// `stats::grid::GridBucket`'s bare epoch integer.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportActivityBucket {
@@ -124,10 +121,9 @@ pub struct ReportActivityBucket {
     pub median_trade_sats: Option<f64>,
 }
 
-/// 002 FR-004/FR-005: the activity grid. `granularity`/`range_start`/`range_end` are
-/// `null` and `buckets` is empty only when the node has zero successful orders (FR-019's
-/// zero-order Edge Case) — the block stays present either way, per FR-012's "every key
-/// always present" rule.
+/// The activity grid. `granularity`/`range_start`/`range_end` are `null` and `buckets`
+/// is empty only when the node has zero successful orders — the block stays present
+/// either way, since every key must always be present.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportActivity {
     pub granularity: Option<Granularity>,
@@ -157,16 +153,15 @@ pub fn assemble_activity_section(grid: &ActivityGrid) -> ReportActivity {
     }
 }
 
-/// `stats.longevity` (001 FR-001): `first_seen_at` re-typed as an RFC 3339 string per
-/// plan.md's JSON contract, instead of `stats::lifecycle::Longevity`'s bare epoch
-/// integer.
+/// `stats.longevity`: `first_seen_at` re-typed as an RFC 3339 string instead of
+/// `stats::lifecycle::Longevity`'s bare epoch integer.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportLongevity {
     pub first_seen_at: Option<String>,
     pub days_active: Option<f64>,
 }
 
-/// `stats.liveness` (001 FR-004): field names match plan.md's schema table
+/// `stats.liveness`: field names use the report schema's naming
 /// (`successful_trades_last_7d`/`_30d`/`_90d`), and `last_successful_trade_at` is
 /// re-typed as an RFC 3339 string — both differ from `stats::lifecycle::Liveness`'s own
 /// field names/types, which this wraps rather than recomputes.
@@ -179,7 +174,7 @@ pub struct ReportLiveness {
     pub successful_trades_last_90d: usize,
 }
 
-/// 002 FR-006/FR-007: general statistics, one sub-object per `NodeMetrics` field.
+/// General statistics, one sub-object per `NodeMetrics` field.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportStats {
     pub longevity: ReportLongevity,
@@ -194,9 +189,9 @@ pub struct ReportStats {
     pub bond_policy: BondPolicy,
 }
 
-/// 002 FR-006/FR-007: pure struct assembly from PR 6's now-complete `NodeMetrics` — no
-/// new computation, only the RFC 3339 string formatting `ReportLongevity`/
-/// `ReportLiveness` need for their two epoch-second timestamp fields.
+/// Pure struct assembly from the complete `NodeMetrics` — no new computation, only the
+/// RFC 3339 string formatting `ReportLongevity`/`ReportLiveness` need for their two
+/// epoch-second timestamp fields.
 pub fn assemble_stats_section(metrics: &NodeMetrics) -> ReportStats {
     ReportStats {
         longevity: ReportLongevity {
@@ -227,8 +222,7 @@ pub fn assemble_stats_section(metrics: &NodeMetrics) -> ReportStats {
     }
 }
 
-/// 002 FR-001: the complete report — 5 ordered sections plus `schema_version` (FR-012a)
-/// and `generated_at`.
+/// The complete report — 5 ordered sections plus `schema_version` and `generated_at`.
 #[derive(Debug, Clone, Serialize)]
 pub struct Report {
     pub schema_version: String,
@@ -241,11 +235,10 @@ pub struct Report {
 }
 
 /// Assembles the complete `Report` from every section, including `recommendations`
-/// (002 FR-008, scoped to `report::content`'s 3 currently-implemented triggers — see
-/// its module doc comment). `activity_grid` is pre-computed by the caller
+/// (scoped to `report::content`'s currently-implemented triggers — see its module doc
+/// comment). `activity_grid` is pre-computed by the caller
 /// (`stats::grid::compute_activity_grid`), not recomputed here — this function only
-/// assembles, matching every other `assemble_*_section` function's pattern. Called by
-/// `run()` in `lib.rs` (PR 7d), which passes the assembled `Report` to
+/// assembles. Called by `run()` in `lib.rs`, which passes the assembled `Report` to
 /// `report::render::console::render`.
 pub fn assemble_report(
     public_key: PublicKey,
@@ -387,8 +380,8 @@ mod tests {
         assert_eq!(activity.buckets[0].median_trade_sats, Some(1000.0));
     }
 
-    /// Edge Cases (002 FR-019/FR-005): zero successful orders reports the whole activity
-    /// block as `null`/empty, not an invented default range.
+    /// Zero successful orders reports the whole activity block as `null`/empty, not an
+    /// invented default range.
     #[test]
     fn assemble_activity_section_reports_null_range_when_grid_is_empty() {
         let grid: ActivityGrid = compute_activity_grid(&[], GridRange::Unbounded, None);
@@ -444,9 +437,9 @@ mod tests {
         assert_eq!(stats.bond_policy.status, "enabled");
     }
 
-    /// Edge Cases: neither anchor exists, no dev-fee event, no successful trades — both
-    /// RFC 3339 timestamp fields must serialize as `None` (JSON `null`), never an
-    /// empty-string placeholder.
+    /// Neither anchor exists, no dev-fee event, no successful trades — both RFC 3339
+    /// timestamp fields must serialize as `None` (JSON `null`), never an empty-string
+    /// placeholder.
     #[test]
     fn assemble_stats_section_reports_missing_timestamps_as_none() {
         let metrics = NodeMetrics::compute(
@@ -528,10 +521,10 @@ mod tests {
         assert!(fetch.instance_status_found);
     }
 
-    /// Regression: `fetch.relays[]` preserves the user's originally configured
-    /// `--relays` order across the success/failure boundary, not "every success first,
-    /// then every failure" — a bug the first implementation had, since it built the
-    /// list by concatenating two independently-ordered vectors.
+    /// `fetch.relays[]` preserves the user's originally configured `--relays` order
+    /// across the success/failure boundary, not "every success first, then every
+    /// failure" — a bug the first implementation had, since it built the list by
+    /// concatenating two independently-ordered vectors.
     #[test]
     fn assemble_fetch_section_preserves_interleaved_configured_order() {
         let connection = RelayConnectionOutcome {

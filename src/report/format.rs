@@ -24,7 +24,6 @@ pub fn relative_time_from_rfc3339(timestamp_rfc3339: &str, now_rfc3339: &str) ->
     Some(format_relative_time(timestamp, now))
 }
 
-/// Format relative time for human readability (Section 6.1)
 pub fn format_relative_time(timestamp: i64, now: i64) -> String {
     let diff_secs = now - timestamp;
 
@@ -55,9 +54,9 @@ pub fn format_relative_time(timestamp: i64, now: i64) -> String {
     }
 }
 
-/// A single shared not-applicable marker for console/plain-text output (FR-018's
-/// numeric contract is JSON-only; this module never touches JSON). Replaces the several
-/// inline `"N/A"` literals the old ad hoc renderer repeated verbatim.
+/// A single shared not-applicable marker for console/plain-text output (the numeric
+/// contract is JSON-only; this module never touches JSON). Replaces the several inline
+/// `"N/A"` literals the old ad hoc renderer repeated verbatim.
 pub const NOT_APPLICABLE: &str = "N/A";
 
 /// Renders an already-computed value, or `NOT_APPLICABLE` when it is `None` — the one
@@ -86,9 +85,9 @@ fn group_thousands(digits: &str) -> String {
     grouped
 }
 
-/// 002 FR-018: an integer sats/fiat value with thousands separators, for console and
-/// plain-text display only — this module is presentation-only, so that restriction is
-/// automatically respected; the not-yet-implemented JSON renderer must never call this.
+/// An integer sats/fiat value with thousands separators, for console and plain-text
+/// display only — this module is presentation-only, so that restriction is
+/// automatically respected; the JSON renderer must never call this.
 pub fn format_sats_thousands(value: u64) -> String {
     group_thousands(&value.to_string())
 }
@@ -109,12 +108,12 @@ pub fn format_decimal_thousands(value: f64) -> String {
     )
 }
 
-/// 002 FR-015's color policy, resolved from already-gathered inputs so the decision
-/// itself is unit-testable without depending on the real process environment or
-/// terminal state. `term_is_dumb` is checked before any override is applied: it is the
-/// one exception FR-015 states no explicit override may bypass, since it reflects a
-/// technical incapability, not a preference — unlike `NO_COLOR` or a non-terminal
-/// destination, both of which an explicit "force on" override may still cross.
+/// The color policy, resolved from already-gathered inputs so the decision itself is
+/// unit-testable without depending on the real process environment or terminal state.
+/// `term_is_dumb` is checked before any override is applied: it is the one exception no
+/// explicit override may bypass, since it reflects a technical incapability, not a
+/// preference — unlike `NO_COLOR` or a non-terminal destination, both of which an
+/// explicit "force on" override may still cross.
 pub fn resolve_color_enabled(
     automatic_choice: bool,
     term_is_dumb: bool,
@@ -130,9 +129,9 @@ pub fn resolve_color_enabled(
 /// `resolve_color_enabled`. `anstream::AutoStream::choice` supplies the automatic
 /// default — honoring `NO_COLOR`/`CLICOLOR`/tty detection via `anstyle-query`, the same
 /// detection stack `clap`'s own color support already pulls in — while `TERM=dumb` is
-/// checked directly here, since FR-015 needs to treat it as never-overridable, a
-/// distinction `AutoStream::choice`'s single returned `ColorChoice` cannot express by
-/// itself (it folds "dumb terminal" and "piped output" into the same `Never` result).
+/// checked directly here, since it must be treated as never-overridable, a distinction
+/// `AutoStream::choice`'s single returned `ColorChoice` cannot express by itself (it
+/// folds "dumb terminal" and "piped output" into the same `Never` result).
 pub fn color_enabled_for_stdout(force_color: Option<bool>) -> bool {
     let stdout = std::io::stdout();
     let automatic_choice = anstream::AutoStream::choice(&stdout) == anstream::ColorChoice::Always;
@@ -174,23 +173,20 @@ mod tests {
         assert_eq!(format_decimal_thousands(-1_234.5), "-1,234.5");
     }
 
-    /// FR-015: color is disabled automatically when the automatic choice says so.
     #[test]
     fn resolve_color_enabled_follows_the_automatic_choice_with_no_override() {
         assert!(!resolve_color_enabled(false, false, None));
         assert!(resolve_color_enabled(true, false, None));
     }
 
-    /// FR-015: an explicit override always wins over the automatic choice, in both
-    /// directions, when the terminal is not `TERM=dumb`.
     #[test]
     fn resolve_color_enabled_honors_an_explicit_override() {
         assert!(resolve_color_enabled(false, false, Some(true)));
         assert!(!resolve_color_enabled(true, false, Some(false)));
     }
 
-    /// FR-015: `TERM=dumb` disables color regardless of the automatic choice or any
-    /// override — the one exception no explicit override may bypass.
+    /// `TERM=dumb` disables color regardless of the automatic choice or any override —
+    /// the one exception no explicit override may bypass.
     #[test]
     fn resolve_color_enabled_term_dumb_overrides_everything() {
         assert!(!resolve_color_enabled(true, true, None));

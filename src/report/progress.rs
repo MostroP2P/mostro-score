@@ -1,8 +1,7 @@
-//! Terminal implementation of `models::core::ProgressReporter` (002 FR-014): shows a
-//! one-line diagnostic once a relay fetch has run past the latency threshold, suppressed
-//! when the destination is not a terminal or when `--quiet` is set (003 FR-012 explicitly
-//! names FR-014's progress indicators as something `--quiet` must suppress). The writer
-//! and terminal-detection flag are both injected at construction, rather than this type
+//! Terminal implementation of `models::core::ProgressReporter`: shows a one-line
+//! diagnostic once a relay fetch has run past the latency threshold, suppressed when the
+//! destination is not a terminal or when `--quiet` is set. The writer and
+//! terminal-detection flag are both injected at construction, rather than this type
 //! reading the real process `stderr` directly inside `report_slow_fetch`, so it stays
 //! directly unit-testable, matching every other `report` module's writer-injection
 //! convention (e.g. `render::console`'s `out`/`err` parameters).
@@ -23,9 +22,8 @@ pub struct TerminalProgressReporter<W: Write = std::io::Stderr> {
 
 impl TerminalProgressReporter<std::io::Stderr> {
     /// Production constructor: writes to the real `stderr`, detected as a terminal via
-    /// `std::io::IsTerminal` (stable in std since Rust 1.70, so FR-014's off-tty
-    /// suppression needs no new dependency). `quiet` is `--quiet`'s resolved value
-    /// (003 FR-012, wired at construction in `main.rs` once `RunOptions` is resolved).
+    /// `std::io::IsTerminal`. `quiet` is `--quiet`'s resolved value, wired at
+    /// construction in `main.rs` once `RunOptions` is resolved.
     pub fn new(quiet: bool) -> Self {
         Self {
             writer: Mutex::new(std::io::stderr()),
@@ -107,8 +105,6 @@ mod tests {
         assert!(buffer.lock().unwrap().is_empty());
     }
 
-    /// 003 FR-012: `--quiet` suppresses FR-014's progress indicator, even on a real
-    /// terminal.
     #[test]
     fn report_slow_fetch_is_suppressed_when_quiet_even_on_a_terminal() {
         let buffer = Arc::new(Mutex::new(Vec::new()));
