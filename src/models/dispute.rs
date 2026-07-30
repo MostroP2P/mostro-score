@@ -1,12 +1,12 @@
-//! Kind `38386` dispute events (FR-006): dedup by the dispute's `d` tag to each dispute's
-//! latest reported status — a NIP-33 replaceable event, republished at each status
-//! change — then classify that deduplicated set into resolved, active, or unknown counts.
+//! Kind `38386` dispute events: dedup by the dispute's `d` tag to each dispute's latest
+//! reported status — a NIP-33 replaceable event, republished at each status change —
+//! then classify that deduplicated set into resolved, active, or unknown counts.
 
 use crate::models::core::s_tag;
 use crate::models::dedup::dedup_events_by_d_tag;
 use nostr_sdk::prelude::*;
 
-/// A deduplicated dispute's classified status, per FR-006's Clarifications.
+/// A deduplicated dispute's classified status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisputeStatus {
     /// `s` = `settled`, `seller-refunded`, or `released`.
@@ -18,8 +18,8 @@ pub enum DisputeStatus {
     Unknown,
 }
 
-/// FR-006's per-dispute classification, applied to a single deduplicated dispute's
-/// latest `s` value.
+/// Per-dispute classification, applied to a single deduplicated dispute's latest `s`
+/// value.
 pub fn classify_dispute_status(s_value: Option<&str>) -> DisputeStatus {
     match s_value {
         Some("settled") | Some("seller-refunded") | Some("released") => DisputeStatus::Resolved,
@@ -38,10 +38,9 @@ pub struct DisputeAggregate {
     pub unknown: usize,
 }
 
-/// FR-006/FR-015: dedup fetched dispute events by their `d` tag (highest `created_at`,
-/// ties broken by the greatest event id), then classify each deduplicated dispute's
-/// latest `s` value. Events without a `d` tag are safely excluded (FR-013), never
-/// counted.
+/// Dedups fetched dispute events by their `d` tag (highest `created_at`, ties broken by
+/// the greatest event id), then classifies each deduplicated dispute's latest `s`
+/// value. Events without a `d` tag are safely excluded, never counted.
 pub fn aggregate_dispute_events(dispute_events: Vec<Event>) -> DisputeAggregate {
     let deduped = dedup_events_by_d_tag(dispute_events);
 
@@ -139,8 +138,7 @@ mod tests {
         assert_eq!(aggregate.unknown, 0);
     }
 
-    /// FR-013: a dispute event carrying no tags at all must be safely excluded, never
-    /// panic.
+    /// A dispute event carrying no tags at all must be safely excluded, never panic.
     #[test]
     fn aggregate_dispute_events_handles_a_tagless_event_without_panicking() {
         let tagless = make_event(38386, 100, vec![]);

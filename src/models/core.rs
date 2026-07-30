@@ -1,15 +1,15 @@
 use nostr_sdk::prelude::*;
 use serde::{Serialize, Serializer};
 
-/// 002 FR-012 / plan.md's JSON output contract: the only type allowed to produce a JSON
-/// `null` for a not-applicable metric. `serde_json` serializes a bare `f64` NaN or
-/// infinity as `null` without erroring (see this module's own test proving that
-/// empirically) — indistinguishable from a deliberate not-applicable value if a
-/// degenerate float ever reached the serializer directly. Every `stats/` computation
-/// already returns `None` at its own guard condition rather than letting that happen (see
-/// PR 8's audit); `report::render::json` converts from those existing `Option<T>` fields
-/// into `MetricValue<T>` only at its own serialization boundary, so `Report`/`ReportStats`
-/// stay `Option<T>` for the console/plain-text renderers.
+/// The only type allowed to produce a JSON `null` for a not-applicable metric.
+/// `serde_json` serializes a bare `f64` NaN or infinity as `null` without erroring (see
+/// this module's own test proving that empirically) — indistinguishable from a
+/// deliberate not-applicable value if a degenerate float ever reached the serializer
+/// directly. Every `stats/` computation already returns `None` at its own guard
+/// condition rather than letting that happen; `report::render::json` converts from those
+/// existing `Option<T>` fields into `MetricValue<T>` only at its own serialization
+/// boundary, so `Report`/`ReportStats` stay `Option<T>` for the console/plain-text
+/// renderers.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MetricValue<T> {
     Computed(T),
@@ -40,10 +40,10 @@ impl<T: Serialize> Serialize for MetricValue<T> {
     }
 }
 
-/// 002 FR-014's progress-indicator port: a single method the fetch layer invokes once a
-/// relay fetch has run past FR-014's latency threshold. `fetch` and `report` both depend
-/// on this trait through their shared dependency on `models`, rather than `fetch`
-/// depending on `report` directly — the concrete terminal implementation
+/// A single method the fetch layer invokes once a relay fetch has run past the
+/// progress-indicator's latency threshold. `fetch` and `report` both depend on this
+/// trait through their shared dependency on `models`, rather than `fetch` depending on
+/// `report` directly — the concrete terminal implementation
 /// (`report::progress::TerminalProgressReporter`) is bound into
 /// `fetch::client::RelayEventSource` only at construction time, in the library/binary
 /// wiring root, so `fetch` itself never depends on `report`.
@@ -60,9 +60,8 @@ impl ProgressReporter for NoOpProgressReporter {
     fn report_slow_fetch(&self) {}
 }
 
-/// PR 1 Step C: shared single-letter tag accessor, extracted from the repeated
-/// `event.tags.iter().find(...)` pattern duplicated across dedup, dev-fee, and order
-/// aggregation. Returns the tag's first value (index 1) as a borrowed `&str`.
+/// Shared single-letter tag accessor. Returns the tag's first value (index 1) as a
+/// borrowed `&str`.
 pub fn tag_value<'e>(event: &'e Event, name: &str) -> Option<&'e str> {
     event
         .tags
@@ -97,30 +96,30 @@ pub fn amt_tag(event: &Event) -> Option<&str> {
     tag_value(event, "amt")
 }
 
-/// `f` tag accessor (fiat currency, 001 FR-008). An order always carries exactly one
-/// `f` value, so this is a single-value accessor, matching `amt_tag`/`s_tag`'s pattern.
+/// `f` tag accessor (fiat currency). An order always carries exactly one `f` value, so
+/// this is a single-value accessor, matching `amt_tag`/`s_tag`'s pattern.
 pub fn f_tag(event: &Event) -> Option<&str> {
     tag_value(event, "f")
 }
 
-/// `premium` tag accessor (001 FR-011). The raw string value; parsing it as a signed
-/// integer is the caller's job (`models::order::aggregate_order_events`), since an empty
-/// or unparseable value is excluded per FR-013 rather than treated as an error here.
+/// `premium` tag accessor. The raw string value; parsing it as a signed integer is the
+/// caller's job (`models::order::aggregate_order_events`), since an empty or unparseable
+/// value is excluded rather than treated as an error here.
 pub fn premium_tag(event: &Event) -> Option<&str> {
     tag_value(event, "premium")
 }
 
-/// `pm` tag accessor (payment method, 001 FR-009). Unlike every other single-value tag
-/// accessor in this module, `pm` is a multi-value Nostr tag: `order.payment_method` is
-/// split on commas server-side (`mostro/src/nip33.rs`'s `order_to_tags`), but the
-/// resulting `Vec<String>` is passed directly as the tag's content, so each split token
-/// becomes its own array element on the wire (`["pm", "SEPA", "Cash"]`), not one
-/// comma-joined value — reading only index 1 (`tag_value`'s single-value convention)
-/// would silently drop every method after the first. This returns every value from
-/// index 1 onward, filtering empty ones defensively since relay data is untrusted
-/// (FR-013), even though `order_to_tags` already filters them before publishing. Values
-/// are never trimmed, re-split, or case-normalized: FR-009 requires byte-for-byte
-/// comparison of method labels exactly as published.
+/// `pm` tag accessor (payment method). Unlike every other single-value tag accessor in
+/// this module, `pm` is a multi-value Nostr tag: `order.payment_method` is split on
+/// commas server-side (`mostro/src/nip33.rs`'s `order_to_tags`), but the resulting
+/// `Vec<String>` is passed directly as the tag's content, so each split token becomes
+/// its own array element on the wire (`["pm", "SEPA", "Cash"]`), not one comma-joined
+/// value — reading only index 1 (`tag_value`'s single-value convention) would silently
+/// drop every method after the first. This returns every value from index 1 onward,
+/// filtering empty ones defensively since relay data is untrusted, even though
+/// `order_to_tags` already filters them before publishing. Values are never trimmed,
+/// re-split, or case-normalized: comparison of method labels must be byte-for-byte
+/// exactly as published.
 pub fn pm_tag_values(event: &Event) -> Vec<String> {
     event
         .tags
@@ -136,9 +135,8 @@ pub fn pm_tag_values(event: &Event) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// PR 1 Step B seam: partition fetched events into dev-fee events (z=dev-fee-payment,
-/// y=mostro) and order events (z=order). Extracted verbatim from the wrapped function
-/// body; pure signature, no network, no I/O.
+/// Partitions fetched events into dev-fee events (z=dev-fee-payment, y=mostro) and order
+/// events (z=order).
 pub fn partition_by_z_y_tag(events: Vec<Event>) -> (Vec<Event>, Vec<Event>) {
     let mut dev_fee_events: Vec<Event> = Vec::new();
     let mut order_events: Vec<Event> = Vec::new();
@@ -154,20 +152,18 @@ pub fn partition_by_z_y_tag(events: Vec<Event>) -> (Vec<Event>, Vec<Event>) {
     (dev_fee_events, order_events)
 }
 
-/// PR 3 (T077): FR-015's full scoping rule for a single event — the event's author
-/// (signer) must be the node's own pubkey, its `z` tag must match the expected subtype
-/// for its kind, and its `y` tag's first value must be `mostro`. Shared across all four
-/// scoped kinds (`8383`/`38383`/`38385`/`38386`) so a relay fetch never mixes another
-/// node's events, or another application's/subtype's same-kind events, into this node's
-/// report.
+/// The full scoping rule for a single event — the event's author (signer) must be the
+/// node's own pubkey, its `z` tag must match the expected subtype for its kind, and its
+/// `y` tag's first value must be `mostro`. Shared across all four scoped kinds
+/// (`8383`/`38383`/`38385`/`38386`) so a relay fetch never mixes another node's events,
+/// or another application's/subtype's same-kind events, into this node's report.
 pub fn is_scoped_event(event: &Event, node_pubkey: &PublicKey, expected_z: &str) -> bool {
     event.pubkey == *node_pubkey
         && z_tag(event) == Some(expected_z)
         && y_tag(event) == Some("mostro")
 }
 
-/// Filters a batch of events down to the ones scoped to `node_pubkey` for `expected_z`,
-/// per FR-015.
+/// Filters a batch of events down to the ones scoped to `node_pubkey` for `expected_z`.
 pub fn scope_events_to_node(
     events: Vec<Event>,
     node_pubkey: &PublicKey,
@@ -179,9 +175,9 @@ pub fn scope_events_to_node(
         .collect()
 }
 
-/// PR 3 (T079): FR-014's future-timestamp exclusion — any event whose `created_at` is
-/// later than report-generation time cannot be a legitimate signing time relative to the
-/// report and MUST be excluded from consideration entirely, not merely deprioritized.
+/// Any event whose `created_at` is later than report-generation time cannot be a
+/// legitimate signing time relative to the report and must be excluded from
+/// consideration entirely, not merely deprioritized.
 pub fn exclude_future_events(events: Vec<Event>, report_generated_at: Timestamp) -> Vec<Event> {
     events
         .into_iter()
@@ -356,11 +352,9 @@ mod tests {
     }
 
     /// Builds an event with a multi-value tag, e.g. `["pm", "SEPA", "Cash"]` — matching
-    /// the actual Nostr wire format for `pm` (`mostro/src/nip33.rs` passes the
-    /// already-comma-split `Vec<String>` directly as the tag's content, so each method
-    /// is its own array element, not a single comma-joined string). The shared
-    /// `test_support::make_event` helper only builds single-value `(name, value)` tags,
-    /// which cannot represent this.
+    /// the actual Nostr wire format for `pm`. The shared `test_support::make_event`
+    /// helper only builds single-value `(name, value)` tags, which cannot represent
+    /// this.
     fn make_event_with_multi_value_tag(kind: u16, created_at: u64, values: Vec<&str>) -> Event {
         let keys = Keys::generate();
         EventBuilder::new(Kind::Custom(kind), "")
@@ -380,7 +374,7 @@ mod tests {
     }
 
     /// Defensive only: `order_to_tags` never publishes an empty value, but this is
-    /// untrusted relay data (FR-013), so an empty array element must still be excluded.
+    /// untrusted relay data, so an empty array element must still be excluded.
     #[test]
     fn pm_tag_values_defensively_filters_empty_values() {
         let event = make_event_with_multi_value_tag(38383, 100, vec!["pm", "SEPA", "", "Cash"]);
@@ -413,8 +407,7 @@ mod tests {
 
     /// The custom `Serialize` impl's whole point: `Computed(value)` must serialize as the
     /// bare `value`, never as `{"Computed": value}` (`#[derive(Serialize)]`'s default
-    /// enum representation) — plan.md's JSON output contract fixes a computed metric's
-    /// JSON type as a bare number.
+    /// enum representation).
     #[test]
     fn metric_value_computed_serializes_as_the_bare_value_not_a_wrapped_object() {
         assert_eq!(
@@ -431,11 +424,11 @@ mod tests {
         );
     }
 
-    /// A real, surprising `serde_json` footgun (plan.md's JSON output contract):
-    /// serializing a bare `f64` NaN or infinity produces `null` without erroring, so a
-    /// degenerate float would be indistinguishable from a deliberate not-applicable
-    /// value if it ever reached the serializer directly instead of through
-    /// `MetricValue`. Confirmed here empirically, not just asserted from documentation.
+    /// A real, surprising `serde_json` footgun: serializing a bare `f64` NaN or infinity
+    /// produces `null` without erroring, so a degenerate float would be
+    /// indistinguishable from a deliberate not-applicable value if it ever reached the
+    /// serializer directly instead of through `MetricValue`. Confirmed here
+    /// empirically, not just asserted from documentation.
     #[test]
     fn raw_f64_nan_serializes_as_null_a_surprising_serde_json_footgun() {
         assert_eq!(serde_json::to_string(&f64::NAN).unwrap(), "null");

@@ -18,8 +18,8 @@ pub(crate) mod test_support {
     }
 
     /// Same as `make_event`, signed with a caller-supplied key pair, so tests exercising
-    /// author scoping (FR-015) can build multiple events sharing (or deliberately not
-    /// sharing) the same signer.
+    /// author scoping can build multiple events sharing (or deliberately not sharing)
+    /// the same signer.
     pub(crate) fn make_event_with_keys(
         keys: &Keys,
         kind: u16,

@@ -2,11 +2,11 @@ use crate::models::core::d_tag;
 use nostr_sdk::prelude::*;
 use std::collections::{HashMap, HashSet};
 
-/// 002 FR-003: deduplicates events by event id (not by `d` tag), keeping the first
-/// occurrence — for kinds like dev-fee payments that have no NIP-33 replaceable-event
-/// semantics of their own, this is the only dedup axis that matters, guarding against
-/// the same relay-delivered event being independently returned, and double-counted, by
-/// more than one relay.
+/// Deduplicates events by event id (not by `d` tag), keeping the first occurrence — for
+/// kinds like dev-fee payments that have no NIP-33 replaceable-event semantics of their
+/// own, this is the only dedup axis that matters, guarding against the same
+/// relay-delivered event being independently returned, and double-counted, by more than
+/// one relay.
 pub fn dedup_events_by_id(events: Vec<Event>) -> Vec<Event> {
     let mut seen_ids: HashSet<EventId> = HashSet::new();
     events
@@ -15,10 +15,10 @@ pub fn dedup_events_by_id(events: Vec<Event>) -> Vec<Event> {
         .collect()
 }
 
-/// Shared tie-break rule for FR-002/006/012/014: the event with the highest `created_at`
-/// wins; when two candidates tie on `created_at`, the one with the lexicographically
-/// greatest event id wins instead. `EventId`'s `Ord` impl compares its raw fixed-length
-/// bytes, which agrees with lexicographic comparison of its hex encoding.
+/// Shared tie-break rule: the event with the highest `created_at` wins; when two
+/// candidates tie on `created_at`, the one with the lexicographically greatest event id
+/// wins instead. `EventId`'s `Ord` impl compares its raw fixed-length bytes, which
+/// agrees with lexicographic comparison of its hex encoding.
 fn is_more_current(candidate: &Event, existing: &Event) -> bool {
     match candidate.created_at.cmp(&existing.created_at) {
         std::cmp::Ordering::Greater => true,
@@ -27,15 +27,14 @@ fn is_more_current(candidate: &Event, existing: &Event) -> bool {
     }
 }
 
-/// PR 1 Step B seam, generalized in PR 3: deduplicate events by their `d` tag, keeping
-/// the current/final event for each key per the shared `is_more_current` tie-break rule.
-/// Used for order events (FR-002) and dispute events (FR-006) alike — both are NIP-33
-/// replaceable events keyed by `d`, republished at each status change.
+/// Deduplicates events by their `d` tag, keeping the current/final event for each key
+/// per the shared `is_more_current` tie-break rule. Used for order events and dispute
+/// events alike — both are NIP-33 replaceable events keyed by `d`, republished at each
+/// status change.
 pub fn dedup_events_by_d_tag(order_events: Vec<Event>) -> HashMap<String, Event> {
     let mut orders_map: HashMap<String, Event> = HashMap::new();
 
     for event in order_events {
-        // If it's replaceable, map it by 'd' tag to get the final state.
         if let Some(order_id) = d_tag(&event) {
             match orders_map.get(order_id) {
                 Some(existing) => {
@@ -53,9 +52,9 @@ pub fn dedup_events_by_d_tag(order_events: Vec<Event>) -> HashMap<String, Event>
     orders_map
 }
 
-/// PR 3 (T088/T089): select the single current/final event from a homogeneous candidate
-/// set (e.g. all instance-status events already filtered to one node's own `d` tag),
-/// applying the same tie-break rule as `dedup_events_by_d_tag`.
+/// Selects the single current/final event from a homogeneous candidate set (e.g. all
+/// instance-status events already filtered to one node's own `d` tag), applying the
+/// same tie-break rule as `dedup_events_by_d_tag`.
 pub fn select_current_event(events: Vec<Event>) -> Option<Event> {
     events
         .into_iter()

@@ -1,8 +1,7 @@
 use nostr_sdk::prelude::*;
 
-/// PR 1 Step B seam: select the oldest dev-fee event (the longevity anchor), sorted by
-/// `created_at` ascending. Extracted verbatim from the wrapped function body; pure
-/// signature, no network, no I/O.
+/// Selects the oldest dev-fee event (the longevity anchor), sorted by `created_at`
+/// ascending.
 pub fn select_oldest_dev_fee_event(mut dev_fee_events: Vec<Event>) -> Option<Event> {
     if dev_fee_events.is_empty() {
         return None;
@@ -12,11 +11,11 @@ pub fn select_oldest_dev_fee_event(mut dev_fee_events: Vec<Event>) -> Option<Eve
     Some(dev_fee_events[0].clone())
 }
 
-/// PR 1 Step C: per-kind dev-fee aggregation — the total fetched count plus the
-/// longevity anchor timestamp (the oldest dev-fee event's `created_at`), verbatim from
-/// the wrapped function body's dev-fee handling. Presentation (the "MOSTRO TRADING
-/// ACTIVITY" block and the no-dev-fee warning) stays in `report/render/console.rs`
-/// (T037); this function only computes the values that block prints.
+/// Per-kind dev-fee aggregation — the total fetched count plus the longevity anchor
+/// timestamp (the oldest dev-fee event's `created_at`). Presentation (the "MOSTRO
+/// TRADING ACTIVITY" block and the no-dev-fee warning) stays in
+/// `report/render/console.rs`; this function only computes the values that block
+/// prints.
 pub struct DevFeeAggregate {
     pub count: usize,
     pub first_dev_fee_ts: Option<i64>,
@@ -43,8 +42,8 @@ mod tests {
         assert!(select_oldest_dev_fee_event(vec![]).is_none());
     }
 
-    /// FR-013: a dev-fee event carrying no tags at all must not panic anywhere in this
-    /// aggregation path — it is simply an event with an unknown longevity-relevant
+    /// A dev-fee event carrying no tags at all must not panic anywhere in this
+    /// aggregation path — it is simply an event with unknown longevity-relevant
     /// content, still ordered on `created_at` alone.
     #[test]
     fn aggregate_dev_fee_events_handles_a_tagless_event_without_panicking() {
