@@ -15,29 +15,27 @@ use lifecycle::{
 };
 use trade_size::{compute_trade_stats, TradeSizeStats};
 
-/// Activity consistency (Section 4.2.3, 001 FR-005): pure wiring around
-/// `lifecycle::compute_activity_consistency`'s existing tuple result, giving each of its
-/// two values a self-documenting name for `NodeMetrics`.
+/// Pure wiring around `lifecycle::compute_activity_consistency`'s existing tuple
+/// result, giving each of its two values a self-documenting name for `NodeMetrics`.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct ActivityConsistency {
     pub active_days_last_30d: usize,
     pub max_consecutive_inactive_days_last_30d: usize,
 }
 
-/// Bond Policy (001 FR-012, 002 FR-007): the node's tri-state anti-abuse-bond
-/// enforcement, mapped to the report schema's three-valued string by
-/// `models::instance_status::BondEnabled::as_bond_policy_status`. Its own, distinctly
-/// named sub-object per 002 FR-007 — never merged into the trade-history metrics above.
+/// The node's tri-state anti-abuse-bond enforcement, mapped to the report schema's
+/// three-valued string by `models::instance_status::BondEnabled::as_bond_policy_status`.
+/// Its own, distinctly named sub-object — never merged into the trade-history metrics
+/// above.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct BondPolicy {
     pub status: &'static str,
 }
 
-/// Every core reputation metric this PR computes (001 FR-001 through FR-006, FR-008,
-/// FR-009, FR-010, FR-011, FR-012) for one node, assembled from `stats::lifecycle`,
-/// `stats::trade_size`, `stats::disputes`, and `stats::context`'s independently tested
-/// computations, plus `models::instance_status`'s bond-policy mapping. Pure struct
-/// assembly: no new business logic lives here.
+/// Every core reputation metric computed for one node, assembled from
+/// `stats::lifecycle`, `stats::trade_size`, `stats::disputes`, and `stats::context`'s
+/// independently tested computations, plus `models::instance_status`'s bond-policy
+/// mapping. Pure struct assembly: no new business logic lives here.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodeMetrics {
     pub longevity: Longevity,
@@ -140,7 +138,6 @@ mod tests {
         assert_eq!(metrics.disputes.resolved_disputes, 0);
         assert_eq!(metrics.disputes.active_disputes, 1);
         assert_eq!(metrics.disputes.unknown_status_disputes, 0);
-        // 1 dispute / 2 successful trades * 100 = 50.0.
         assert_eq!(metrics.disputes.disputes_per_100_trades, Some(50.0));
         assert_eq!(metrics.fiat_breakdown.orders_considered, 2);
         assert_eq!(metrics.payment_method_breakdown.total_mentions, 1);

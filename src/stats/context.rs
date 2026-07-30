@@ -1,6 +1,6 @@
-//! Descriptive context signals (001 FR-008, FR-009, FR-011): fiat-currency distribution,
-//! payment-method usage ranking, and premium consistency, computed from the already
-//! extracted `f`/`pm`/`premium` values on the node's qualifying successful orders
+//! Descriptive context signals: fiat-currency distribution, payment-method usage
+//! ranking, and premium consistency, computed from the already extracted
+//! `f`/`pm`/`premium` values on the node's qualifying successful orders
 //! (`models::order::OrderAggregate`). Takes plain slices, not the aggregate itself,
 //! matching `stats::lifecycle`/`stats::trade_size`/`stats::disputes`'s existing pattern
 //! of depending on primitives rather than `models::*` types.
@@ -8,7 +8,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-/// One currency's share of the fiat-currency distribution (001 FR-008).
+/// One currency's share of the fiat-currency distribution.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct FiatCurrencyShare {
     pub currency: String,
@@ -16,17 +16,17 @@ pub struct FiatCurrencyShare {
     pub share_percent: f64,
 }
 
-/// FR-008's fiat-currency distribution. `orders_considered` is the denominator: the
-/// count of qualifying successful orders carrying a non-empty `f` value. `distribution`
-/// is `None` only when that denominator is zero (every qualifying order had an empty
-/// `f` value, or there were no qualifying orders at all).
+/// The fiat-currency distribution. `orders_considered` is the denominator: the count
+/// of qualifying successful orders carrying a non-empty `f` value. `distribution` is
+/// `None` only when that denominator is zero (every qualifying order had an empty `f`
+/// value, or there were no qualifying orders at all).
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct FiatBreakdown {
     pub orders_considered: usize,
     pub distribution: Option<Vec<FiatCurrencyShare>>,
 }
 
-/// One payment method's share of the usage ranking (001 FR-009).
+/// One payment method's share of the usage ranking.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct PaymentMethodShare {
     pub method: String,
@@ -34,16 +34,16 @@ pub struct PaymentMethodShare {
     pub share_percent: f64,
 }
 
-/// FR-009's payment-method usage ranking. `total_mentions` is the denominator: the
-/// count of `pm` mentions across every qualifying successful order (not a per-order
-/// count). `distribution` is `None` only when that denominator is zero.
+/// The payment-method usage ranking. `total_mentions` is the denominator: the count of
+/// `pm` mentions across every qualifying successful order (not a per-order count).
+/// `distribution` is `None` only when that denominator is zero.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct PaymentMethodBreakdown {
     pub total_mentions: usize,
     pub distribution: Option<Vec<PaymentMethodShare>>,
 }
 
-/// FR-011's premium consistency signal. Both fields are `None` only when fewer than 2
+/// The premium consistency signal. Both fields are `None` only when fewer than 2
 /// orders carry a valid `premium` tag.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct PremiumSignal {
@@ -66,8 +66,8 @@ fn ranked_shares<T>(
         })
         .collect();
 
-    // FR-009: descending `share_percent`, ties broken by label ascending — deterministic
-    // even though the underlying tally is a `HashMap` with no guaranteed iteration order.
+    // Descending `share_percent`, ties broken by label ascending — deterministic even
+    // though the underlying tally is a `HashMap` with no guaranteed iteration order.
     shares.sort_by(|a, b| {
         share_of(b)
             .partial_cmp(&share_of(a))
@@ -78,8 +78,8 @@ fn ranked_shares<T>(
     shares
 }
 
-/// Computes FR-008's fiat-currency distribution from the `f` tag's value on each
-/// qualifying successful order, already filtered to exclude empty values by
+/// Computes the fiat-currency distribution from the `f` tag's value on each qualifying
+/// successful order, already filtered to exclude empty values by
 /// `models::order::aggregate_order_events`. Byte-for-byte comparison, no trimming, no
 /// case normalization.
 pub fn compute_fiat_breakdown(fiat_values: &[String]) -> FiatBreakdown {
@@ -115,8 +115,8 @@ pub fn compute_fiat_breakdown(fiat_values: &[String]) -> FiatBreakdown {
     }
 }
 
-/// Computes FR-009's payment-method usage ranking from every `pm` mention across the
-/// node's qualifying successful orders, already flattened by
+/// Computes the payment-method usage ranking from every `pm` mention across the node's
+/// qualifying successful orders, already flattened by
 /// `models::order::aggregate_order_events`. Byte-for-byte comparison is critical here:
 /// `"Bank transfer"` and `" Bank transfer"` are distinct methods, never trimmed or
 /// normalized.
@@ -153,12 +153,12 @@ pub fn compute_payment_method_breakdown(mentions: &[String]) -> PaymentMethodBre
     }
 }
 
-/// Computes FR-011's premium signal from the `premium` tag parsed as `i64` on each
+/// Computes the premium signal from the `premium` tag parsed as `i64` on each
 /// qualifying successful order, already excluded when missing/unparseable by
 /// `models::order::aggregate_order_events`. `premium_baseline_percent` is the median;
 /// `premium_dispersion_percent` is the population standard deviation (divide by `N`, not
-/// `N-1`, the same rule as `stats::trade_size`'s FR-010 computation) around the mean —
-/// a distinct, separate computation from trade-size's own median/std-dev, since this is
+/// `N-1`, the same rule as `stats::trade_size`'s computation) around the mean — a
+/// distinct, separate computation from trade-size's own median/std-dev, since this is
 /// percentage points over a signed `i64` set, not sats over an unsigned one. `premium`
 /// comes from an untrusted relay event (`models::order`'s `saturating_add` on `amt`
 /// carries the same caveat): converting to `f64` loses precision above 2^53 in either
@@ -278,9 +278,6 @@ mod tests {
 
     #[test]
     fn compute_payment_method_breakdown_ranks_mentions_not_orders() {
-        // One order mentioning both methods, one order mentioning only "Cash": Cash and
-        // "Bank transfer" both have 1 mention out of 3 total = 33.33%; SEPA has 1/3 too.
-        // Use a skewed example instead so the ranking is unambiguous.
         let mentions = vec!["SEPA".to_string(), "SEPA".to_string(), "Cash".to_string()];
 
         let breakdown = compute_payment_method_breakdown(&mentions);
@@ -294,8 +291,8 @@ mod tests {
         assert_eq!(distribution[1].mentions, 1);
     }
 
-    /// FR-009: byte-for-byte comparison — a leading space makes a distinct method,
-    /// never merged or trimmed.
+    /// Byte-for-byte comparison — a leading space makes a distinct method, never
+    /// merged or trimmed.
     #[test]
     fn compute_payment_method_breakdown_treats_leading_whitespace_as_a_distinct_method() {
         let mentions = vec!["Bank transfer".to_string(), " Bank transfer".to_string()];
@@ -330,13 +327,11 @@ mod tests {
     fn compute_premium_signal_computes_median_baseline_and_population_std_dev_dispersion() {
         let signal = compute_premium_signal(&[10, 20, 30, 40]);
 
-        // Median of [10, 20, 30, 40] = 25.
         assert_close(signal.premium_baseline_percent.unwrap(), 25.0);
-        // mean = 25; deviations -15,-5,5,15; squared 225,25,25,225; sum 500; /4 = 125.
         assert_close(signal.premium_dispersion_percent.unwrap(), 125.0_f64.sqrt());
     }
 
-    /// FR-011: `premium` supports negative values (a discount rather than a markup).
+    /// `premium` supports negative values (a discount rather than a markup).
     #[test]
     fn compute_premium_signal_handles_negative_premiums() {
         let signal = compute_premium_signal(&[-10, -5, 0, 5, 10]);

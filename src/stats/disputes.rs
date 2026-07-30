@@ -1,12 +1,12 @@
-//! Dispute signals (001 FR-006): a disputes-per-100-successful-trades ratio, computed
-//! from PR 3's already deduplicated-by-`d`-tag, already-classified dispute counts
+//! Dispute signals: a disputes-per-100-successful-trades ratio, computed from the
+//! already deduplicated-by-`d`-tag, already-classified dispute counts
 //! (`models::dispute::DisputeAggregate`) and the successful-trade count already
 //! computed by `stats::lifecycle`. Takes plain counts, not a domain-model type,
 //! matching `stats::lifecycle`/`stats::trade_size`'s existing pattern of depending on
 //! primitives rather than `models::*` types.
 
-/// FR-006's dispute signals for one node. The four counts are never `Option`: a count
-/// of zero disputes is a real, computable value, not a not-applicable case.
+/// Dispute signals for one node. The four counts are never `Option`: a count of zero
+/// disputes is a real, computable value, not a not-applicable case.
 /// `disputes_per_100_trades` is `None` only when `successful_trades` is zero — there is
 /// no denominator to divide by — regardless of how many disputes exist.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
@@ -18,8 +18,8 @@ pub struct DisputeSignals {
     pub disputes_per_100_trades: Option<f64>,
 }
 
-/// Computes FR-006's dispute signals from already deduplicated/classified dispute
-/// counts and the node's successful-trade count.
+/// Computes dispute signals from already deduplicated/classified dispute counts and
+/// the node's successful-trade count.
 pub fn compute_dispute_signals(
     total_disputes: usize,
     resolved_disputes: usize,

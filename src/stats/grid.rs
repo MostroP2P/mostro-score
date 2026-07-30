@@ -1,24 +1,23 @@
-//! Activity grid: bucketing and automatic granularity selection (002 FR-004/FR-005, 003
-//! FR-006), plus FR-005a's wide-range warning. Report/activity-grid logic, not a Phase 1
-//! lifetime metric, kept apart from `lifecycle.rs` for that reason. Pure, no I/O, per the
-//! constitution's dependency direction for `stats`.
+//! Activity grid: bucketing and automatic granularity selection, plus a wide-range
+//! warning. Report/activity-grid logic, not a Phase 1 lifetime metric, kept apart from
+//! `lifecycle.rs` for that reason. Pure, no I/O.
 
 use crate::stats::trade_size::compute_trade_stats;
 use chrono::{DateTime, Datelike, LocalResult, TimeZone, Utc};
 use serde::Serialize;
 
-/// T129 evidence: bucket-count practicality bounds, picked by reasoning about a terminal
-/// table's usable row count (a table showing hundreds of rows is unusable), not from a
-/// runtime measurement. Daily buckets while the range is a quarter or less, monthly
-/// while it is roughly two years or less, yearly beyond that.
+/// Bucket-count practicality bounds, picked by reasoning about a terminal table's
+/// usable row count (a table showing hundreds of rows is unusable), not from a runtime
+/// measurement. Daily buckets while the range is a quarter or less, monthly while it is
+/// roughly two years or less, yearly beyond that.
 const DAILY_GRANULARITY_MAX_RANGE_DAYS: i64 = 90;
 const MONTHLY_GRANULARITY_MAX_RANGE_DAYS: i64 = 730;
 
 const SECONDS_PER_DAY: i64 = 86400;
 
-/// The activity grid's bucket size (002 FR-005, 003 FR-006). Serializes as a lowercase
-/// JSON string (`"daily"` / `"monthly"` / `"yearly"`), matching `RelayStatus`'s pattern
-/// for other string-union report fields.
+/// The activity grid's bucket size. Serializes as a lowercase JSON string (`"daily"` /
+/// `"monthly"` / `"yearly"`), matching `RelayStatus`'s pattern for other string-union
+/// report fields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Granularity {
@@ -27,8 +26,8 @@ pub enum Granularity {
     Yearly,
 }
 
-/// One qualifying successful order's contribution to the activity grid (002 FR-004): its
-/// UTC timestamp and its trade amount in sats, when the order's `amt` tag parsed
+/// One qualifying successful order's contribution to the activity grid: its UTC
+/// timestamp and its trade amount in sats, when the order's `amt` tag parsed
 /// successfully. `amount_sats` is `None` for a successful order whose `amt` did not
 /// parse — it still counts toward `successful_trades`, but contributes nothing to
 /// `volume_sats`/`median_trade_sats`, mirroring `models::order::aggregate_order_events`'s
@@ -40,10 +39,10 @@ pub struct GridOrder {
     pub amount_sats: Option<u64>,
 }
 
-/// One row of the activity grid (002 FR-004). An empty bucket still appears with
-/// `successful_trades`/`volume_sats` of `0` and `median_trade_sats` of `None` — both are
-/// real values for an empty bucket per spec 002's Edge Cases, while a median over zero
-/// orders is undefined, not zero (001 FR-003).
+/// One row of the activity grid. An empty bucket still appears with
+/// `successful_trades`/`volume_sats` of `0` and `median_trade_sats` of `None` — both
+/// are real values for an empty bucket, while a median over zero orders is undefined,
+/// not zero.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GridBucket {
     pub bucket_start: i64,
@@ -52,10 +51,10 @@ pub struct GridBucket {
     pub median_trade_sats: Option<f64>,
 }
 
-/// The complete activity grid (002 FR-004/FR-005). `granularity`/`range_start`/
-/// `range_end` are `None` and `buckets` is empty only when the node has zero successful
-/// orders (002 FR-019's zero-order Edge Case): there is no order timestamp to anchor a
-/// default range on, and inventing one would misrepresent the node's actual history.
+/// The complete activity grid. `granularity`/`range_start`/`range_end` are `None` and
+/// `buckets` is empty only when the node has zero successful orders: there is no order
+/// timestamp to anchor a default range on, and inventing one would misrepresent the
+/// node's actual history.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActivityGrid {
     pub granularity: Option<Granularity>,
@@ -64,13 +63,13 @@ pub struct ActivityGrid {
     pub buckets: Vec<GridBucket>,
 }
 
-/// 003 FR-004: an explicit caller-supplied range for the activity grid, or `Unbounded`
-/// to keep this project's pre-PR-10 behavior (infer the range from the orders' own
-/// min/max timestamp). By the time this reaches `compute_activity_grid`, both `since`/
-/// `until` in the `Bounded` case are always already fully resolved concrete values —
-/// `cli::options` resolves everything explicitly given, and `run()` resolves the one
-/// data-dependent default (`since` defaulting to the node's earliest order) before
-/// calling here, so this module never needs to look anything up itself.
+/// An explicit caller-supplied range for the activity grid, or `Unbounded` to infer the
+/// range from the orders' own min/max timestamp. By the time this reaches
+/// `compute_activity_grid`, both `since`/`until` in the `Bounded` case are always
+/// already fully resolved concrete values — `cli::options` resolves everything
+/// explicitly given, and `run()` resolves the one data-dependent default (`since`
+/// defaulting to the node's earliest order) before calling here, so this module never
+/// needs to look anything up itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GridRange {
     Unbounded,
@@ -164,22 +163,21 @@ fn bucket_boundaries(granularity: Granularity, range_start: i64, range_end: i64)
     }
 }
 
-/// 002 FR-004/FR-005, 003 FR-004/FR-006: builds the activity grid from a node's
-/// qualifying successful orders. `range` is authoritative when `Bounded` (003 FR-004):
-/// it always wins even when it disagrees with what orders exist, so an explicit range
-/// with zero orders inside it still renders a real grid with empty buckets spanning the
-/// requested range, never the null/empty result reserved for the true zero-orders/
-/// no-range case (002 FR-019). `range: GridRange::Unbounded` preserves this project's
-/// pre-PR-10 behavior exactly: the range is the node's own observed lifetime, inferred
-/// from the orders' own min/max timestamp.
+/// Builds the activity grid from a node's qualifying successful orders. `range` is
+/// authoritative when `Bounded`: it always wins even when it disagrees with what orders
+/// exist, so an explicit range with zero orders inside it still renders a real grid
+/// with empty buckets spanning the requested range, never the null/empty result
+/// reserved for the true zero-orders/no-range case. `range: GridRange::Unbounded`
+/// infers the range from the node's own observed lifetime: the orders' own min/max
+/// timestamp.
 ///
-/// `forced_granularity` overrides automatic selection (T129's evidence) when `Some` —
-/// 003 FR-006's explicit `--view`, a configuration-sourced value, or any other caller
-/// that already knows the desired granularity. When `range` is `Bounded`, a misaligned
-/// `since`/`until` is snapped to the enclosing bucket's start/end once granularity is
-/// known (003 FR-006); rejecting an explicit `--view`'s own misalignment instead of
-/// snapping is `cli::options`'s job, upstream of this function — by the time a `Bounded`
-/// range reaches here, snapping is always the correct behavior.
+/// `forced_granularity` overrides automatic selection when `Some` — an explicit
+/// `--view`, a configuration-sourced value, or any other caller that already knows the
+/// desired granularity. When `range` is `Bounded`, a misaligned `since`/`until` is
+/// snapped to the enclosing bucket's start/end once granularity is known; rejecting an
+/// explicit `--view`'s own misalignment instead of snapping is `cli::options`'s job,
+/// upstream of this function — by the time a `Bounded` range reaches here, snapping is
+/// always the correct behavior.
 pub fn compute_activity_grid(
     orders: &[GridOrder],
     range: GridRange,
@@ -193,8 +191,8 @@ pub fn compute_activity_grid(
     }
 }
 
-/// 003 FR-006: a *defaulted* `--since`/`--until` (this function's entire reason for
-/// existing: `GridRange::Unbounded` means neither flag was given at all) MUST snap to the
+/// A *defaulted* `--since`/`--until` (this function's entire reason for existing:
+/// `GridRange::Unbounded` means neither flag was given at all) MUST snap to the
 /// enclosing bucket's start/end when the granularity is forced — the reject-instead-of-
 /// snap rule applies only to an *explicitly given* `--since`/`--until` combined with an
 /// explicit `--view`, never to this inferred-from-orders, no-explicit-bound case. Reuses
@@ -241,11 +239,10 @@ fn compute_unbounded_activity_grid(
     }
 }
 
-/// 003 FR-004/FR-005/FR-006: `since > until` (T190/191's empty/inverted-range case,
-/// reachable from `run()`'s data-dependent earliest-history default when FR-005's own
-/// explicit-`--since` check never applied) stays empty — checked, and returned, before
-/// any snapping happens, so snapping can never turn an inverted range into a non-empty
-/// one.
+/// `since > until` (the empty/inverted-range case, reachable from `run()`'s
+/// data-dependent earliest-history default when the explicit-`--since` check never
+/// applied) stays empty — checked, and returned, before any snapping happens, so
+/// snapping can never turn an inverted range into a non-empty one.
 fn compute_bounded_activity_grid(
     orders: &[GridOrder],
     since: i64,
@@ -285,8 +282,8 @@ fn compute_bounded_activity_grid(
     }
 }
 
-/// 003 FR-006: snaps `since` down to the start of its enclosing bucket and `until` up to
-/// the end of its enclosing bucket for the given `granularity`. A raw timestamp is not
+/// Snaps `since` down to the start of its enclosing bucket and `until` up to the end of
+/// its enclosing bucket for the given `granularity`. A raw timestamp is not
 /// itself a day boundary just because every calendar day is a valid daily bucket unit —
 /// `since`/`until` still need rounding to `00:00:00`/`23:59:59` UTC on their respective
 /// days, exactly like the monthly/yearly cases round to their own calendar boundaries.
@@ -320,12 +317,12 @@ fn snap_range_to_granularity(
 }
 
 /// Builds every ordered, gap-free bucket in `[range_start, range_end]` for
-/// `granularity`, counting only orders that fall inside `filter_range` when given
-/// (003 FR-004's `Bounded` case). `filter_range` is always the same `(range_start,
-/// range_end)` the buckets themselves span — once snapping has widened what's
-/// displayed, every order inside that widened range must count too, not just the
-/// orders inside the caller's original, possibly narrower, request. `filter_range: None`
-/// counts every order, matching `GridRange::Unbounded`'s pre-PR-10 behavior.
+/// `granularity`, counting only orders that fall inside `filter_range` when given (the
+/// `Bounded` case). `filter_range` is always the same `(range_start, range_end)` the
+/// buckets themselves span — once snapping has widened what's displayed, every order
+/// inside that widened range must count too, not just the orders inside the caller's
+/// original, possibly narrower, request. `filter_range: None` counts every order,
+/// matching `GridRange::Unbounded`'s behavior.
 fn build_grid_buckets(
     orders: &[GridOrder],
     granularity: Granularity,
@@ -373,15 +370,14 @@ fn build_grid_buckets(
     buckets
 }
 
-/// 002 FR-005a: warns when a daily grid is combined with a time range wide enough to
-/// produce an unreasonably large number of rows. Reuses T129's own daily/monthly
-/// switch-over boundary as the warning threshold, so the warning and the auto-selection
-/// rule never disagree about what counts as "too wide" for daily buckets. In ordinary
-/// operation `select_granularity` already switches away from daily past that same
-/// boundary, so this can only fire in practice once PR 10's `--view` override lets a
-/// caller force daily granularity over a range auto-selection would never pick on its
-/// own; exercised here ahead of that override with a manually forced scenario. Stderr-only
-/// diagnostic (002 FR-017), no JSON field — the caller decides where/whether to print it.
+/// Warns when a daily grid is combined with a time range wide enough to produce an
+/// unreasonably large number of rows. Reuses the daily/monthly switch-over boundary as
+/// the warning threshold, so the warning and the auto-selection rule never disagree
+/// about what counts as "too wide" for daily buckets. In ordinary operation
+/// `select_granularity` already switches away from daily past that same boundary, so
+/// this can only fire in practice once a `--view` override lets a caller force daily
+/// granularity over a range auto-selection would never pick on its own. Stderr-only
+/// diagnostic, no JSON field — the caller decides where/whether to print it.
 pub fn wide_range_warning_message(
     granularity: Granularity,
     range_start: i64,
@@ -472,7 +468,7 @@ mod tests {
         assert_eq!(grid.buckets[2].median_trade_sats, Some(3000.0));
     }
 
-    /// Edge Cases: a successful order whose `amt` never parsed still counts toward
+    /// A successful order whose `amt` never parsed still counts toward
     /// `successful_trades` but contributes nothing to `volume_sats`/`median_trade_sats`.
     #[test]
     fn compute_activity_grid_counts_a_trade_with_no_amount_toward_successful_trades_only() {
@@ -612,12 +608,12 @@ mod tests {
         );
     }
 
-    /// 003 FR-006: an explicit `--view` with no `--since`/`--until` at all is still a
-    /// *defaulted* range in FR-006's own terms, so it MUST snap to the enclosing bucket
-    /// boundary, exactly like the config-sourced/automatic-selection cases -- the
-    /// reject-instead-of-snap rule applies only when `--since`/`--until` are *also*
-    /// explicitly given. `range_start`/`range_end` must reflect the snapped calendar-month
-    /// boundary, not the orders' own raw min/max timestamps.
+    /// An explicit `--view` with no `--since`/`--until` at all is still a *defaulted*
+    /// range, so it MUST snap to the enclosing bucket boundary, exactly like the
+    /// config-sourced/automatic-selection cases -- the reject-instead-of-snap rule
+    /// applies only when `--since`/`--until` are *also* explicitly given.
+    /// `range_start`/`range_end` must reflect the snapped calendar-month boundary, not
+    /// the orders' own raw min/max timestamps.
     #[test]
     fn compute_activity_grid_unbounded_with_forced_granularity_snaps_the_inferred_range() {
         let mid_march = Utc
@@ -660,10 +656,10 @@ mod tests {
         );
     }
 
-    /// The pre-PR-10 fully-automatic path (`Unbounded`, no forced granularity) must stay
-    /// exactly as it was: `range_start`/`range_end` are the orders' own raw min/max, never
-    /// snapped -- only an explicit `--view` (or a config-sourced value, once PR 12 lands)
-    /// triggers snapping for an otherwise-defaulted range.
+    /// The fully-automatic path (`Unbounded`, no forced granularity):
+    /// `range_start`/`range_end` are the orders' own raw min/max, never snapped -- only
+    /// an explicit `--view` (or a config-sourced value) triggers snapping for an
+    /// otherwise-defaulted range.
     #[test]
     fn compute_activity_grid_unbounded_with_no_forced_granularity_never_snaps() {
         let mid_march = Utc
@@ -699,11 +695,11 @@ mod tests {
         assert_eq!(warning, None);
     }
 
-    // ---- 003 FR-004/FR-006: `GridRange::Bounded` ----
+    // ---- GridRange::Bounded ----
 
-    /// FR-004: an explicit range with zero orders inside it renders a real grid with
-    /// empty buckets spanning the requested range, never the null result reserved for
-    /// the true zero-orders/no-range case.
+    /// An explicit range with zero orders inside it renders a real grid with empty
+    /// buckets spanning the requested range, never the null result reserved for the
+    /// true zero-orders/no-range case.
     #[test]
     fn compute_activity_grid_bounded_range_with_zero_orders_still_renders_empty_buckets() {
         let since = 0;
@@ -723,8 +719,8 @@ mod tests {
             .all(|bucket| bucket.successful_trades == 0));
     }
 
-    /// FR-004: the bounded range wins even when orders exist outside it — only orders
-    /// inside `[since, until]` are counted.
+    /// The bounded range wins even when orders exist outside it — only orders inside
+    /// `[since, until]` are counted.
     #[test]
     fn compute_activity_grid_bounded_range_filters_out_orders_outside_the_range() {
         let since = SECONDS_PER_DAY;
@@ -760,8 +756,8 @@ mod tests {
         assert_eq!(total_volume, 500);
     }
 
-    /// FR-006: an explicit forced granularity is used directly, with no automatic
-    /// selection, even over a range automatic selection would never pick on its own.
+    /// An explicit forced granularity is used directly, with no automatic selection,
+    /// even over a range automatic selection would never pick on its own.
     #[test]
     fn compute_activity_grid_bounded_range_uses_forced_granularity_directly() {
         let since = 0;
@@ -776,7 +772,7 @@ mod tests {
         assert_eq!(grid.granularity, Some(Granularity::Monthly));
     }
 
-    /// FR-006: a misaligned `since`/`until` is snapped to the enclosing calendar-month
+    /// A misaligned `since`/`until` is snapped to the enclosing calendar-month
     /// boundary when the monthly granularity comes from config/automatic selection
     /// rather than an explicit `--view` (already rejected upstream in `cli::options` in
     /// that case).
@@ -816,10 +812,9 @@ mod tests {
         );
     }
 
-    /// FR-006: an empty or inverted range (`since > until`) stays empty regardless of
-    /// snapping — proven here by choosing bounds that would land in *different* calendar
-    /// months once snapped, so snapping could only ever widen, never repair, the
-    /// inversion.
+    /// An empty or inverted range (`since > until`) stays empty regardless of snapping
+    /// — proven here by choosing bounds that would land in *different* calendar months
+    /// once snapped, so snapping could only ever widen, never repair, the inversion.
     #[test]
     fn compute_activity_grid_empty_inverted_range_stays_empty_after_snapping() {
         let since = Utc
@@ -842,8 +837,8 @@ mod tests {
         assert_eq!(grid.range_end, Some(until));
     }
 
-    /// FR-006: with no forced granularity, a `Bounded` range auto-selects granularity
-    /// from its own span, not from any order's own min/max.
+    /// With no forced granularity, a `Bounded` range auto-selects granularity from its
+    /// own span, not from any order's own min/max.
     #[test]
     fn compute_activity_grid_bounded_range_auto_selects_granularity_from_the_range_span() {
         let since = 0;
@@ -854,8 +849,8 @@ mod tests {
         assert_eq!(grid.granularity, Some(Granularity::Monthly));
     }
 
-    /// FR-006: once snapping widens the displayed range to the enclosing calendar month,
-    /// an order that falls inside that widened month but OUTSIDE the caller's originally
+    /// Once snapping widens the displayed range to the enclosing calendar month, an
+    /// order that falls inside that widened month but OUTSIDE the caller's originally
     /// requested (narrower) `[since, until]` must still be counted -- the grid claims to
     /// cover the whole month, so it must actually count the whole month, not silently
     /// exclude days the snap itself introduced.
@@ -896,7 +891,7 @@ mod tests {
         );
     }
 
-    /// 003 FR-006: a defaulted daily range (e.g. `--view daily` alone, or any other
+    /// A defaulted daily range (e.g. `--view daily` alone, or any other
     /// non-explicit-`--view` daily case) still snaps to UTC day boundaries -- a raw
     /// mid-day timestamp is not itself a day boundary just because a day is a valid
     /// bucket unit.

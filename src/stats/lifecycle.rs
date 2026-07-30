@@ -1,18 +1,18 @@
 use serde::Serialize;
 use std::collections::HashSet;
 
-/// Longevity (001 FR-001): `first_seen_at` is `Some` only via the primary dev-fee anchor
-/// path; the fallback path (no dev-fee anchor, but at least one qualifying successful
-/// order) reports `first_seen_at` as `None` since it has no dev-fee event to derive it
-/// from, even though `days_active` is still computable in that case.
+/// `first_seen_at` is `Some` only via the primary dev-fee anchor path; the fallback
+/// path (no dev-fee anchor, but at least one qualifying successful order) reports
+/// `first_seen_at` as `None` since it has no dev-fee event to derive it from, even
+/// though `days_active` is still computable in that case.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Longevity {
     pub first_seen_at: Option<i64>,
     pub days_active: Option<f64>,
 }
 
-/// Compute longevity (Section 4.1.1, 001 FR-001). Primary anchor is the oldest
-/// qualifying kind `8383` dev-fee-payment event's `created_at`. When the node has none,
+/// Primary anchor is the oldest qualifying kind `8383` dev-fee-payment event's
+/// `created_at`. When the node has none,
 /// falls back to the elapsed time between its first qualifying successful order's
 /// `created_at` and `now` — matching the primary path's own "elapsed time to now"
 /// semantic, rather than spanning first order to *last* order (which would stop
@@ -42,8 +42,8 @@ pub fn compute_longevity(
     }
 }
 
-/// Cumulative performance (Section 4.1.2, 001 FR-002). Pure exposure of values already
-/// computed by `models::order::aggregate_order_events` — no new aggregation logic.
+/// Pure exposure of values already computed by
+/// `models::order::aggregate_order_events` — no new aggregation logic.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct CumulativePerformance {
     pub total_successful_trades: usize,
@@ -60,9 +60,8 @@ pub fn compute_cumulative_performance(
     }
 }
 
-/// Liveness (Section 4.2.1/4.2.2, 001 FR-004): last successful trade and elapsed time
-/// since it, both not applicable when the node has zero successful orders, plus the
-/// rolling 7/30/90-day successful-trade counts.
+/// Last successful trade and elapsed time since it, both not applicable when the node
+/// has zero successful orders, plus the rolling 7/30/90-day successful-trade counts.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Liveness {
     pub last_successful_trade_at: Option<i64>,
@@ -89,7 +88,6 @@ pub fn compute_liveness(successful_trade_timestamps: &[i64], now: i64) -> Livene
     }
 }
 
-/// Compute rolling window metrics (Section 4.2.2)
 pub fn compute_rolling_windows(timestamps: &[i64], now: i64) -> (usize, usize, usize) {
     let day_7 = now - (7 * 86400);
     let day_30 = now - (30 * 86400);
@@ -102,17 +100,16 @@ pub fn compute_rolling_windows(timestamps: &[i64], now: i64) -> (usize, usize, u
     (last_7d, last_30d, last_90d)
 }
 
-/// Compute activity consistency (Section 4.2.3, 001 FR-005). The window is exactly 30
-/// UTC calendar days ending on and including today, not a rolling 30*86400-second
-/// cutoff: computing the window's boundary as a raw timestamp comparison (rather than
-/// aligning both ends to UTC calendar-day indices first) includes an extra day whenever
-/// `now` isn't exactly at a UTC day boundary, since `now - 30*86400` and `now` land on
-/// the same day-of-week offset but span 31 distinct day indices, not 30.
+/// The window is exactly 30 UTC calendar days ending on and including today, not a
+/// rolling 30*86400-second cutoff: computing the window's boundary as a raw timestamp
+/// comparison (rather than aligning both ends to UTC calendar-day indices first)
+/// includes an extra day whenever `now` isn't exactly at a UTC day boundary, since
+/// `now - 30*86400` and `now` land on the same day-of-week offset but span 31 distinct
+/// day indices, not 30.
 pub fn compute_activity_consistency(timestamps: &[i64], now: i64) -> (usize, usize) {
     let today = now.div_euclid(86400);
     let window_start_day = today - 29; // 30 calendar days inclusive: today-29 ..= today
 
-    // Get unique UTC calendar days with a trade within the 30-day window.
     let active_days: HashSet<i64> = timestamps
         .iter()
         .map(|&ts| ts.div_euclid(86400))
@@ -121,7 +118,6 @@ pub fn compute_activity_consistency(timestamps: &[i64], now: i64) -> (usize, usi
 
     let active_days_count = active_days.len();
 
-    // Calculate max consecutive inactive days
     if active_days.is_empty() {
         return (0, 30);
     }
@@ -155,10 +151,10 @@ mod tests {
         assert_eq!(longevity.days_active, Some(90.0));
     }
 
-    /// FR-001's core fix: with no dev-fee anchor, `days_active` must span the node's
-    /// *first* qualifying successful order to *now*, not first order to last order —
-    /// otherwise a node with exactly one successful order would always read `0`, and
-    /// `days_active` would stop increasing after the node's last trade.
+    /// With no dev-fee anchor, `days_active` must span the node's *first* qualifying
+    /// successful order to *now*, not first order to last order — otherwise a node with
+    /// exactly one successful order would always read `0`, and `days_active` would
+    /// stop increasing after the node's last trade.
     #[test]
     fn compute_longevity_falls_back_to_first_successful_order_to_now_when_no_dev_fee_anchor() {
         let now = 100 * 86400;
@@ -249,10 +245,10 @@ mod tests {
         assert_eq!(max_gap, 20);
     }
 
-    /// FR-005 regression: the window is exactly 30 UTC calendar days ending on and
-    /// including today, not a rolling 30*86400-second cutoff. A trade on the day exactly
-    /// 30 days before today (the window's first day) must still count; a trade one day
-    /// further back must not.
+    /// The window is exactly 30 UTC calendar days ending on and including today, not a
+    /// rolling 30*86400-second cutoff. A trade on the day exactly 30 days before today
+    /// (the window's first day) must still count; a trade one day further back must
+    /// not.
     #[test]
     fn compute_activity_consistency_window_is_exactly_thirty_calendar_days() {
         let now = 100 * 86400_i64; // today = day 100, window = days 71..=100
