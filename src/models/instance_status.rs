@@ -1,14 +1,14 @@
-//! Kind `38385` instance-status events (FR-012): a NIP-33 replaceable event keyed by the
-//! node's own pubkey as the `d` tag, republished on a timer. Selection restricts the
-//! candidate set to events whose `d` tag equals the node's own pubkey, then picks the
-//! highest `created_at` within that set (ties broken by the greatest event id).
+//! Kind `38385` instance-status events: a NIP-33 replaceable event keyed by the node's
+//! own pubkey as the `d` tag, republished on a timer. Selection restricts the candidate
+//! set to events whose `d` tag equals the node's own pubkey, then picks the highest
+//! `created_at` within that set (ties broken by the greatest event id).
 
 use crate::models::core::{d_tag, tag_value};
 use crate::models::dedup::select_current_event;
 use nostr_sdk::prelude::*;
 
-/// FR-012's tri-state read of the `bond_enabled` tag: `Unknown` covers both a missing
-/// tag and a value that fails to parse as `true`/`false`, never defaulting to `false`.
+/// Tri-state read of the `bond_enabled` tag: `Unknown` covers both a missing tag and a
+/// value that fails to parse as `true`/`false`, never defaulting to `false`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BondEnabled {
     True,
@@ -17,10 +17,9 @@ pub enum BondEnabled {
 }
 
 impl BondEnabled {
-    /// 001 FR-012, 002 FR-007: the report schema's three-valued bond-policy status
-    /// string, distinct from `NodeMetrics`'s trade-history fields (002 FR-007 requires
-    /// Bond Policy to be its own, distinctly named sub-object). A thin mapping of this
-    /// existing tri-state; no new selection or parsing logic.
+    /// The report schema's three-valued bond-policy status string, distinct from
+    /// `NodeMetrics`'s trade-history fields. A thin mapping of this existing tri-state;
+    /// no new selection or parsing logic.
     pub fn as_bond_policy_status(&self) -> &'static str {
         match self {
             BondEnabled::True => "enabled",
@@ -45,10 +44,10 @@ pub struct InstanceStatusAggregate {
     pub bond_enabled: BondEnabled,
 }
 
-/// FR-012/FR-015: restrict `instance_status_events` to the ones whose `d` tag equals
-/// `node_pubkey`'s hex encoding, then select the current/final event among those
-/// candidates (highest `created_at`, ties broken by the greatest event id). Events
-/// without a `d` tag, or whose `d` tag does not match, are safely excluded (FR-013).
+/// Restricts `instance_status_events` to the ones whose `d` tag equals `node_pubkey`'s
+/// hex encoding, then selects the current/final event among those candidates (highest
+/// `created_at`, ties broken by the greatest event id). Events without a `d` tag, or
+/// whose `d` tag does not match, are safely excluded.
 pub fn select_instance_status_event(
     instance_status_events: Vec<Event>,
     node_pubkey: &PublicKey,
@@ -235,8 +234,8 @@ mod tests {
         assert_eq!(aggregate.bond_enabled, BondEnabled::Unknown);
     }
 
-    /// FR-013: an instance-status event carrying no tags at all (no `d` tag either) must
-    /// never match any node's pubkey and must never panic.
+    /// An instance-status event carrying no tags at all (no `d` tag either) must never
+    /// match any node's pubkey and must never panic.
     #[test]
     fn select_instance_status_event_handles_a_tagless_event_without_panicking() {
         let node_pubkey = Keys::generate().public_key();
@@ -247,9 +246,6 @@ mod tests {
         assert!(selected.is_none());
     }
 
-    /// 001 FR-012, 002 FR-007: the report schema's three-valued bond-policy status
-    /// string, a thin mapping of the existing `BondEnabled` tri-state — never a
-    /// re-implementation of its selection or parsing logic.
     #[test]
     fn bond_enabled_maps_to_the_report_schemas_three_valued_status_string() {
         assert_eq!(BondEnabled::True.as_bond_policy_status(), "enabled");
