@@ -1,12 +1,8 @@
-//! Format selection (002 FR-010): `Format` stands in for "which renderer to use", and
+//! Format selection: `Format` stands in for "which renderer to use", and
 //! `select_format_for_context` is a pure function deciding the context-based default —
 //! console when stdout is an interactive terminal, plain-text when it is redirected or
-//! piped. JSON is never auto-selected: 002 FR-009 lists it as a machine-readable format a
-//! caller opts into explicitly, not a sensible default for either execution context. This
-//! PR only builds and unit-tests the selection function in isolation, the same way PR 7d
-//! built `report::format::resolve_color_enabled` as a pure function before any `--color`
-//! flag existed; wiring an actual `--format` CLI flag is PR 9's job (`cli::options` holds
-//! PR 8's own explicit-override skeleton over this function's result).
+//! piped. JSON is never auto-selected: it is a machine-readable format a caller opts
+//! into explicitly, not a sensible default for either execution context.
 
 pub mod console;
 pub mod json;
@@ -17,7 +13,7 @@ use crate::stats::grid::Granularity;
 use std::io::IsTerminal;
 
 /// Which renderer a caller should use for a report. `Console`/`Plain` are the two
-/// context-selectable defaults (002 FR-010); `Json` is always an explicit choice.
+/// context-selectable defaults; `Json` is always an explicit choice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Console,
@@ -25,10 +21,10 @@ pub enum Format {
     Json,
 }
 
-/// 002 FR-010's context-based default, resolved from an already-gathered tty flag so the
+/// The context-based default, resolved from an already-gathered tty flag so the
 /// decision itself is unit-testable without depending on the real process environment —
-/// the same pattern `report::format::resolve_color_enabled` already uses for FR-015's
-/// color policy.
+/// the same pattern `report::format::resolve_color_enabled` already uses for the color
+/// policy.
 pub fn select_format_for_context(stdout_is_terminal: bool) -> Format {
     if stdout_is_terminal {
         Format::Console
@@ -45,45 +41,43 @@ pub fn default_format_for_stdout() -> Format {
     select_format_for_context(std::io::stdout().is_terminal())
 }
 
-/// PR 9: the resolved, per-invocation options `run()` needs to render its output —
-/// bundled into one struct so `run()`'s already-`#[allow(clippy::too_many_arguments)]`
+/// The resolved, per-invocation options `run()` needs to render its output — bundled
+/// into one struct so `run()`'s already-`#[allow(clippy::too_many_arguments)]`
 /// signature does not grow further with three separate parameters. `cli::options` builds
 /// this from the parsed CLI flags, environment, and automatic-detection state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RunOptions {
-    /// Which renderer to use for the report (003 FR-010).
     pub format: Format,
-    /// Suppresses progress indicators and transient status narration (003 FR-012).
+    /// Suppresses progress indicators and transient status narration.
     pub quiet: bool,
-    /// `--color`/`--no-color`'s resolved override (003 FR-011): `None` defers to the
-    /// automatic tty/`NO_COLOR`/`TERM=dumb` policy. Only `Format::Console` ever consults
-    /// this; `Format::Plain`/`Format::Json` never render color, so this field is
-    /// harmless, not meaningful, for those two formats.
+    /// `--color`/`--no-color`'s resolved override: `None` defers to the automatic
+    /// tty/`NO_COLOR`/`TERM=dumb` policy. Only `Format::Console` ever consults this;
+    /// `Format::Plain`/`Format::Json` never render color, so this field is harmless,
+    /// not meaningful, for those two formats.
     pub color_override: Option<bool>,
-    /// PR 10 (003 FR-004): the activity grid's resolved `--since` bound, in epoch
-    /// seconds. `None` means either both `--since`/`--until` were omitted (full
-    /// history), or `--until` alone was given and `run()` still needs to resolve this to
-    /// the node's earliest available history once it has fetched data — `cli::options`
-    /// cannot know that value itself.
+    /// The activity grid's resolved `--since` bound, in epoch seconds. `None` means
+    /// either both `--since`/`--until` were omitted (full history), or `--until` alone
+    /// was given and `run()` still needs to resolve this to the node's earliest
+    /// available history once it has fetched data — `cli::options` cannot know that
+    /// value itself.
     pub since: Option<i64>,
-    /// PR 10 (003 FR-004): the activity grid's resolved `--until` bound, in epoch
-    /// seconds. `None` means either both `--since`/`--until` were omitted (full
-    /// history), or `--since` alone was given and `run()` still needs to resolve this to
-    /// its own `report_generated_at` (captured after connecting/fetching) rather than an
+    /// The activity grid's resolved `--until` bound, in epoch seconds. `None` means
+    /// either both `--since`/`--until` were omitted (full history), or `--since` alone
+    /// was given and `run()` still needs to resolve this to its own
+    /// `report_generated_at` (captured after connecting/fetching) rather than an
     /// earlier `now` read before any relay is even queried.
     pub until: Option<i64>,
-    /// PR 10 (003 FR-006): an explicit `--view` flag's resolved granularity, forcing the
-    /// activity grid's bucket size instead of automatic selection.
+    /// An explicit `--view` flag's resolved granularity, forcing the activity grid's
+    /// bucket size instead of automatic selection.
     pub view: Option<Granularity>,
-    /// PR 11 (003 FR-008): which console/plain-text sections render. `Format::Json`
-    /// never consults this — it always emits the complete structure (FR-008's
-    /// carve-out).
+    /// Which console/plain-text sections render. `Format::Json` never consults this —
+    /// it always emits the complete structure.
     pub sections: SectionFilter,
 }
 
-/// 002 FR-011: the single format-aware fatal-error rendering point, used both by
-/// `main.rs` for a pre-`run()` fatal error (`AppError::InvalidPubkey`, a malformed
-/// `--relays` entry) and for whatever `run()` itself propagates. `Format::Json` writes
+/// The single format-aware fatal-error rendering point, used both by `main.rs` for a
+/// pre-`run()` fatal error (`AppError::InvalidPubkey`, a malformed `--relays` entry)
+/// and for whatever `run()` itself propagates. `Format::Json` writes
 /// `json::error_envelope`'s single-line document to `out` — the same stream a successful
 /// JSON report already uses (`json::render`), since a fatal error replaces the report on
 /// that stream rather than living on a separate one. `Format::Console`/`Format::Plain`
@@ -111,21 +105,20 @@ mod tests {
     use super::*;
     use crate::error::AppError;
 
-    /// 002 FR-010: an interactive terminal defaults to the console format.
     #[test]
     fn select_format_for_context_uses_console_when_stdout_is_a_terminal() {
         assert_eq!(select_format_for_context(true), Format::Console);
     }
 
-    /// 002 FR-010: redirected/piped output defaults to plain-text, never JSON — JSON is
-    /// always an explicit opt-in (002 FR-009).
+    /// Redirected/piped output defaults to plain-text, never JSON — JSON is always an
+    /// explicit opt-in.
     #[test]
     fn select_format_for_context_uses_plain_text_when_stdout_is_piped() {
         assert_eq!(select_format_for_context(false), Format::Plain);
     }
 
-    /// 002 FR-011: a JSON-format fatal error writes the envelope to `out`, the same
-    /// stream a successful JSON report would use, and nothing to `err`.
+    /// A JSON-format fatal error writes the envelope to `out`, the same stream a
+    /// successful JSON report would use, and nothing to `err`.
     #[test]
     fn render_fatal_error_writes_the_json_envelope_to_out_for_json_format() {
         let error = AppError::InvalidPubkey;

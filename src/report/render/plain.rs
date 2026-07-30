@@ -1,11 +1,11 @@
-//! The plain-text renderer (002 FR-009): the same 5 ordered sections and content as the
-//! console renderer (`report::render::console`) -- the same section headings, the same
-//! per-metric labels and explanatory context (FR-008b) -- with no color and no
-//! decoration. Every metric is its own `label: value` line, including each field of a
-//! repeated record (a relay, an activity bucket, a breakdown share), which becomes one
-//! line per metric rather than a table row, so the output stays easy to grep or parse
-//! line by line in scripts. `--sections` (003 FR-008) may narrow the 4 filterable
-//! sections, matching the console renderer; the node identity header always renders.
+//! The plain-text renderer: the same 5 ordered sections and content as the console
+//! renderer (`report::render::console`) -- the same section headings, the same
+//! per-metric labels and explanatory context -- with no color and no decoration. Every
+//! metric is its own `label: value` line, including each field of a repeated record (a
+//! relay, an activity bucket, a breakdown share), which becomes one line per metric
+//! rather than a table row, so the output stays easy to grep or parse line by line in
+//! scripts. `--sections` may narrow the 4 filterable sections, matching the console
+//! renderer; the node identity header always renders.
 
 use crate::report::content::{ReportRecommendations, SectionFilter};
 use crate::report::format::{
@@ -17,8 +17,8 @@ use crate::report::model::{
 };
 use std::io::Write;
 
-/// 002 FR-002: the node identity header -- both pubkey encodings, so a trader can confirm
-/// they queried the intended node.
+/// The node identity header -- both pubkey encodings, so a trader can confirm they
+/// queried the intended node.
 fn render_node_section(out: &mut impl Write, node: &ReportNode) -> std::io::Result<()> {
     writeln!(out, "NODE IDENTITY")?;
     writeln!(out, "Pubkey (npub): {}", node.pubkey_npub)?;
@@ -26,10 +26,9 @@ fn render_node_section(out: &mut impl Write, node: &ReportNode) -> std::io::Resu
     writeln!(out)
 }
 
-/// 002 FR-003: which relays succeeded or failed, plus the deduplicated per-kind event
-/// counts backing every other section of the report. Each relay's URL identifies its
-/// record, and every metric gets its own `label: value` line per FR-009, not combined
-/// with others.
+/// Which relays succeeded or failed, plus the deduplicated per-kind event counts
+/// backing every other section of the report. Each relay's URL identifies its record,
+/// and every metric gets its own `label: value` line, not combined with others.
 fn render_fetch_section(out: &mut impl Write, fetch: &ReportFetch) -> std::io::Result<()> {
     writeln!(out, "RELAY FETCH SUMMARY")?;
 
@@ -79,10 +78,10 @@ fn render_fetch_section(out: &mut impl Write, fetch: &ReportFetch) -> std::io::R
     writeln!(out)
 }
 
-/// 002 FR-004/FR-005: one line group per time bucket. A node with zero successful orders
-/// has no order timestamp to anchor a range on (002 FR-019's zero-order Edge Case), so
-/// this shows an explicit message instead of an empty grid. Each bucket's start time
-/// identifies its record, and every metric gets its own line per FR-009.
+/// One line group per time bucket. A node with zero successful orders has no order
+/// timestamp to anchor a range on, so this shows an explicit message instead of an
+/// empty grid. Each bucket's start time identifies its record, and every metric gets
+/// its own line.
 fn render_activity_section(out: &mut impl Write, activity: &ReportActivity) -> std::io::Result<()> {
     writeln!(out, "ACTIVITY GRID")?;
 
@@ -125,10 +124,9 @@ fn render_activity_section(out: &mut impl Write, activity: &ReportActivity) -> s
     writeln!(out)
 }
 
-/// 002 FR-006/FR-007, FR-008b: the general statistics section -- the same sub-block
-/// headings and per-field labels as the console renderer, each carrying enough context
-/// that a trader unfamiliar with Mostro's reputation metrics understands what it
-/// measures without leaving the tool.
+/// The general statistics section -- the same sub-block headings and per-field labels
+/// as the console renderer, each carrying enough context that a trader unfamiliar with
+/// Mostro's reputation metrics understands what it measures without leaving the tool.
 fn render_stats_section(
     out: &mut impl Write,
     stats: &ReportStats,
@@ -376,8 +374,8 @@ fn render_stats_section(
     writeln!(out)
 }
 
-/// 002 FR-008/FR-008a: plain-language guidance, explicitly stating there is nothing
-/// notable to flag when no trigger fired, rather than omitting the block.
+/// Plain-language guidance, explicitly stating there is nothing notable to flag when
+/// no trigger fired, rather than omitting the block.
 fn render_recommendations_section(
     out: &mut impl Write,
     recommendations: &ReportRecommendations,
@@ -393,12 +391,11 @@ fn render_recommendations_section(
     writeln!(out)
 }
 
-/// The plain-text renderer's public entry point (002 FR-009): renders every one of the
-/// `Report`'s 5 ordered sections to `out`, except that `sections` (003 FR-008) may
-/// narrow the 4 filterable ones; the node identity header always renders, unaffected
-/// by `sections`. The same content and labels the console renderer shows, with no
-/// color and no decorative tables, so the output stays easy to grep or parse line by
-/// line in scripts.
+/// The plain-text renderer's public entry point: renders every one of the `Report`'s 5
+/// ordered sections to `out`, except that `sections` may narrow the 4 filterable ones;
+/// the node identity header always renders, unaffected by `sections`. The same content
+/// and labels the console renderer shows, with no color and no decorative tables, so
+/// the output stays easy to grep or parse line by line in scripts.
 pub fn render(
     out: &mut impl Write,
     report: &Report,
@@ -453,8 +450,8 @@ mod tests {
         assert!(output.contains("No order history"));
     }
 
-    /// FR-009: plain-text carries the same explanatory content as console (FR-008b),
-    /// just without color or a decorative table -- not a bare machine-oriented path.
+    /// Plain-text carries the same explanatory content as console, just without color
+    /// or a decorative table -- not a bare machine-oriented path.
     #[test]
     fn render_stats_section_preserves_the_same_explanatory_headings_as_console() {
         let stats = crate::report::model::ReportStats {
@@ -529,8 +526,8 @@ mod tests {
         assert!(!output.contains('┌'));
     }
 
-    /// FR-009: no top-level section heading keeps the `=== ... ===` banner style --
-    /// "no color or decoration" is not limited to the table-vs-line-per-metric example.
+    /// No top-level section heading keeps the `=== ... ===` banner style -- "no color
+    /// or decoration" is not limited to the table-vs-line-per-metric example.
     #[test]
     fn no_top_level_section_heading_uses_the_banner_decoration_style() {
         let node = ReportNode {
@@ -541,8 +538,8 @@ mod tests {
         assert!(!output.contains("==="));
     }
 
-    /// FR-009: "each metric rendered as one `label: value` line" means each metric gets
-    /// its own line, even for a repeated record (a relay here) -- not several fields
+    /// "Each metric rendered as one `label: value` line" means each metric gets its
+    /// own line, even for a repeated record (a relay here) -- not several fields
     /// combined onto one line with a separator.
     #[test]
     fn render_fetch_section_puts_each_relay_metric_on_its_own_line() {
@@ -643,8 +640,8 @@ mod tests {
         }
     }
 
-    /// 003 FR-008: the node identity header always renders regardless of `--sections`,
-    /// while a narrowed `SectionFilter` suppresses the excluded sections' output.
+    /// The node identity header always renders regardless of `--sections`, while a
+    /// narrowed `SectionFilter` suppresses the excluded sections' output.
     #[test]
     fn render_honors_a_narrowed_section_filter_while_the_node_header_always_renders() {
         let report = empty_report();
@@ -664,8 +661,6 @@ mod tests {
         assert!(!output.contains("RECOMMENDATIONS"));
     }
 
-    /// 003 FR-008: `SectionFilter::all()` (the omitted-flag default) renders every
-    /// section, matching current behavior.
     #[test]
     fn render_shows_every_section_with_the_default_unfiltered_section_set() {
         let report = empty_report();
