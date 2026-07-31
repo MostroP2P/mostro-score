@@ -2,62 +2,51 @@
 
 ## Longevity
 
-### What it is
+**Definition.** The node's operating age: `first_seen_at`, the timestamp of its
+earliest observed activity, and `days_active`, the elapsed days from that point to
+report-generation time.
 
-How long the node has been operating: `first_seen_at` (a date) and `days_active` (a
-day count).
+**Computation.** The primary anchor is the oldest dev-fee-payment event (kind `8383`).
+Mostro instances emit one per completed trade as part of the protocol's fee split, so
+the anchor is not something an operator can suppress without also forgoing trades. When
+no dev-fee event exists, `days_active` falls back to the oldest qualifying successful
+order, measured to report-generation time — not to the node's most recent order, which
+would freeze the value at the interval between two trades and report `0` for a node
+with exactly one. The fallback path leaves `first_seen_at` unset, since no dev-fee
+event exists to date it.
 
-### Source
-
-The oldest dev-fee-payment event (kind `8383`, `z=dev-fee-payment`, `y=mostro`) — a
-small fee every Mostro instance pays each time it completes a trade. When the node has
-none, longevity falls back to its oldest qualifying successful order instead (see
-[Trade size and consistency](trade-size-consistency.md#what-counts-as-a-qualifying-order)),
-measured to *now*, not to the node's last order — otherwise a node with exactly one
-trade would always read zero days active.
-
-If neither exists, both fields are not applicable: the node has no publicly visible
-history yet, not an error.
-
-### How to read it
-
-A longer `days_active` means more chances for the node's behavior to have been tested,
-but says nothing about how those trades went. Pair it with
-[dispute signals](disputes-bond-policy.md) and
-[cumulative performance](trade-size-consistency.md#cumulative-performance).
+**Usability.** Establishes how much operating history exists to evaluate. It is a
+precondition for interpreting the other metrics, not a quality signal on its own: a
+high `days_active` with zero successful trades describes a node that has existed
+without trading.
 
 ## Liveness
 
-### What it is
+**Definition.** Current activity level: the timestamp of the most recent successful
+trade, elapsed days since it, and successful-trade counts over rolling 7, 30, and
+90-day windows.
 
-Whether the node is *currently* active: last successful trade, days since it, and
-rolling 7/30/90-day successful-trade counts.
+**Computation.** Derived from the `created_at` timestamps of qualifying successful
+orders. The three rolling counts are independent windows, not cumulative buckets — a
+trade three days old is counted in all three.
 
-### Source
-
-The same order events (kind `38383`) used throughout the report, filtered to `success`
-status. Zero successful orders reports every field as not applicable.
-
-### How to read it
-
-Strong longevity with no recent trades may mean the node has gone quiet, been
-abandoned, or is in a slow period — liveness doesn't say which, only that current
-activity is low.
+**Usability.** Distinguishes an actively used node from a historically active one.
+Read alongside longevity: strong `days_active` with zero trades in the 90-day window
+indicates a node that has stopped trading, whatever the reason.
 
 ## Activity consistency
 
-### What it is
+**Definition.** Distribution of trading across time: the count of distinct calendar
+days with at least one successful trade in the last 30, and the longest run of
+consecutive inactive days within that window.
 
-How evenly trading is spread out: active days in the last 30, and the longest gap of
-consecutive inactive days in that same window.
+**Computation.** The window spans exactly 30 UTC calendar days, ending on and
+including the current day. Both bounds are aligned to day indices before comparison
+rather than derived by subtracting 30 × 86400 seconds, which would span 31 distinct day
+indices whenever report-generation time is not exactly midnight UTC. The inactive-run
+calculation includes the gap preceding the first active day and the gap following the
+last, not only the gaps between active days.
 
-### Source
-
-Order timestamps, counted over a fixed window of exactly 30 UTC calendar days ending
-today — aligned to day boundaries, not a rolling 30×86400-second cutoff, which would
-include an extra day whenever "now" isn't exactly at midnight UTC.
-
-### How to read it
-
-Many active days with a short max gap means steady trading. Few active days with a long
-gap means bursty or mostly-quiet trading.
+**Usability.** Separates steady trading from bursty trading at equal trade counts. Two
+nodes with the same 30-day volume differ materially if one traded on 20 days and the
+other on 2.
