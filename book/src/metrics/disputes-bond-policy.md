@@ -2,43 +2,49 @@
 
 ## Dispute signals
 
-### What it is
+**Definition.** Counts of disputes by resolution state — resolved, active, and
+unknown — their total, and the rate of disputes per 100 successful trades.
 
-How many disputes the node has had, how they resolved, and disputes per 100 successful
-trades — a normalized rate for comparing nodes of different sizes.
+**Computation.** Dispute events (kind `38386`) are replaceable and republished on each
+status change, so they are deduplicated by `d` tag to each dispute's most recent state
+using the same tie-break rule as orders. The retained state's `s` tag determines
+classification:
 
-### Source
+| `s` value | Classified as |
+|---|---|
+| `settled`, `seller-refunded`, `released` | Resolved |
+| `initiated`, `in-progress` | Active |
+| Any other value, or absent | Unknown |
 
-Dispute events (kind `38386`), deduplicated by `d` tag to each dispute's latest state.
-The final `s` tag classifies it: `resolved` (`settled`/`seller-refunded`/`released`),
-`active` (`initiated`/`in-progress`), or `unknown` (anything else, or missing) — still
-counted once toward the total, since a real dispute event exists regardless of status.
+A dispute with an unrecognized status is classified `unknown` rather than discarded:
+the event establishes that a dispute occurred, independently of whether its outcome can
+be determined. The three classes therefore always sum to the total.
 
-### Not-applicable rule
+The rate normalizes the total against `stats.cumulative.total_successful_trades`. It is
+not applicable only when that denominator is zero. A node with successful trades and no
+disputes reports `0.0`, which is a computed result, not an absence.
 
-`disputes_per_100_trades` is not applicable only when successful trades are zero —
-there's no denominator. Zero disputes with trades present is a real `0.0`, not
-not-applicable.
-
-### How to read it
-
-Compare the rate, not the raw count, across nodes. `unknown`-status disputes are worth
-a second look — something happened that the node's own data doesn't fully explain.
+**Usability.** The rate is the comparable figure across nodes; the raw total is not,
+since it scales with volume. A non-zero `unknown_status_disputes` warrants separate
+attention: it indicates dispute activity the node's own published data does not fully
+resolve.
 
 ## Bond policy
 
-### What it is
+**Definition.** Whether the node requires a trader-posted bond before entering a trade,
+as a three-valued status: `enabled`, `disabled`, or `unknown`.
 
-Whether the node requires traders to lock a bond before a trade: `enabled`,
-`disabled`, or `unknown`.
+**Computation.** Read from the `bond_enabled` tag on the node's current instance-status
+event (kind `38385`), selected as the highest `created_at` among events whose `d` tag
+equals the node's own pubkey. The tag maps `true` to `enabled` and `false` to
+`disabled`; a missing instance-status event, a missing tag, or any unparseable value
+maps to `unknown`.
 
-### Source
+`unknown` is never collapsed into `disabled`. The two describe different epistemic
+states — one confirms no bond is required, the other confirms nothing — and merging
+them would present an absence of data as a positive finding.
 
-The node's most recent instance-status event (kind `38385`), reading its
-`bond_enabled` tag. `true`/`false` map directly; a missing event or an unparseable
-value maps to `unknown` — never collapsed into `disabled`.
-
-### How to read it
-
-Descriptive, not a verdict: the report never implies which status is safer. Weigh it
-alongside dispute history and trade record, not as a pass/fail check.
+**Usability.** Descriptive only. The report does not rank the three statuses, because a
+bond requirement raises the cost of trading and the cost of bad-faith behavior
+simultaneously, and which tradeoff is preferable depends on context outside this tool's
+inputs. Treat it as an input to a decision, not a verdict.

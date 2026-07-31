@@ -1,57 +1,72 @@
 # Activity grid
 
-### What it is
+**Definition.** A time-bucketed view of trading activity: one row per interval, each
+reporting the successful-trade count, sats volume, and median trade size within that
+interval.
 
-A time-bucketed table of successful trades, volume, and median trade size per bucket —
-where [cumulative performance](trade-size-consistency.md#cumulative-performance) shows
-totals, this shows *when* that activity happened.
+**Computation.** Built from the
+[qualifying successful orders](trade-size-consistency.md#qualifying-orders), assigned to
+buckets by `created_at`. Buckets are contiguous and gap-free across the full range — an
+interval with no trades is emitted with zero counts and a null median, not omitted, so
+row position corresponds to elapsed time.
 
-### Source
+Where cumulative performance reports totals, the grid reports their distribution over
+time.
 
-The same qualifying successful orders used throughout the report (see
-[Trade size and consistency](trade-size-consistency.md#what-counts-as-a-qualifying-order)),
-bucketed by timestamp.
+## Range resolution
 
-## Range
+**Definition.** The interval the grid spans, reported as `activity.range_start` and
+`activity.range_end`.
 
-`--since`/`--until` set an explicit window; without them, the range is inferred from
-the node's own earliest/latest qualifying order.
+**Computation.** With neither `--since` nor `--until`, the range is inferred from the
+earliest and latest qualifying order. An explicit bound overrides inference and is
+authoritative even when it contains no orders: the grid then emits every bucket across
+the requested range with zero counts.
 
-An explicit range always wins, even with zero orders inside it: the grid still renders
-every bucket across that range showing zero trades, rather than the empty/null result
-reserved for a node with no successful orders at all.
+That case is distinct from the null result reserved for a node with no qualifying
+orders and no explicit range. An empty populated grid asserts that no activity occurred
+in a specific interval; a null grid asserts that no interval could be determined. The
+two are not interchangeable.
 
-## Granularity and its threshold
+## Granularity
 
-`--view` forces `daily`, `monthly`, or `yearly`. Without it:
+**Definition.** The bucket width: `daily`, `monthly`, or `yearly`.
 
-| Range | Granularity |
+**Computation.** `--view` sets it explicitly. Otherwise it is selected from the range
+span:
+
+| Range span | Granularity |
 |---|---|
-| ≤ 90 days | daily |
-| ≤ 730 days (~2 years) | monthly |
-| beyond that | yearly |
+| ≤ 90 days | `daily` |
+| ≤ 730 days | `monthly` |
+| > 730 days | `yearly` |
 
-**Source of the boundaries:** practical, not statistical — reasoned from usable
-terminal-table row count (a daily grid over 2 years would produce 700+ rows), not
-measured or derived from a formula.
+Once granularity is known, both range bounds are snapped outward to the enclosing
+bucket boundary — a monthly grid reports the first and last instant of the enclosing
+calendar months, not the raw order timestamps. When snapping widens the range, the
+widened interval is also what gets counted, so the grid never claims to cover a period
+it excludes orders from.
 
-If `--view` forces daily granularity over a range wider than 90 days anyway,
-`mostro-score` prints a stderr warning naming the resulting row count, using the same
-90-day boundary so the warning and the automatic rule never disagree.
+**Threshold derivation.** The two boundaries are reasoned from output legibility, not
+measured: a daily grid over a two-year span yields more than 700 rows, which exceeds
+what a terminal table can usefully present. They are selected to keep row count bounded
+at each tier, and are not derived from a statistical property of the data.
 
-A defaulted range still snaps to the chosen granularity's boundaries — e.g. a forced
-monthly view snaps to the first/last day of the calendar month, not a raw timestamp.
+Because `--view` can force `daily` over a span the automatic rule would never select,
+a warning naming the resulting row count is written to stderr whenever that occurs. The
+warning reuses the same 90-day boundary, so it cannot disagree with the selection rule.
+
+**Usability.** Distinguishes sustained activity from a single burst at equal totals,
+and locates when a node's activity started, peaked, or stopped.
 
 ## Progress indicator threshold
 
-### What it is
+**Definition.** A status line written to stderr when a relay fetch exceeds 3 seconds,
+distinguishing a slow fetch from a stalled process. Suppressed by `--quiet`.
 
-A "still fetching" message printed to stderr when a relay fetch runs past **3
-seconds**, so a slow fetch doesn't look like a stall. Suppressed by `--quiet`.
+**Threshold derivation.** Measured, not reasoned: three connect-and-fetch round trips
+against `wss://relay.mostro.network` completed in 2.06 s, 1.96 s, and 1.69 s. Nominal
+single-relay operation centers near 2 seconds, so 3 seconds sits above normal variance
+while still surfacing a genuinely degraded fetch.
 
-### Source
-
-Direct measurement, not reasoning: 3 real connect-and-fetch round trips against
-`wss://relay.mostro.network` took 2.06s/1.96s/1.69s. Normal operation sits around 2s,
-so 3s sits comfortably above that variance while still catching a genuinely slow
-fetch.
+This threshold governs process feedback only and does not affect any reported metric.

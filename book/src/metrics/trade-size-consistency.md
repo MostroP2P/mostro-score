@@ -1,51 +1,52 @@
 # Trade size and consistency
 
-## What counts as a qualifying order
+## Qualifying orders
 
-Order events (kind `38383`, `z=order`, `y=mostro`) republish on every status change.
-`mostro-score` deduplicates by the order's `d` tag, keeps only the most recent
-published state, and counts an order as qualifying only if that final state's `s` tag
-reads `success`. A canceled order never contributes to these metrics.
+Every metric on this page is computed over the same input set, defined once here.
+
+Order events (kind `38383`) are republished on each status transition, so a single
+order appears multiple times on a relay. Orders are deduplicated by their `d` tag,
+retaining only the most recent published state per order; ties on `created_at` are
+broken by the greatest event id, making the selection deterministic regardless of the
+order in which relays return events. An order qualifies only if that retained state
+carries `s=success`. Canceled, pending, and expired orders contribute to no metric on
+this page.
 
 ## Cumulative performance
 
-### What it is
+**Definition.** Lifetime totals: the count of qualifying successful orders, and the sum
+of their sats amounts.
 
-Total successful trades and total sats volume, over the node's full history.
+**Computation.** A direct sum over the qualifying set, with no time window. Amounts are
+accumulated with saturating addition, so a crafted extreme `amt` on an untrusted relay
+event cannot overflow or wrap the total.
 
-### Source
-
-Every qualifying successful order, summed.
-
-### How to read it
-
-A floor, not the full picture: a node could have moved volume years ago and gone
-dormant since. Pair it with [liveness](longevity-liveness.md#liveness).
+**Usability.** Establishes scale. It is a lower bound on realized activity and carries
+no recency information — pair it with liveness to determine whether the volume is
+current or historical.
 
 ## Trade size
 
-### What it is
+**Definition.** The distribution of individual trade amounts: minimum, maximum, mean,
+median, population standard deviation, and coefficient of variation.
 
-The shape of individual trades: min, max, mean, median, standard deviation (sats), and
-the coefficient of variation (std dev ÷ median) — a single, scale-independent number
-for how spread out trade sizes are.
+**Computation.** Read from the `amt` tag, parsed as an unsigned integer of sats. A
+qualifying order whose `amt` is absent or unparseable is excluded from this
+distribution only; it still counts toward cumulative performance and liveness, since
+the trade demonstrably occurred.
 
-### Source
+The standard deviation is population, not sample — divided by N rather than N−1 —
+because the qualifying set is the node's complete published record, not a sample drawn
+from a larger one. The coefficient of variation is the standard deviation divided by
+the median, yielding a dimensionless ratio comparable across nodes of different trade
+sizes.
 
-The `amt` tag on each qualifying successful order. An order with no parseable `amt`
-still counts toward cumulative performance and liveness, just not toward this
-calculation.
+Over an even-sized set the median is the mean of the two central values and is reported
+at full precision, including fractional sats. Truncating it to an integer would both
+misstate the median and distort the coefficient of variation computed from it.
 
-### Not-applicable rules
-
-- Every field: not applicable with zero qualifying orders carrying a parseable `amt`.
-- Coefficient of variation, additionally: not applicable with fewer than 2 orders, or
-  when the median is exactly `0` (dividing by a zero median is undefined).
-- The median over an even-sized set is a genuine fraction (e.g. `0.5`), never truncated
-  to an integer.
-
-### How to read it
-
-A low coefficient of variation means consistent trade sizes. A high one isn't
-necessarily bad — it may just mean the node serves both small and large trades — but
-it's worth knowing before trading far outside the node's typical size.
+**Usability.** The coefficient of variation is the operative figure: it answers whether
+a node's trades cluster around a typical size or span a wide range. A low value
+indicates predictable sizing. A high value is not itself adverse — it may reflect a node
+serving both retail and large trades — but it reduces the predictive value of the
+median, which is relevant when sizing a trade well outside the node's typical range.

@@ -1,59 +1,65 @@
 # Fiat, payment method, and premium
 
-These three describe what kind of trading a node does, not whether it's trustworthy.
-All three read tags on the same qualifying successful orders described in
-[Trade size and consistency](trade-size-consistency.md#what-counts-as-a-qualifying-order),
-and all compare values byte-for-byte: no trimming, no case folding. `"USD"`/`"usd"` and
-`"Cash"`/`" Cash"` are distinct values, since the protocol itself doesn't normalize them.
+These three signals characterize the kind of trading a node does rather than its
+reliability. All are computed over the
+[qualifying successful orders](trade-size-consistency.md#qualifying-orders) defined in
+the previous page.
+
+## String comparison rule
+
+All three compare tag values byte-for-byte: no whitespace trimming, no case folding, no
+Unicode normalization. `USD` and `usd` are distinct currencies here, as are `Cash` and
+` Cash`.
+
+This is deliberate. The Mostro protocol does not normalize these values before
+publishing them, so merging variants would conceal a formatting inconsistency in a
+node's own software rather than report it. The breakdowns describe what the node
+actually published.
 
 ## Fiat currency breakdown
 
-### What it is
+**Definition.** The distribution of settlement currencies across qualifying orders, as
+an order count and percentage share per currency.
 
-Which fiat currencies the node's trades settle in, ranked by share of orders,
-descending (ties broken alphabetically).
+**Computation.** Tallied from the `f` tag, one value per order. Orders with an empty
+`f` value are excluded from both numerator and denominator rather than grouped under an
+empty-string bucket. Results are ranked by descending share, with ties broken by
+currency name ascending, so the ordering is deterministic despite the underlying tally
+being unordered.
 
-### Source
-
-The `f` tag on each qualifying successful order. Not applicable when no order carries
-a non-empty value.
-
-### How to read it
-
-Tells you what to expect before trading — a EUR-heavy node isn't a bad fit for USD
-trading, but it's useful context up front.
+**Usability.** Establishes which currencies the node actually settles in, and in what
+proportion, before committing to a trade denominated in one of them.
 
 ## Payment method breakdown
 
-### What it is
+**Definition.** The distribution of payment methods across qualifying orders, as a
+mention count and percentage share per method.
 
-Ranked distribution of payment methods used, by mention count, not order count.
+**Computation.** Tallied from the `pm` tag. Unlike every other tag in this report, `pm`
+is multi-valued: a single order may list several accepted methods, and each is counted
+as an independent mention. The denominator is therefore total mentions, not total
+orders, and a node whose orders each list three methods reports three times as many
+mentions as orders. Empty values are filtered defensively, as relay data is untrusted.
+Ranking follows the same rule as the fiat breakdown.
 
-### Source
-
-The `pm` tag, a multi-value Nostr tag: one order can mention several methods, and each
-mention counts individually. An order listing 3 methods contributes 3 mentions, not 1.
-Not applicable when there are no mentions at all.
-
-### How to read it
-
-Use it to check whether the node typically supports your preferred payment method.
+**Usability.** Establishes whether the node supports an intended payment method, and
+how central that method is to its trading.
 
 ## Premium signal
 
-### What it is
+**Definition.** The node's pricing relative to market rate:
+`premium_baseline_percent`, the median premium applied, and
+`premium_dispersion_percent`, the population standard deviation around it.
 
-`premium_baseline_percent` (median) and `premium_dispersion_percent` (population
-standard deviation) of the node's pricing premium/discount versus market rate.
+**Computation.** Read from the `premium` tag, parsed as a signed integer percentage
+where negative denotes a discount and positive a markup. Orders with a missing or
+unparseable value are excluded rather than treated as zero, which would bias the
+baseline toward the mean. Both figures require at least two valid values; dispersion is
+undefined for a single point, and a single-point median would misrepresent a baseline.
 
-### Source
+The standard deviation is population, consistent with
+[trade size](trade-size-consistency.md#trade-size).
 
-The `premium` tag, a signed integer percentage (negative = discount, positive =
-markup). Both fields need at least 2 qualifying orders with a valid `premium` value;
-otherwise not applicable.
-
-### How to read it
-
-The baseline is the premium to expect on a typical trade. The dispersion tells you how
-reliable that expectation is — high dispersion means premiums swing widely between
-orders.
+**Usability.** The baseline is the premium to expect on a typical order. The dispersion
+qualifies that expectation: high dispersion means quoted premiums vary substantially
+between orders, so the baseline is a weak predictor of any individual quote.
