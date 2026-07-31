@@ -116,8 +116,6 @@ Full reference, including every flag's precedence and every metric's methodology
 
 - **[The book](book/src/SUMMARY.md)** — installation, the full flags reference, the
   configuration file, output formats, and every report metric.
-- [Reputation system specification](specs/reputation_system_v1.md) — the original
-  design proposal and formulas.
 - [Mostro protocol documentation](https://mostro.network/protocol/other_events.html) —
   the Nostr event kinds this tool reads.
 
