@@ -1,50 +1,57 @@
 # Mostro Score
 
-A CLI tool to analyze and calculate reputation statistics for Mostro P2P nodes by analyzing public Nostr events.
+A CLI tool that computes reputation statistics for a [Mostro](https://mostro.network)
+node by reading the public Nostr events it has published.
 
 ## Overview
 
-Mostro Stats provides transparency and trust metrics for Mostro nodes operating on the Nostr network. By analyzing historical trading data published as Nostr events, this tool calculates objective reputation scores based on trading volume, operational longevity, and successful order completion rates.
+Mostro nodes publish public, verifiable Nostr events for every order, dispute,
+instance-status update, and dev-fee payment they process. `mostro-score` fetches those
+events from one or more relays, scopes them to a single node's pubkey, and turns them
+into a report: how long the node has been active, how much volume it has moved, how
+consistently it trades, how its disputes resolve, and whether it enforces a bond
+policy.
+
+There is no single trust score. Each metric is reported on its own, with enough
+context to interpret it, so a trader forms their own judgment instead of trusting one
+number.
 
 ## Features
 
-- **Trust Score Calculation**: Generates a 0-100 trust score based on multiple factors
-- **Volume Analysis**: Tracks total trading volume in sats and BTC
-- **Longevity Metrics**: Calculates how long a Mostro node has been operational
-- **Order Statistics**: Counts successful trades and calculates average order sizes
-- **Event Deduplication**: Properly handles order state updates to count unique orders
-- **Flexible Relay Support**: Connect to any Nostr relay or multiple relays
-- **Debug Mode**: Detailed event analysis and status distribution tracking
+- **Reputation report**: node identity, relay fetch summary, a time-bucketed activity
+  grid, general statistics, and plain-language recommendations.
+- **Multiple output formats**: colored console tables, plain text for scripting, or a
+  stable JSON schema for machine consumption.
+- **Time-scoped reports**: `--since`/`--until`/`--view` to narrow the activity grid to
+  a date range and granularity.
+- **Saved configuration**: `--init-config` scaffolds a config file so preferred flags
+  don't need to be repeated on every run.
+- **Event deduplication**: replaceable events (orders, disputes, instance status) are
+  deduplicated to their latest published state before anything is computed.
 
-## How It Works
+## How it works
 
-The tool analyzes two types of Nostr events:
+`mostro-score` fetches four kinds of Nostr events, each scoped to the queried node
+(pubkey as author, expected `z` tag, `y=mostro`):
 
-1. **Development Fee Payment Events** (kind 8383, z=dev-fee-payment, y=mostro):
-   - Used to determine when the node started active trading
-   - The oldest dev fee event marks the instance's first trading activity
-2. **Order Events** (kind 38383, z=order):
-   - Tracks successful trades, volumes, and timestamps
-   - Only events with s=success status contribute to reputation metrics
+- **Dev-fee payments** (kind `8383`) — anchor the node's longevity.
+- **Orders** (kind `38383`) — back trade size, liveness, activity consistency, and the
+  fiat/payment-method/premium breakdowns. Only orders whose final, deduplicated status
+  is `success` count toward these metrics.
+- **Disputes** (kind `38386`) — back the dispute signals.
+- **Instance status** (kind `38385`) — backs the bond-policy signal.
 
-### Trust Score Components
-
-The trust score (0-100) is calculated from three weighted factors:
-
-- **Age** (30 points max): Days active / 365 days
-- **Volume** (40 points max): Total BTC volume / 1 BTC
-- **Success Count** (30 points max): Successful orders / 100 orders
-
-This scoring mechanism incentivizes long-term honest operation over short-term scams.
+See [the book](book/src/metrics/README.md) for what each metric measures, how to
+interpret it, and its exact source event/tag.
 
 ## Installation
 
 ### Prerequisites
 
-- Rust 1.70+ and Cargo
-- Internet connection to access Nostr relays
+- Rust 1.94.0 or later (pinned via `rust-toolchain.toml`)
+- Network access to a Nostr relay
 
-### Build from Source
+### Build from source
 
 ```bash
 git clone https://github.com/MostroP2P/mostro-score.git
@@ -52,9 +59,9 @@ cd mostro-score
 cargo build --release
 ```
 
-The binary will be available at `target/release/mostro-score`
+The binary will be available at `target/release/mostro-score`.
 
-### Install Globally
+### Install globally
 
 ```bash
 cargo install --path .
@@ -62,144 +69,88 @@ cargo install --path .
 
 ## Usage
 
-### Basic Usage
-
-Analyze a Mostro node by providing its public key (npub or hex format):
+### Basic usage
 
 ```bash
-mostro-score --pubkey <MOSTRO_PUBKEY>
+mostro-score --pubkey npub1...
 ```
 
-### Custom Relays
+`--pubkey` can also come from the `MOSTRO_SCORE_PUBKEY` environment variable or a saved
+configuration file.
 
-Connect to specific relays (comma-separated):
+### Custom relays
 
 ```bash
-mostro-score --pubkey <MOSTRO_PUBKEY> --relays wss://relay.mostro.network,wss://relay.damus.io
+mostro-score --pubkey npub1... --relays wss://relay.mostro.network,wss://relay.damus.io
 ```
 
-### Command Line Options
-
-```
-Options:
-  -p, --pubkey <PUBKEY>    Mostro Pubkey (npub or hex) to analyze [required]
-  -r, --relays <RELAYS>    Relays to connect to (comma separated)
-                           [default: wss://relay.mostro.network]
-  -h, --help              Print help information
-  -V, --version           Print version information
-```
-
-### Example
+### Save preferred defaults
 
 ```bash
-# Using npub format
-mostro-score --pubkey npub1abc...xyz
-
-# Using hex format
-mostro-score --pubkey a1b2c3d4e5f6...
-
-# With multiple relays
-mostro-score -p npub1abc...xyz -r wss://relay.mostro.network,wss://relay.damus.io
+mostro-score --init-config
 ```
 
-## Example Output
+Scaffolds a starter `config.toml` (relays active, everything else as commented-out
+examples) so `--pubkey`, `--format`, `--view`, `--color`, and `--sections` don't need
+repeating on every run.
 
-```
-Analyzing Mostro Node: npub1...
-Hex: a1b2c3...
-Connected to relays. Fetching history... (this might take a moment)
-Fetched 1247 events. Analyzing...
+### Flags
 
-========================================
-       MOSTRO NODE REPUTATION REPORT
-========================================
-Node: npub1abc...xyz
-----------------------------------------
-First Seen:       2024-01-15 10:30:00 UTC
-Last Seen:        2026-01-12 14:45:00 UTC
-Days Active:      728.2 days
-----------------------------------------
-Successful Orders: 156
-Total Volume:      15,420,000 sats (0.1542 BTC)
-Avg Order Size:    98,846 sats
-----------------------------------------
-TRUST SCORE:       42/100
-========================================
-```
+Run `mostro-score --help` for the full, current list. The most commonly used:
 
-## Configuration
+| Flag | Purpose |
+|---|---|
+| `-p, --pubkey <PUBKEY>` | Node to analyze (npub or hex) |
+| `-r, --relays <RELAYS>` | Relays to query, comma separated |
+| `--format <console\|plain\|json>` | Output format |
+| `--since <DATE>` / `--until <DATE>` | Scope the activity grid (`YYYY-MM-DD` or `30d`/`6mo`/`1y`) |
+| `--view <daily\|monthly\|yearly>` | Force the activity grid's granularity |
+| `--sections <LIST>` | Only render these report sections |
+| `-o, --output <FILE>` | Write the report to a file |
+| `--init-config` | Scaffold a configuration file |
 
-### Environment Variables
-
-Set `RUST_LOG` for detailed logging:
-
-```bash
-export RUST_LOG=debug
-mostro-score --pubkey <PUBKEY>
-```
-
-### .env File Support
-
-Create a `.env` file in the project root:
-
-```env
-RUST_LOG=info
-DEFAULT_RELAY=wss://relay.mostro.network
-```
+Full reference, including every flag's precedence and every metric's methodology: see
+[book/](book/src/SUMMARY.md).
 
 ## Documentation
 
-- [Reputation System Specification](specs/reputation_system_v1.md) - Detailed explanation of the reputation system design and formulas
-- [Protocol Documentation](https://mostro.network/protocol/other_events.html) - Mostro event structures and protocol details
-  - [Development Fee Events](https://mostro.network/protocol/other_events.html#development-fee) - Kind 8383 event structure used for calculating instance age
-
-## Roadmap
-
-### Current (v0.1.0)
-- Basic reputation scoring from order events
-- Volume and success rate tracking
-- Simple trust score calculation
-
-### Planned Features
-- Dispute tracking and penalties
-- User rating system integration
-- JSON output format for API integration
-- Real-time monitoring mode
-- Historical trend analysis
-- Scam detection heuristics
-
-## How This Prevents Scams
-
-The reputation system makes exit scams economically unfeasible:
-
-1. **Time Investment**: Building a high trust score requires months of legitimate operation
-2. **Volume Requirements**: To attract large orders, nodes must first complete many smaller trades
-3. **Sunk Cost**: The reputation becomes a valuable asset that takes effort to build
-4. **Economic Incentive**: Long-term fee earnings from legitimate operation exceed one-time scam profits
-
-For detailed economic analysis, see [specs/reputation_system_v1.md](specs/reputation_system_v1.md).
+- **[The book](book/src/SUMMARY.md)** — installation, the full flags reference, the
+  configuration file, output formats, and every report metric.
+- [Reputation system specification](specs/reputation_system_v1.md) — the original
+  design proposal and formulas.
+- [Mostro protocol documentation](https://mostro.network/protocol/other_events.html) —
+  the Nostr event kinds this tool reads.
 
 ## Contributing
 
-This project follows a spec-driven development workflow using [spec-kit](https://github.com/github/spec-kit). Project principles and constraints are ratified in [`.specify/memory/constitution.md`](.specify/memory/constitution.md), which requires every feature to go through this gated sequence, with a review gate before moving to the next step:
+This project follows a spec-driven development workflow using
+[spec-kit](https://github.com/github/spec-kit). Project principles and constraints are
+ratified in [`.specify/memory/constitution.md`](.specify/memory/constitution.md), which
+requires every feature to go through this gated sequence, with a review gate before
+moving to the next step:
 
 `constitution → specify → clarify → plan → checklist → tasks → analyze → implement → converge`
 
 Contributions are welcome! Please:
 
-1. Fork the repository
-2. Read the project constitution before proposing a change
-3. Create a feature branch and run the sequence above via spec-kit's `/speckit-*` commands, in order, rather than editing code directly
-4. Submit a pull request once `/speckit-converge` reports a clean result with no new tasks appended (if it appended tasks, repeat `/speckit-implement` -> review -> `/speckit-converge` until it does); skipping a step requires a documented justification in the feature's spec directory, per the constitution
+1. Fork the repository.
+2. Read the project constitution before proposing a change.
+3. Create a feature branch and run the sequence above via spec-kit's `/speckit-*`
+   commands, in order, rather than editing code directly.
+4. Submit a pull request once `/speckit-converge` reports a clean result with no new
+   tasks appended (if it appended tasks, repeat `/speckit-implement` -> review ->
+   `/speckit-converge` until it does); skipping a step requires a documented
+   justification in the feature's spec directory, per the constitution.
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for
+details.
 
-## Related Projects
+## Related projects
 
-- [Mostro](https://github.com/MostroP2P/mostro) - The Mostro daemon implementation
-- [Nostr SDK](https://github.com/rust-nostr/nostr) - Rust Nostr SDK
+- [Mostro](https://github.com/MostroP2P/mostro) — the Mostro daemon implementation.
+- [Nostr SDK](https://github.com/rust-nostr/nostr) — the Rust Nostr SDK.
 
 ## Support
 
@@ -207,4 +158,7 @@ For issues, questions, or contributions, please open an issue on GitHub.
 
 ## Disclaimer
 
-This tool provides statistical analysis based on public Nostr events. Trust scores are indicators and should not be the sole factor in deciding whether to trade with a Mostro node. Always practice safe trading habits and start with small amounts when using new services.
+This tool provides statistical analysis based on public Nostr events. Its metrics are
+indicators, not a guarantee, and should not be the sole factor in deciding whether to
+trade with a Mostro node. Always practice safe trading habits and start with small
+amounts when using a node for the first time.
