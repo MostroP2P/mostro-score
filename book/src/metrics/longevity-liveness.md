@@ -15,6 +15,9 @@ would freeze the value at the interval between two trades and report `0` for a n
 with exactly one. The fallback path leaves `first_seen_at` unset, since no dev-fee
 event exists to date it.
 
+**Not applicable.** Both fields, when the node has neither a dev-fee event nor a
+qualifying successful order. `first_seen_at` alone, whenever the fallback path applies.
+
 **Usability.** Establishes how much operating history exists to evaluate. It is a
 precondition for interpreting the other metrics, not a quality signal on its own: a
 high `days_active` with zero successful trades describes a node that has existed
@@ -29,6 +32,9 @@ trade, elapsed days since it, and successful-trade counts over rolling 7, 30, an
 **Computation.** Derived from the `created_at` timestamps of qualifying successful
 orders. The three rolling counts are independent windows, not cumulative buckets — a
 trade three days old is counted in all three.
+
+**Not applicable.** The last-trade timestamp and elapsed days, when no successful order
+exists. The three rolling counts are always computed; zero is a result, not an absence.
 
 **Usability.** Distinguishes an actively used node from a historically active one.
 Read alongside longevity: strong `days_active` with zero trades in the 90-day window
@@ -46,6 +52,9 @@ rather than derived by subtracting 30 × 86400 seconds, which would span 31 dist
 indices whenever report-generation time is not exactly midnight UTC. The inactive-run
 calculation includes the gap preceding the first active day and the gap following the
 last, not only the gaps between active days.
+
+**Not applicable.** Never. A node with no trades in the window reports zero active days
+and a 30-day inactive run, both computed results.
 
 **Usability.** Separates steady trading from bursty trading at equal trade counts. Two
 nodes with the same 30-day volume differ materially if one traded on 20 days and the

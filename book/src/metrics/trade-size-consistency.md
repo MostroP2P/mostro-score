@@ -21,6 +21,9 @@ of their sats amounts.
 accumulated with saturating addition, so a crafted extreme `amt` on an untrusted relay
 event cannot overflow or wrap the total.
 
+**Not applicable.** Never. A node with no qualifying orders reports zero for both,
+which is a computed result.
+
 **Usability.** Establishes scale. It is a lower bound on realized activity and carries
 no recency information — pair it with liveness to determine whether the volume is
 current or historical.
@@ -44,6 +47,11 @@ sizes.
 Over an even-sized set the median is the mean of the two central values and is reported
 at full precision, including fractional sats. Truncating it to an integer would both
 misstate the median and distort the coefficient of variation computed from it.
+
+**Not applicable.** All six figures, when no qualifying order carries a parseable
+`amt`. The coefficient of variation additionally, when fewer than two such orders exist
+or the median is exactly `0`, since a zero denominator leaves the ratio undefined
+regardless of sample size.
 
 **Usability.** The coefficient of variation is the operative figure: it answers whether
 a node's trades cluster around a typical size or span a wide range. A low value

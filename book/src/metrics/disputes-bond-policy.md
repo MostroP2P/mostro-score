@@ -24,6 +24,9 @@ The rate normalizes the total against `stats.cumulative.total_successful_trades`
 not applicable only when that denominator is zero. A node with successful trades and no
 disputes reports `0.0`, which is a computed result, not an absence.
 
+**Not applicable.** The rate alone, when the node has zero successful trades. The four
+counts are always computed.
+
 **Usability.** The rate is the comparable figure across nodes; the raw total is not,
 since it scales with volume. A non-zero `unknown_status_disputes` warrants separate
 attention: it indicates dispute activity the node's own published data does not fully
@@ -43,6 +46,9 @@ maps to `unknown`.
 `unknown` is never collapsed into `disabled`. The two describe different epistemic
 states — one confirms no bond is required, the other confirms nothing — and merging
 them would present an absence of data as a positive finding.
+
+**Not applicable.** Never. Absence of data is reported as `unknown`, which is itself
+one of the three values.
 
 **Usability.** Descriptive only. The report does not rank the three statuses, because a
 bond requirement raises the cost of trading and the cost of bad-faith behavior
