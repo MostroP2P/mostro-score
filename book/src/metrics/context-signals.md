@@ -27,6 +27,9 @@ empty-string bucket. Results are ranked by descending share, with ties broken by
 currency name ascending, so the ordering is deterministic despite the underlying tally
 being unordered.
 
+**Not applicable.** The distribution, when no qualifying order carries a non-empty `f`
+value. The considered-order count is always computed.
+
 **Usability.** Establishes which currencies the node actually settles in, and in what
 proportion, before committing to a trade denominated in one of them.
 
@@ -41,6 +44,9 @@ as an independent mention. The denominator is therefore total mentions, not tota
 orders, and a node whose orders each list three methods reports three times as many
 mentions as orders. Empty values are filtered defensively, as relay data is untrusted.
 Ranking follows the same rule as the fiat breakdown.
+
+**Not applicable.** The distribution, when no `pm` mentions exist across the qualifying
+orders. The mention count is always computed.
 
 **Usability.** Establishes whether the node supports an intended payment method, and
 how central that method is to its trading.
@@ -59,6 +65,9 @@ undefined for a single point, and a single-point median would misrepresent a bas
 
 The standard deviation is population, consistent with
 [trade size](trade-size-consistency.md#trade-size).
+
+**Not applicable.** Both figures, when fewer than two qualifying orders carry a valid
+`premium` value.
 
 **Usability.** The baseline is the premium to expect on a typical order. The dispersion
 qualifies that expectation: high dispersion means quoted premiums vary substantially
